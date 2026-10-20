@@ -64,6 +64,9 @@ class PedigreeLoadingStage(Stage):
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Load pedigree data if provided."""
         ped_file = context.config.get("ped_file") or context.config.get("ped")
+        sample_sheet = context.config.get("sample_sheet") or getattr(
+            context.args, "sample_sheet", None
+        )
 
         if ped_file:
             logger.info(f"Loading pedigree from {ped_file}")
@@ -80,6 +83,12 @@ class PedigreeLoadingStage(Stage):
                 logger.info(f"Loaded pedigree with {n_samples} samples ({n_affected} affected)")
             except Exception as e:
                 raise ValueError(f"Failed to load pedigree file: {e}") from e
+        elif sample_sheet:
+            from ..sample_sheet import load_sample_sheet
+
+            logger.info(f"Loading pedigree from sample sheet {sample_sheet}")
+            sheet_data = load_sample_sheet(str(sample_sheet))
+            context.pedigree_data = sheet_data.pedigree_data
         else:
             logger.debug("No pedigree file specified")
 
@@ -92,6 +101,9 @@ class PedigreeLoadingStage(Stage):
         that would have been loaded during normal execution.
         """
         ped_file = context.config.get("ped_file") or context.config.get("ped")
+        sample_sheet = context.config.get("sample_sheet") or getattr(
+            context.args, "sample_sheet", None
+        )
 
         if ped_file:
             logger.debug(f"Restoring pedigree from {ped_file} (checkpoint skip)")
@@ -111,6 +123,11 @@ class PedigreeLoadingStage(Stage):
                 )
             except Exception as e:
                 raise ValueError(f"Failed to restore pedigree file: {e}") from e
+        elif sample_sheet:
+            from ..sample_sheet import load_sample_sheet
+
+            sheet_data = load_sample_sheet(str(sample_sheet))
+            context.pedigree_data = sheet_data.pedigree_data
         else:
             logger.debug("No pedigree file specified during checkpoint skip")
 
@@ -146,43 +163,56 @@ class SampleConfigLoadingStage(Stage):
         # Needs config to know VCF file path
         return {"configuration_loading"}
 
+    @property
+    def soft_dependencies(self) -> set[str]:
+        """Run after pedigree, phenotype, and scoring config loading when present."""
+        return {"pedigree_loading", "phenotype_loading", "scoring_config_loading"}
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Load VCF samples and any sample-specific configurations."""
         vcf_file = context.config.get("vcf_file")
+        from_tsv = context.config.get("from_tsv") or getattr(context.args, "from_tsv", None)
 
-        if not vcf_file:
-            raise ValueError("No VCF file specified in configuration")
+        if from_tsv and not vcf_file:
+            from ..from_tsv import prepare_from_tsv_context
 
-        # Get VCF samples
-        logger.info(f"Reading sample names from {vcf_file}")
-        vcf_samples = get_vcf_samples(vcf_file)
+            prepare_from_tsv_context(context)
+            vcf_samples = list(context.vcf_samples or [])
+            logger.info(f"Loaded {len(vcf_samples)} sample(s) from TSV {from_tsv}")
+        else:
+            if not vcf_file:
+                raise ValueError("No VCF file specified in configuration")
 
-        # Apply sample substring removal if configured
-        remove_substring = context.config.get("remove_sample_substring")
-        if remove_substring and remove_substring.strip():
-            logger.info(f"Removing substring '{remove_substring}' from sample names")
-            original_samples = vcf_samples[:]  # Create a copy for logging
-            vcf_samples = [s.replace(remove_substring, "") for s in vcf_samples]
+            # Get VCF samples
+            logger.info(f"Reading sample names from {vcf_file}")
+            vcf_samples = get_vcf_samples(vcf_file)
 
-            # Log changes for debugging
-            changes = []
-            for orig, new in zip(original_samples, vcf_samples, strict=False):
-                if orig != new:
-                    changes.append(f"{orig} -> {new}")
+            # Apply sample substring removal if configured
+            remove_substring = context.config.get("remove_sample_substring")
+            if remove_substring and remove_substring.strip():
+                logger.info(f"Removing substring '{remove_substring}' from sample names")
+                original_samples = vcf_samples[:]  # Create a copy for logging
+                vcf_samples = [s.replace(remove_substring, "") for s in vcf_samples]
 
-            if changes:
-                logger.info(f"Applied substring removal to {len(changes)} samples")
-                logger.debug(f"Sample name changes: {changes[:5]}...")  # Log first 5 changes
-            else:
-                logger.info(f"No samples contained substring '{remove_substring}'")
+                # Log changes for debugging
+                changes = []
+                for orig, new in zip(original_samples, vcf_samples, strict=False):
+                    if orig != new:
+                        changes.append(f"{orig} -> {new}")
 
-        context.vcf_samples = vcf_samples
-        logger.info(f"Found {len(vcf_samples)} samples in VCF")
+                if changes:
+                    logger.info(f"Applied substring removal to {len(changes)} samples")
+                    logger.debug(f"Sample name changes: {changes[:5]}...")  # Log first 5 changes
+                else:
+                    logger.info(f"No samples contained substring '{remove_substring}'")
 
-        # CRITICAL: Set sample_list in config for downstream analysis
-        # This is required by analyze_variants.py for case/control assignment
-        context.config["sample_list"] = ",".join(vcf_samples)
-        logger.debug(f"Set sample_list config with {len(vcf_samples)} processed sample names")
+            context.vcf_samples = vcf_samples
+            logger.info(f"Found {len(vcf_samples)} samples in VCF")
+
+            # CRITICAL: Set sample_list in config for downstream analysis
+            # This is required by analyze_variants.py for case/control assignment
+            context.config["sample_list"] = ",".join(vcf_samples)
+            logger.debug(f"Set sample_list config with {len(vcf_samples)} processed sample names")
 
         # Load case/control sample lists if provided via files
         case_samples_file = context.config.get("case_samples_file")
@@ -269,24 +299,33 @@ class SampleConfigLoadingStage(Stage):
         assignments that would have been loaded during normal execution.
         """
         vcf_file = context.config.get("vcf_file")
+        from_tsv = context.config.get("from_tsv") or getattr(context.args, "from_tsv", None)
 
-        if not vcf_file:
-            raise ValueError("No VCF file specified in configuration during checkpoint skip")
+        if from_tsv and not vcf_file:
+            from ..from_tsv import prepare_from_tsv_context
 
-        # Restore VCF samples
-        logger.debug(f"Restoring VCF samples from {vcf_file} (checkpoint skip)")
-        vcf_samples = get_vcf_samples(vcf_file)
+            prepare_from_tsv_context(context)
+            vcf_samples = list(context.vcf_samples or [])
+        else:
+            if not vcf_file:
+                raise ValueError("No VCF file specified in configuration during checkpoint skip")
 
-        # Apply sample substring removal if configured
-        remove_substring = context.config.get("remove_sample_substring")
-        if remove_substring and remove_substring.strip():
-            logger.debug(f"Applying substring removal '{remove_substring}' during checkpoint skip")
-            vcf_samples = [s.replace(remove_substring, "") for s in vcf_samples]
+            # Restore VCF samples
+            logger.debug(f"Restoring VCF samples from {vcf_file} (checkpoint skip)")
+            vcf_samples = get_vcf_samples(vcf_file)
 
-        context.vcf_samples = vcf_samples
+            # Apply sample substring removal if configured
+            remove_substring = context.config.get("remove_sample_substring")
+            if remove_substring and remove_substring.strip():
+                logger.debug(
+                    f"Applying substring removal '{remove_substring}' during checkpoint skip"
+                )
+                vcf_samples = [s.replace(remove_substring, "") for s in vcf_samples]
 
-        # CRITICAL: Set sample_list in config for downstream analysis
-        context.config["sample_list"] = ",".join(vcf_samples)
+            context.vcf_samples = vcf_samples
+
+            # CRITICAL: Set sample_list in config for downstream analysis
+            context.config["sample_list"] = ",".join(vcf_samples)
 
         # Restore case/control sample lists if provided via files
         case_samples_file = context.config.get("case_samples_file")

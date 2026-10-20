@@ -21,7 +21,12 @@ from .cli_parser_groups import (
     populate_misc_group,
     populate_performance_group,
 )
-from .cli_subcommands import handle_listing_and_resume_options
+from .cli_subcommands import (
+    dispatch_subcommand,
+    extract_leading_subcommand,
+    handle_early_utility_options,
+    handle_listing_and_resume_options,
+)
 from .cli_sync import sync_cli_and_config
 from .config import load_config
 from .pipeline import run_pipeline
@@ -48,7 +53,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 
 class _VariantCentrifugeArgumentParser(argparse.ArgumentParser):
-    """Parser that enforces -v/--vcf-file for execution while permitting listing flags without it."""
+    """Parser that enforces -v/--vcf-file or --from-tsv for execution while permitting listing flags."""
 
     def parse_args(  # type: ignore[override]
         self,
@@ -56,12 +61,20 @@ class _VariantCentrifugeArgumentParser(argparse.ArgumentParser):
         namespace: argparse.Namespace | None = None,
     ) -> argparse.Namespace:
         parsed: argparse.Namespace = super().parse_args(args=args, namespace=namespace)
-        if not parsed.vcf_file and not (
-            getattr(parsed, "list_stages", False)
-            or getattr(parsed, "list_checkpoints", False)
-            or getattr(parsed, "show_checkpoint_status", False)
+        if getattr(parsed, "vcf_file", None) and getattr(parsed, "from_tsv", None):
+            self.error("argument --from-tsv: not allowed with argument -v/--vcf-file")
+        if (
+            not parsed.vcf_file
+            and not getattr(parsed, "from_tsv", None)
+            and not (
+                getattr(parsed, "list_stages", False)
+                or getattr(parsed, "list_checkpoints", False)
+                or getattr(parsed, "show_checkpoint_status", False)
+                or getattr(parsed, "list_profiles", False)
+                or bool(getattr(parsed, "save_profile", None))
+            )
         ):
-            self.error("the following arguments are required: -v/--vcf-file")
+            self.error("the following arguments are required: -v/--vcf-file (or --from-tsv)")
         return parsed
 
 
@@ -96,11 +109,39 @@ def create_parser() -> argparse.ArgumentParser:
         help="Path to configuration file",
         default=None,
     )
+    general_group.add_argument(
+        "--profile",
+        help="Reusable analysis profile name (e.g., 'rare-disease-trio') or JSON file path",
+        default=None,
+    )
+    general_group.add_argument(
+        "--save-profile",
+        help="Save effective reusable analysis configuration to a JSON profile file",
+        default=None,
+    )
+    general_group.add_argument(
+        "--list-profiles",
+        action="store_true",
+        default=False,
+        help="List available built-in and configured analysis profiles and exit",
+    )
 
     # Core Input/Output
     io_group = parser.add_argument_group("Core Input/Output")
     io_group.add_argument(
         "-v", "--vcf-file", help="Input VCF file path", required=False, default=None
+    )
+    io_group.add_argument(
+        "--from-tsv",
+        help="Input TSV/TSV.GZ file from a previous VariantCentrifuge run (skips VCF extraction)",
+        required=False,
+        default=None,
+    )
+    io_group.add_argument(
+        "--sample-sheet",
+        help="Validated TSV/CSV sample manifest consolidating pedigree, HPO terms, and BAM paths",
+        required=False,
+        default=None,
     )
     io_group.add_argument(
         "-o",
@@ -163,11 +204,14 @@ def parse_args(args_list: list[str] | None = None) -> argparse.Namespace:
     argparse.Namespace
         Parsed arguments
     """
+    subcmd, remaining = extract_leading_subcommand(args_list)
     parser = create_parser()
+    if subcmd == "run":
+        return parser.parse_args(remaining)
     return parser.parse_args(args_list)
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """Run main entry point for variantcentrifuge CLI."""
     logging.basicConfig(
         level=logging.INFO,
@@ -176,105 +220,22 @@ def main() -> int:
         stream=sys.stderr,
     )
 
+    subcmd, remaining = extract_leading_subcommand(argv)
+    if subcmd is not None and subcmd != "run":
+        return dispatch_subcommand(subcmd, remaining)
+
+    effective_argv = (
+        remaining if subcmd == "run" else (list(sys.argv[1:]) if argv is None else list(argv))
+    )
+
     start_time: datetime.datetime = datetime.datetime.now()
     logger.info(f"Run started at {start_time.isoformat()}")
 
     parser = create_parser()
 
-    # For --list-field-profiles, we don't need other required arguments
-    if "--list-field-profiles" in sys.argv:
-        from .field_profile import list_profiles
+    handle_early_utility_options(effective_argv, load_config_fn=load_config)
 
-        # Parse only the config argument (optional)
-        profile_parser = argparse.ArgumentParser(description="List field profiles")
-        profile_parser.add_argument("--list-field-profiles", action="store_true")
-        profile_parser.add_argument(
-            "-c", "--config", help="Path to configuration file", default=None
-        )
-        profile_args = profile_parser.parse_args()
-
-        profile_cfg = load_config(profile_args.config)
-        profiles = list_profiles(profile_cfg)
-        if profiles:
-            print("Available field profiles:")
-            for prof in profiles:
-                print(f"  {prof['name']:12s}  {prof['description']}")
-        else:
-            print("No field profiles defined in configuration.")
-        sys.exit(0)
-
-    # For --show-vcf-annotations, we only need the VCF file
-    if "--show-vcf-annotations" in sys.argv:
-        from .vcf_header_parser import (
-            format_fields_json,
-            format_fields_table,
-            parse_vcf_header,
-        )
-
-        ann_parser = argparse.ArgumentParser(description="Show VCF annotations")
-        ann_parser.add_argument("--show-vcf-annotations", action="store_true")
-        ann_parser.add_argument("-v", "--vcf-file", required=True)
-        ann_parser.add_argument("--annotation-filter", type=str, default=None)
-        ann_parser.add_argument("--annotation-format", choices=["table", "json"], default="table")
-        ann_parser.add_argument("--info-only", action="store_true", default=False)
-        ann_parser.add_argument("--format-only", action="store_true", default=False)
-        ann_args, _ = ann_parser.parse_known_args()
-
-        ann_fields = parse_vcf_header(ann_args.vcf_file)
-        if ann_args.annotation_format == "json":
-            output = format_fields_json(
-                ann_fields,
-                pattern=ann_args.annotation_filter,
-                info_only=ann_args.info_only,
-                format_only=ann_args.format_only,
-            )
-        else:
-            output = format_fields_table(
-                ann_fields,
-                pattern=ann_args.annotation_filter,
-                info_only=ann_args.info_only,
-                format_only=ann_args.format_only,
-            )
-        print(output)
-        sys.exit(0)
-
-    # For --show-checkpoint-status, we don't need other required arguments
-    if "--show-checkpoint-status" in sys.argv:
-        # Create a minimal parser just for checkpoint status
-        status_parser = argparse.ArgumentParser(description="Show checkpoint status")
-        status_parser.add_argument("--show-checkpoint-status", action="store_true")
-        status_parser.add_argument("--output-dir", default="output", help="Output directory")
-        status_parser.add_argument(
-            "--log-level", choices=["DEBUG", "INFO", "WARN", "WARNING", "ERROR"], default="INFO"
-        )
-        status_parser.add_argument(
-            "-c", "--config", help="Path to configuration file", default=None
-        )
-        status_args = status_parser.parse_args()
-
-        # Configure logging
-        log_level_map = {
-            "DEBUG": logging.DEBUG,
-            "INFO": logging.INFO,
-            "WARN": logging.WARNING,
-            "WARNING": logging.WARNING,
-            "ERROR": logging.ERROR,
-        }
-        logging.getLogger("variantcentrifuge").setLevel(log_level_map[status_args.log_level])
-
-        # Show checkpoint status
-        from .checkpoint import PipelineState
-
-        print("Checking checkpoint status for stage-based pipeline...")
-
-        pipeline_state = PipelineState(status_args.output_dir)
-        if pipeline_state.load():
-            print(pipeline_state.get_summary())
-        else:
-            print(f"No checkpoint state found in {status_args.output_dir}")
-        sys.exit(0)
-
-    args: argparse.Namespace = parser.parse_args()
+    args: argparse.Namespace = parser.parse_args(effective_argv)
 
     # Configure logging level
     log_level_map = {
@@ -318,29 +279,81 @@ def main() -> int:
     cfg: dict[str, Any] = load_config(args.config)
     logger.debug(f"Configuration loaded: {cfg}")
 
+    try:
+        from .analysis_profiles import apply_analysis_profile, save_analysis_profile
+
+        apply_analysis_profile(args, cfg, parser=parser, argv=effective_argv)
+    except (ValueError, FileNotFoundError) as e:
+        logger.error(str(e))
+        return 1
+
+    base_fields_to_extract = cfg.get("fields_to_extract")
+
     # Resolve field profile (expands {{fragment:param}} templates in presets,
     # merges profile-specific fields and hidden columns into config)
     from .field_profile import resolve_profile
 
     if args.field_profile:
         cfg["field_profile"] = args.field_profile
-    resolve_profile(cfg)
+    try:
+        resolve_profile(cfg)
+    except ValueError as e:
+        logger.error(str(e))
+        return 1
 
     # Synchronize configuration and CLI options so listing and validation see effective settings
     sync_cli_and_config(args, cfg)
 
+    if getattr(args, "save_profile", None):
+        if args.case_phenotypes is not None:
+            cfg["case_phenotypes"] = args.case_phenotypes
+        if args.control_phenotypes is not None:
+            cfg["control_phenotypes"] = args.control_phenotypes
+        try:
+            save_analysis_profile(
+                cfg,
+                args.save_profile,
+                base_fields_to_extract=(
+                    str(base_fields_to_extract) if base_fields_to_extract is not None else None
+                ),
+            )
+        except Exception as e:
+            logger.error(f"Failed to save profile: {e}")
+            return 1
+        if not args.vcf_file and not getattr(args, "from_tsv", None):
+            return 0
+
     # Handle information and interactive options that exit early (e.g. --list-stages, --list-checkpoints)
     handle_listing_and_resume_options(args, cfg)
 
-    # Ordinary execution requires VCF input
-    if not args.vcf_file:
-        parser.error("the following arguments are required: -v/--vcf-file")
+    # Ordinary execution requires VCF or TSV input
+    if not args.vcf_file and not getattr(args, "from_tsv", None):
+        parser.error("the following arguments are required: -v/--vcf-file (or --from-tsv)")
 
     reference: str | None = args.reference or cfg.get("reference")
     filters: str | None = args.filters or cfg.get("filters")
     fields_file = getattr(args, "fields_file", None) or cfg.get("fields_file")
 
     try:
+        from .sample_sheet import (
+            load_sample_sheet,
+            materialize_sample_sheet_bam_mapping,
+            validate_sample_sheet_conflicts,
+        )
+
+        validate_sample_sheet_conflicts(args, cfg, parser=parser)
+        sample_sheet_path = getattr(args, "sample_sheet", None) or cfg.get("sample_sheet")
+        if sample_sheet_path:
+            sheet_data = load_sample_sheet(str(sample_sheet_path))
+            if sheet_data.bam_mapping:
+                bam_tsv = materialize_sample_sheet_bam_mapping(
+                    sheet_data, args.output_dir or cfg.get("output_dir", "output")
+                )
+                if bam_tsv:
+                    cfg["bam_mapping_file"] = bam_tsv
+                    cfg["_bam_mapping_from_sample_sheet"] = True
+                    args.bam_mapping_file = bam_tsv
+
         validate_cli_args(args, cfg, parser=parser)
         raw_fields: Any = (
             load_fields_from_file(fields_file)
@@ -353,10 +366,15 @@ def main() -> int:
 
         populate_cli_config(args, cfg, parser, reference, filters, fields, tumor_normal_vars)
 
-        # Validate mandatory parameters, external tools, VCF and phenotype inputs
-        validate_mandatory_parameters(reference, filters, fields)
-        validate_required_tools(args, cfg, logger)
-        validate_vcf_file(args.vcf_file, logger)
+        if getattr(args, "from_tsv", None):
+            from .from_tsv import validate_from_tsv_args_and_file
+
+            validate_from_tsv_args_and_file(args, cfg, parser=parser)
+        else:
+            # Validate mandatory parameters, external tools, VCF and phenotype inputs
+            validate_mandatory_parameters(reference, filters, fields)
+            validate_required_tools(args, cfg, logger)
+            validate_vcf_file(args.vcf_file, logger)
         if args.phenotype_file:
             validate_phenotype_file(
                 args.phenotype_file,
@@ -366,7 +384,7 @@ def main() -> int:
             )
     except (ValueError, FileNotFoundError, RuntimeError) as e:
         logger.error(str(e))
-        sys.exit(1)
+        return 1
 
     # Performance configuration
     cfg["max_memory_gb"] = args.max_memory_gb
@@ -464,6 +482,10 @@ def main() -> int:
 
         refactored_args = SimpleNamespace(**vars(args))
         refactored_args.config = cfg
+        refactored_args.from_tsv = cfg.get("from_tsv") or getattr(args, "from_tsv", None)
+        refactored_args.sample_sheet = cfg.get("sample_sheet") or getattr(
+            args, "sample_sheet", None
+        )
         refactored_args.ped_file = (
             cfg.get("ped_file") or getattr(args, "ped", None) or getattr(args, "ped_file", None)
         )

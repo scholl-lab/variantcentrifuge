@@ -122,8 +122,10 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
 
     if (
         config.get("ped_file")
+        or config.get("sample_sheet")
         or (hasattr(args, "ped_file") and args.ped_file)
         or (hasattr(args, "ped") and args.ped)
+        or (hasattr(args, "sample_sheet") and args.sample_sheet)
     ):
         stages.append(PedigreeLoadingStage())
 
@@ -137,42 +139,46 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
     # This must run after both phenotype loading and sample config loading
     stages.append(PhenotypeCaseControlAssignmentStage())
 
-    # Processing stages
-    stages.append(GeneBedCreationStage())
+    from_tsv = getattr(args, "from_tsv", None) or config.get("from_tsv")
+    if not from_tsv:
+        # Processing stages
+        stages.append(GeneBedCreationStage())
 
-    # Choose parallel or single-threaded processing
-    threads = resolve_threads(getattr(args, "threads", None) or config.get("threads", 1), config)
-    if threads > 1:
-        # Use the new complete parallel processing stage that runs the entire
-        # pipeline (extraction -> filtering -> field extraction) for each chunk
-        stages.append(ParallelCompleteProcessingStage())
-    else:
-        # Single-threaded processing uses individual stages
-        stages.append(VariantExtractionStage())
+        # Choose parallel or single-threaded processing
+        threads = resolve_threads(
+            getattr(args, "threads", None) or config.get("threads", 1), config
+        )
+        if threads > 1:
+            # Use the new complete parallel processing stage that runs the entire
+            # pipeline (extraction -> filtering -> field extraction) for each chunk
+            stages.append(ParallelCompleteProcessingStage())
+        else:
+            # Single-threaded processing uses individual stages
+            stages.append(VariantExtractionStage())
 
-        # Optional processing stages
-        snpeff_splitting_mode = config.get("snpeff_splitting_mode")
-        split_before_filtering = snpeff_splitting_mode == "before_filters"
-        if snpeff_splitting_mode:
-            stages.append(MultiAllelicSplitStage(snpeff_splitting_mode))
+            # Optional processing stages
+            snpeff_splitting_mode = config.get("snpeff_splitting_mode")
+            split_before_filtering = snpeff_splitting_mode == "before_filters"
+            if snpeff_splitting_mode:
+                stages.append(MultiAllelicSplitStage(snpeff_splitting_mode))
 
-        if config.get("transcript_list") or config.get("transcript_file"):
-            stages.append(TranscriptFilterStage(split_before_filtering=split_before_filtering))
+            if config.get("transcript_list") or config.get("transcript_file"):
+                stages.append(TranscriptFilterStage(split_before_filtering=split_before_filtering))
 
-        # Add SnpSift filtering stage (it will check config for filters at runtime)
-        if not (getattr(args, "late_filtering", False) or config.get("late_filtering", False)):
-            stages.append(SnpSiftFilterStage(split_before_filtering=split_before_filtering))
+            # Add SnpSift filtering stage (it will check config for filters at runtime)
+            if not (getattr(args, "late_filtering", False) or config.get("late_filtering", False)):
+                stages.append(SnpSiftFilterStage(split_before_filtering=split_before_filtering))
 
-        # Field extraction
-        stages.append(FieldExtractionStage())
+            # Field extraction
+            stages.append(FieldExtractionStage())
 
-        # Data sorting (for efficient chunked processing)
-        stages.append(DataSortingStage())
+            # Data sorting (for efficient chunked processing)
+            stages.append(DataSortingStage())
 
-    # Optional transformations
-    # Default behavior: do genotype replacement unless --no-replacement is specified
-    if not getattr(args, "no_replacement", False):
-        stages.append(GenotypeReplacementStage())
+        # Optional transformations
+        # Default behavior: do genotype replacement unless --no-replacement is specified
+        if not getattr(args, "no_replacement", False):
+            stages.append(GenotypeReplacementStage())
 
     # Always add phenotype integration stage - it will skip if no phenotype data is loaded
     stages.append(PhenotypeIntegrationStage())
@@ -193,12 +199,14 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
 
     # Check both args and config for inheritance settings
     # Debug logging to understand the issue
-    has_ped_file_arg = (hasattr(args, "ped_file") and args.ped_file) or (
-        hasattr(args, "ped") and args.ped
+    has_ped_file_arg = (
+        (hasattr(args, "ped_file") and args.ped_file)
+        or (hasattr(args, "ped") and args.ped)
+        or (hasattr(args, "sample_sheet") and args.sample_sheet)
     )
     has_inheritance_mode_arg = hasattr(args, "inheritance_mode") and args.inheritance_mode
     has_calculate_inheritance_config = config.get("calculate_inheritance", False)
-    has_ped_file_config = config.get("ped_file")
+    has_ped_file_config = config.get("ped_file") or config.get("sample_sheet")
     has_inheritance_mode_config = config.get("inheritance_mode")
     requires_inheritance_for_scoring = check_scoring_requires_inheritance(args, config)
 
@@ -373,14 +381,29 @@ def run_pipeline(args: argparse.Namespace) -> None:
         level=log_level, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
-    # Normalize genes first to compute base name
-    gene_name = normalize_genes(
-        getattr(args, "gene_name", "") or "", getattr(args, "gene_file", None), logger
+    from_tsv = getattr(args, "from_tsv", None) or (
+        args.config.get("from_tsv") if isinstance(getattr(args, "config", None), dict) else None
     )
-
-    # Compute base name from VCF file and gene name
     vcf_file = getattr(args, "vcf_file", "")
-    base_name = compute_base_name(vcf_file, gene_name)
+
+    if from_tsv:
+        from .from_tsv import compute_tsv_base_name
+
+        raw_gene_name = getattr(args, "gene_name", None)
+        raw_gene_file = getattr(args, "gene_file", None)
+        gene_name = (
+            normalize_genes(raw_gene_name or "", raw_gene_file, logger)
+            if (raw_gene_name or raw_gene_file)
+            else "all"
+        )
+        base_name = compute_tsv_base_name(str(from_tsv))
+    else:
+        # Normalize genes first to compute base name
+        gene_name = normalize_genes(
+            getattr(args, "gene_name", "") or "", getattr(args, "gene_file", None), logger
+        )
+        # Compute base name from VCF file and gene name
+        base_name = compute_base_name(vcf_file, gene_name)
 
     # Create workspace
     output_dir = getattr(args, "output_dir", "output")
@@ -407,18 +430,6 @@ def run_pipeline(args: argparse.Namespace) -> None:
     if "extract" not in initial_config and "fields_to_extract" in initial_config:
         initial_config["extract"] = initial_config["fields_to_extract"].split()
 
-    # Debug log to understand config state
-    logger.debug(f"Initial config keys: {list(initial_config.keys())}")
-    logger.debug(f"fields_to_extract in config: {'fields_to_extract' in initial_config}")
-    logger.debug(f"extract in config: {'extract' in initial_config}")
-    logger.debug(f"final_filter in config: {'final_filter' in initial_config}")
-    if "fields_to_extract" in initial_config:
-        logger.debug(f"fields_to_extract value: {initial_config['fields_to_extract'][:100]}...")
-    if "extract" in initial_config:
-        logger.debug(f"extract fields count: {len(initial_config['extract'])}")
-    if "final_filter" in initial_config:
-        logger.debug(f"final_filter value: {initial_config['final_filter']}")
-
     # Add normalized genes to config
     initial_config["normalized_genes"] = gene_name
 
@@ -426,8 +437,10 @@ def run_pipeline(args: argparse.Namespace) -> None:
     initial_config["gene_name"] = getattr(args, "gene_name", "") or ""
     initial_config["gene_file"] = getattr(args, "gene_file", None)
 
-    # Merge VCF file path into config
+    # Merge VCF or TSV file path into config
     initial_config["vcf_file"] = vcf_file
+    if from_tsv:
+        initial_config["from_tsv"] = str(from_tsv)
 
     # Ensure all important config values are present
     # The config from cli.py has all merged values we need

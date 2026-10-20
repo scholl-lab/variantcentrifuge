@@ -291,7 +291,13 @@ class VariantScoringStage(Stage):
     @property
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
-        return {"custom_annotation", "inheritance_analysis", "chunked_analysis"}
+        return {
+            "custom_annotation",
+            "inheritance_analysis",
+            "chunked_analysis",
+            "variant_analysis",
+            "variant_identifier",
+        }
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Apply variant scoring."""

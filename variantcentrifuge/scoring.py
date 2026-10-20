@@ -28,9 +28,25 @@ def read_scoring_config(config_path: str) -> dict[str, Any]:
         p2 = os.path.join(config_path, "formula_config.json")
         with open(p1, encoding="utf-8") as f1, open(p2, encoding="utf-8") as f2:
             v_cfg, f_cfg = json.load(f1), json.load(f2)
+        variables = v_cfg.get("variables", {}) if isinstance(v_cfg, dict) else None
+        formulas = f_cfg.get("formulas", []) if isinstance(f_cfg, dict) else None
+        if not isinstance(variables, (dict, list)):
+            raise ValueError("Scoring configuration 'variables' must be a JSON object.")
+        if not isinstance(formulas, list):
+            raise ValueError("Scoring configuration 'formulas' must be a JSON array.")
+        for item in formulas:
+            if not isinstance(item, dict) or not item:
+                raise ValueError("Each entry in scoring 'formulas' must be a non-empty object.")
+            for name, expr in item.items():
+                if not isinstance(expr, str) or not expr.strip():
+                    raise ValueError(f"Formula '{name}' must be a non-empty string expression.")
+                try:
+                    ast.parse(expr, mode="eval")
+                except SyntaxError as syn_err:
+                    raise ValueError(f"Invalid syntax in formula '{name}': {syn_err}") from syn_err
         return {
-            "variables": v_cfg.get("variables", {}),
-            "formulas": f_cfg.get("formulas", []),
+            "variables": variables,
+            "formulas": formulas,
             "output_scores": f_cfg.get("output_scores"),
         }
     except FileNotFoundError as e:

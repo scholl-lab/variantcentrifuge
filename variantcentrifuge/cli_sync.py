@@ -13,11 +13,16 @@ def sync_cli_and_config(args: argparse.Namespace, cfg: dict[str, Any]) -> None:
     values populate omitted CLI options so downstream validation, execution, and
     stage discovery see consistent effective settings.
     """
-    # VCF file
+    # VCF file and TSV input
     if getattr(args, "vcf_file", None):
         cfg["vcf_file"] = args.vcf_file
     elif cfg.get("vcf_file"):
         args.vcf_file = cfg["vcf_file"]
+
+    if getattr(args, "from_tsv", None):
+        cfg["from_tsv"] = args.from_tsv
+    elif cfg.get("from_tsv"):
+        args.from_tsv = cfg["from_tsv"]
 
     # Gene selection: explicit CLI flag clears opposing configured selector
     if getattr(args, "gene_name", None) is not None:
@@ -61,6 +66,11 @@ def sync_cli_and_config(args: argparse.Namespace, cfg: dict[str, Any]) -> None:
     else:
         args.gzip_intermediates = cfg.get("gzip_intermediates", True)
         cfg["gzip_intermediates"] = args.gzip_intermediates
+
+    sample_sheet = getattr(args, "sample_sheet", None) or cfg.get("sample_sheet")
+    if sample_sheet:
+        args.sample_sheet = sample_sheet
+        cfg["sample_sheet"] = sample_sheet
 
     # Pedigree and phenotype files/columns
     ped = (
@@ -111,7 +121,10 @@ def sync_cli_and_config(args: argparse.Namespace, cfg: dict[str, Any]) -> None:
         args.inheritance_mode = inh_mode
         cfg["inheritance_mode"] = inh_mode
     cfg["calculate_inheritance"] = bool(
-        inh_mode is not None or ped is not None or cfg.get("calculate_inheritance", False)
+        inh_mode is not None
+        or ped is not None
+        or sample_sheet is not None
+        or cfg.get("calculate_inheritance", False)
     )
     args.calculate_inheritance = cfg["calculate_inheritance"]
 

@@ -128,6 +128,12 @@ class AssociationAnalysisStage(Stage):
 
         case_samples = context.config.get("case_samples", [])
         control_samples = context.config.get("control_samples", [])
+        if isinstance(case_samples, str):
+            case_samples = [s.strip() for s in case_samples.split(",") if s.strip()]
+            context.config["case_samples"] = case_samples
+        if isinstance(control_samples, str):
+            control_samples = [s.strip() for s in control_samples.split(",") if s.strip()]
+            context.config["control_samples"] = control_samples
 
         if not case_samples and not control_samples:
             raise ValueError(
@@ -243,6 +249,21 @@ class AssociationAnalysisStage(Stage):
         gt_cols = _find_per_sample_gt_columns(df)
         if needs_regression and gt_cols:
             df_with_per_sample_gt = df
+        elif needs_regression and "GT" in df.columns and context.vcf_samples:
+            from .sample_column_helpers import create_sample_columns_from_gt_intelligent
+
+            unpacked_samples = list(context.vcf_samples)
+            df_with_per_sample_gt = create_sample_columns_from_gt_intelligent(
+                df.copy(), vcf_samples=unpacked_samples
+            )
+            gt_series_str = df_with_per_sample_gt["GT"].fillna("").astype(str)
+            for s_col in unpacked_samples:
+                if s_col in df_with_per_sample_gt.columns:
+                    explicit_missing = gt_series_str.str.contains(
+                        f"{s_col}(./.)", regex=False
+                    ) | gt_series_str.str.contains(f"{s_col}(.|.)", regex=False)
+                    fill_ref = (df_with_per_sample_gt[s_col] == "./.") & ~explicit_missing
+                    df_with_per_sample_gt.loc[fill_ref, s_col] = "0/0"
 
         if "GT" not in df.columns and context.vcf_samples and gt_cols:
             logger.info("Reconstructing GT column for association aggregation (local copy only)")
@@ -370,6 +391,8 @@ class AssociationAnalysisStage(Stage):
 
         gt_source_df = df_with_per_sample_gt if df_with_per_sample_gt is not None else df
         gt_columns_for_matrix = _find_per_sample_gt_columns(gt_source_df)
+        if not gt_columns_for_matrix and assigned_samples:
+            gt_columns_for_matrix = [s for s in assigned_samples if s in gt_source_df.columns]
         if needs_regression and gt_columns_for_matrix and assigned_samples:
             is_binary = assoc_config.trait_type == "binary"
             _gene_groups = gt_source_df.groupby("GENE")

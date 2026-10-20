@@ -39,6 +39,8 @@ class DataFrameLoadingStage(Stage):
     def soft_dependencies(self) -> set[str]:
         """Return the set of stage names that should run before if present."""
         return {
+            "sample_config_loading",
+            "phenotype_case_control_assignment",
             "field_extraction",
             "parallel_complete_processing",
             "genotype_replacement",

@@ -45,6 +45,16 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         # via SampleConfigLoadingStage).
         existing_case_samples = context.config.get("case_samples") or []
         existing_control_samples = context.config.get("control_samples") or []
+        if isinstance(existing_case_samples, str):
+            existing_case_samples = [
+                s.strip() for s in existing_case_samples.split(",") if s.strip()
+            ]
+            context.config["case_samples"] = existing_case_samples
+        if isinstance(existing_control_samples, str):
+            existing_control_samples = [
+                s.strip() for s in existing_control_samples.split(",") if s.strip()
+            ]
+            context.config["control_samples"] = existing_control_samples
         case_samples_file = context.config.get("case_samples_file")
         control_samples_file = context.config.get("control_samples_file")
 
@@ -95,22 +105,28 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         phenotype_file = context.config.get("phenotype_file")
         phenotype_sample_column = context.config.get("phenotype_sample_column")
         phenotype_value_column = context.config.get("phenotype_value_column")
+        sample_sheet = context.config.get("sample_sheet") or getattr(
+            context.args, "sample_sheet", None
+        )
 
-        logger.debug(f"All config keys: {sorted(context.config.keys())}")
-        logger.debug(f"Phenotype file: {phenotype_file}")
-        logger.debug(f"Sample column: {phenotype_sample_column}")
-        logger.debug(f"Value column: {phenotype_value_column}")
-        logger.debug(f"Case phenotypes: {case_phenotypes}")
-        logger.debug(f"Control phenotypes: {control_phenotypes}")
+        if not (phenotype_file and phenotype_sample_column and phenotype_value_column):
+            pheno_data = getattr(context, "phenotype_data", None)
+            if not pheno_data and sample_sheet:
+                from ..sample_sheet import load_sample_sheet
 
-        if not phenotype_file or not phenotype_sample_column or not phenotype_value_column:
+                pheno_data = load_sample_sheet(str(sample_sheet)).phenotype_data
+            if pheno_data:
+                from ..sample_sheet import classify_samples_from_phenotype_data
+
+                remove_substring = context.config.get("remove_sample_substring", "")
+                case_samples, control_samples = classify_samples_from_phenotype_data(
+                    vcf_samples, pheno_data, case_phenotypes, control_phenotypes, remove_substring
+                )
+                context.config["case_samples"] = case_samples
+                context.config["control_samples"] = control_samples
+                return context
             logger.warning(
                 "Missing phenotype file parameters, cannot perform phenotype-based assignment"
-            )
-            logger.warning(
-                f"phenotype_file={phenotype_file}, "
-                f"sample_column={phenotype_sample_column}, "
-                f"value_column={phenotype_value_column}"
             )
             return context
 
@@ -406,8 +422,26 @@ class PhenotypeCaseControlAssignmentStage(Stage):
         phenotype_file = context.config.get("phenotype_file")
         phenotype_sample_column = context.config.get("phenotype_sample_column")
         phenotype_value_column = context.config.get("phenotype_value_column")
+        sample_sheet = context.config.get("sample_sheet") or getattr(
+            context.args, "sample_sheet", None
+        )
 
-        if not phenotype_file or not phenotype_sample_column or not phenotype_value_column:
+        if not (phenotype_file and phenotype_sample_column and phenotype_value_column):
+            pheno_data = getattr(context, "phenotype_data", None)
+            if not pheno_data and sample_sheet:
+                from ..sample_sheet import load_sample_sheet
+
+                pheno_data = load_sample_sheet(str(sample_sheet)).phenotype_data
+            if pheno_data:
+                from ..sample_sheet import classify_samples_from_phenotype_data
+
+                remove_substring = context.config.get("remove_sample_substring", "")
+                case_samples, control_samples = classify_samples_from_phenotype_data(
+                    vcf_samples, pheno_data, case_phenotypes, control_phenotypes, remove_substring
+                )
+                context.config["case_samples"] = case_samples
+                context.config["control_samples"] = control_samples
+                return context
             raise ValueError(
                 "Missing phenotype file parameters, cannot restore phenotype-based assignment "
                 "(checkpoint skip)"

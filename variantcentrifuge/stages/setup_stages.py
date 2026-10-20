@@ -268,6 +268,9 @@ class PhenotypeLoadingStage(Stage):
         phenotype_file = context.config.get("phenotype_file")
         phenotype_sample_column = context.config.get("phenotype_sample_column")
         phenotype_value_column = context.config.get("phenotype_value_column")
+        sample_sheet = context.config.get("sample_sheet") or getattr(
+            context.args, "sample_sheet", None
+        )
 
         logger.debug(f"Phenotype file: {phenotype_file}")
         logger.debug(f"Phenotype sample column: {phenotype_sample_column}")
@@ -290,6 +293,17 @@ class PhenotypeLoadingStage(Stage):
             context.phenotype_data = phenotypes
             context.config["phenotypes"] = phenotypes  # For compatibility
             logger.info(f"Loaded phenotypes for {len(phenotypes)} samples")
+        elif sample_sheet:
+            from ..sample_sheet import load_sample_sheet
+
+            sheet_data = load_sample_sheet(str(sample_sheet))
+            if sheet_data.phenotype_data:
+                context.phenotype_data = sheet_data.phenotype_data
+                context.config["phenotypes"] = sheet_data.phenotype_data
+                logger.info(
+                    f"Loaded phenotypes for {len(sheet_data.phenotype_data)} samples "
+                    "from sample sheet"
+                )
         else:
             logger.debug("No phenotype file specified, skipping phenotype loading")
 
@@ -304,6 +318,9 @@ class PhenotypeLoadingStage(Stage):
         phenotype_file = context.config.get("phenotype_file")
         phenotype_sample_column = context.config.get("phenotype_sample_column")
         phenotype_value_column = context.config.get("phenotype_value_column")
+        sample_sheet = context.config.get("sample_sheet") or getattr(
+            context.args, "sample_sheet", None
+        )
 
         if phenotype_file and phenotype_sample_column and phenotype_value_column:
             logger.debug(f"Restoring phenotypes from {phenotype_file} (checkpoint skip)")
@@ -321,6 +338,13 @@ class PhenotypeLoadingStage(Stage):
                     f"No phenotype data loaded from {phenotype_file}. "
                     "Check file formatting and column names."
                 )
+        elif sample_sheet:
+            from ..sample_sheet import load_sample_sheet
+
+            sheet_data = load_sample_sheet(str(sample_sheet))
+            if sheet_data.phenotype_data:
+                context.phenotype_data = sheet_data.phenotype_data
+                context.config["phenotypes"] = sheet_data.phenotype_data
         else:
             logger.debug("No phenotype configuration found during checkpoint skip")
 
