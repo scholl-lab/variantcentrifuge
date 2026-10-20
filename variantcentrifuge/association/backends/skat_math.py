@@ -13,8 +13,6 @@ import scipy.linalg
 from variantcentrifuge.association.backends.skato_integrate import (  # noqa: F401
     _GL_A,
     _GL_B,
-    _GL_NODES_RAW,
-    _GL_WEIGHTS_RAW,
     _SKATO_DAVIES_MIN_ACC,
     _SKATO_DAVIES_REL_ACC,
     _SKATO_X_MAX,

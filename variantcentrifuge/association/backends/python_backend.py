@@ -44,8 +44,6 @@ from variantcentrifuge.association.backends.null_model import (
 from variantcentrifuge.association.backends.skat_math import (
     _GL_A,
     _GL_B,
-    _GL_NODES_RAW,
-    _GL_WEIGHTS_RAW,
     _SKATO_RHO_GRID,
     _get_lambda,
     _skato_each_q,
@@ -61,8 +59,6 @@ from variantcentrifuge.association.backends.skato_integrate import _skato_last_c
 __all__ = [
     "_GL_A",
     "_GL_B",
-    "_GL_NODES_RAW",
-    "_GL_WEIGHTS_RAW",
     "_SKATO_RHO_GRID",
     "PythonSKATBackend",
     "_get_lambda",

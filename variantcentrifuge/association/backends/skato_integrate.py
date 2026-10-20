@@ -13,7 +13,6 @@ import numpy as np
 import scipy.integrate
 import scipy.linalg
 import scipy.stats
-from numpy.polynomial.legendre import leggauss
 
 from variantcentrifuge.association.backends.davies import (
     _DAVIES_RETRY_LIM,
@@ -27,7 +26,6 @@ logger = logging.getLogger("variantcentrifuge")
 
 # Former fixed 16-node rule; unused since the adaptive integral, kept because
 # python_backend re-exports it.
-_GL_NODES_RAW, _GL_WEIGHTS_RAW = leggauss(16)
 _GL_A, _GL_B = 0.0, 40.0  # integration bounds (matches R: upper=40)
 # Conditional-statistic levels (in units of E[Q]) at which the SKAT-O integral is split
 _SKATO_Z_LEVELS = np.array([0.0, 1.0, 8.0, 64.0])
