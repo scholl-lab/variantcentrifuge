@@ -559,3 +559,20 @@ class TestCliSync:
         assert exc_info.value.code == 0
         captured2 = capsys.readouterr().out
         assert "📌 genotype_replacement" not in captured2
+
+
+def test_module_entry_point_propagates_failure_exit_code(tmp_path):
+    """`python -m variantcentrifuge.cli` must exit nonzero when main() fails."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "variantcentrifuge.cli",
+            "--vcf-file",
+            str(tmp_path / "missing.vcf"),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode != 0
