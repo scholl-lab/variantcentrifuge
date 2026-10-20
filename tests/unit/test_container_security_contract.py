@@ -1320,3 +1320,9 @@ def test_docker_workflow_grants_oidc_only_to_the_signing_job() -> None:
     assert "permissions:\n      packages: write\n      id-token: write" in sign
     assert "security-events: write" not in sign
     assert "contents: write" not in sign
+
+
+def test_workflow_environment_pins_compatible_smart_open() -> None:
+    """The Snakemake workflow env must keep pyproject's smart-open<8 (8.x removed smart_open.smart_open)."""
+    environment = _text("workflow/envs/variantcentrifuge.yml")
+    assert "- smart-open<8" in environment

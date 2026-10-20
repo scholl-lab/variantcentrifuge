@@ -21,4 +21,4 @@ dependencies:
   - numpy
   - pip:
     - intervaltree
-    - smart-open
+    - smart-open<8  # match pyproject: smart_open 8 removed smart_open.smart_open (imported by stages)
