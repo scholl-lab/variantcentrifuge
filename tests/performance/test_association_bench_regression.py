@@ -47,3 +47,16 @@ def test_meta_mode_runs_on_two_disjoint_artifacts(tmp_path):
     result = _bench("--meta", *npz, "--out", str(tmp_path / "meta.tsv"))
     assert result["rc"] == "0" and int(result["rows"]) == 8, result
     assert (tmp_path / "meta.tsv.pkl").exists()
+
+
+def test_pss_peak_samples_short_runs():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "bench", ROOT / "scripts" / "bench_association.py"
+    )
+    bench = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bench)
+    with bench.PssPeak() as pss:
+        pass
+    assert pss.peak_mb > 0

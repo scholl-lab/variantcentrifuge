@@ -263,26 +263,30 @@ class PssPeak:
     def __enter__(self):
         import threading
 
-        import psutil
 
         self.peak_mb, self._stop = 0.0, threading.Event()
-        me = psutil.Process()
 
         def poll():
             while not self._stop.wait(0.2):
-                total = 0
-                for proc in [me, *me.children(recursive=True)]:
-                    with contextlib.suppress(psutil.Error):  # worker exited meanwhile
-                        total += proc.memory_full_info().pss
-                self.peak_mb = max(self.peak_mb, total / 2**20)
+                self.sample()
 
         self._thread = threading.Thread(target=poll, daemon=True)
         self._thread.start()
         return self
 
+    def sample(self):
+        import psutil
+
+        me, total = psutil.Process(), 0
+        for proc in [me, *me.children(recursive=True)]:
+            with contextlib.suppress(psutil.Error):  # worker exited meanwhile
+                total += proc.memory_full_info().pss
+        self.peak_mb = max(self.peak_mb, total / 2**20)
+
     def __exit__(self, *exc):
         self._stop.set()
         self._thread.join()
+        self.sample()  # runs shorter than one poll interval still get a value
 
 
 def run_meta(args) -> int:
