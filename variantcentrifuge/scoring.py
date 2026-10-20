@@ -34,8 +34,12 @@ def read_scoring_config(config_path: str) -> dict[str, Any]:
             raise ValueError("Scoring configuration 'variables' must be a JSON object.")
         if not isinstance(formulas, list):
             raise ValueError("Scoring configuration 'formulas' must be a JSON array.")
+        if not all(isinstance(item, dict) for item in formulas):
+            raise ValueError("Each entry in scoring 'formulas' must be a non-empty object.")
+        # "_"-prefixed keys are comments, as at the top level of formula_config.json
+        formulas = [{k: v for k, v in item.items() if not k.startswith("_")} for item in formulas]
         for item in formulas:
-            if not isinstance(item, dict) or not item:
+            if not item:
                 raise ValueError("Each entry in scoring 'formulas' must be a non-empty object.")
             for name, expr in item.items():
                 if not isinstance(expr, str) or not expr.strip():

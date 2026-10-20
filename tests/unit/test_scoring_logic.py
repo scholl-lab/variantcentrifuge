@@ -524,3 +524,15 @@ def test_ambiguity_guard_ignores_missing_tokens_and_syntax_errors():
     assert apply_scoring(df, config)["s"].tolist() == [20.0, 0.0]
     bad = {"variables": {"CUSTOM": "v"}, "formulas": [{"s": "v +"}]}
     assert apply_scoring(df, bad)["s"].isna().all()
+
+
+def test_shipped_custom_template_loads_with_comment_keys():
+    """'_comment' keys inside formula entries are ignored, so the shipped template loads."""
+    from pathlib import Path
+
+    from variantcentrifuge.scoring import read_scoring_config
+
+    root = Path(__file__).resolve().parents[2] / "scoring/coast_classification/custom_template"
+    cfg = read_scoring_config(str(root))
+    assert all(not k.startswith("_") for item in cfg["formulas"] for k in item)
+    assert "coast_category" in cfg["formulas"][-1]
