@@ -30,6 +30,22 @@ from variantcentrifuge.association.engine import AssociationEngine, _worker_init
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _parallel_for_small_panels(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise the parallel path with the small synthetic panels used here."""
+    monkeypatch.setattr("variantcentrifuge.association.engine.MIN_GENES_FOR_PARALLEL", 2)
+
+
+def test_small_panels_stay_sequential_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Panels below MIN_GENES_FOR_PARALLEL never start a worker pool."""
+    monkeypatch.setattr("variantcentrifuge.association.engine.MIN_GENES_FOR_PARALLEL", 50)
+    engine = AssociationEngine.from_names(["fisher"], AssociationConfig(association_workers=4))
+    with patch("variantcentrifuge.association.engine.dispatch_parallel_genes") as dispatch:
+        df = engine.run_all(_make_gene_data(10))
+    dispatch.assert_not_called()
+    assert len(df) == 10
+
+
 def _make_gene_data(n: int = 5) -> list[dict[str, Any]]:
     """Generate synthetic gene burden data for n genes."""
     genes = []

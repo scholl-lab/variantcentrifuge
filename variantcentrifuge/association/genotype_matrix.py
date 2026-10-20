@@ -61,89 +61,84 @@ def _vectorized_parse_gt_columns(
     """
     n_variants = len(gene_df)
     n_samples = len(gt_columns_list)
+    multi_allelic_count = 0
+
+    def _grid(mask: pd.Series) -> np.ndarray:
+        # Flat sample-major mask -> (n_variants, n_samples)
+        grid: np.ndarray = mask.to_numpy(dtype=bool).reshape(n_samples, n_variants).T
+        return grid
+
+    # One flat Series over all cells: per-column pandas calls dominated runtime
+    # (~20 ops x thousands of samples x every gene).
+    block = gene_df[gt_columns_list].astype(object).to_numpy()
+    s_obj = pd.Series(block.ravel(order="F"), dtype=object)
+    s_str = s_obj.fillna("").astype(str).str.strip()
+    is_gen_miss = s_obj.isna() | s_str.str.lower().isin({"", "na", "nan", "none", "null"})
+    generic_missing = _grid(is_gen_miss)
+
+    gt_series = s_str.str.replace("|", "/", regex=False)
+    m_diploid = ~is_gen_miss & gt_series.str.contains("/", regex=False)
+    row_has_diploid = np.asarray(_grid(m_diploid).any(axis=1))
+
+    # Standard diploid genotypes — exact match for speed
+    m_00 = gt_series == "0/0"
+    m_01 = (gt_series == "0/1") | (gt_series == "1/0")
+    m_11 = gt_series == "1/1"
+
+    # Haploid genotypes
+    m_hap_0 = gt_series == "0"
+    m_hap_1 = gt_series == "1"
+    m_hap_miss = gt_series == "."
+    row_has_haploid = np.asarray(_grid(m_hap_0 | m_hap_1 | m_hap_miss).any(axis=1))
+
+    # Multi-allelic: any allele > 1 (e.g. 1/2, 0/2, 2/2, 0/3)
+    multi_mask = gt_series.str.match(r"^[0-9]+/[0-9]+$", na=False) & ~(m_00 | m_01 | m_11)
+    hap_multi_mask = (
+        ~is_gen_miss
+        & ~m_diploid
+        & gt_series.str.match(r"^[0-9]+$", na=False)
+        & ~(m_hap_0 | m_hap_1)
+    )
+
+    # Filter: only flag as multi if actually contains allele > 1
+    if multi_mask.any():
+        candidates = gt_series[multi_mask]
+        left = candidates.str.split("/").str[0]
+        right = candidates.str.split("/").str[1]
+        truly_multi = (left.astype(int) > 1) | (right.astype(int) > 1)
+        multi_idx = multi_mask[multi_mask].index
+        truly_multi_values = truly_multi.to_numpy(dtype=bool)
+        not_truly = multi_idx[~truly_multi_values]
+        multi_mask.loc[not_truly] = False
+        multi_allelic_count += int(truly_multi.sum())
+
+    if hap_multi_mask.any():
+        candidates_hap = gt_series[hap_multi_mask]
+        truly_hap_multi = candidates_hap.astype(int) > 1
+        hap_multi_idx = hap_multi_mask[hap_multi_mask].index
+        truly_hap_multi_values = truly_hap_multi.to_numpy(dtype=bool)
+        not_truly_hap = hap_multi_idx[~truly_hap_multi_values]
+        hap_multi_mask.loc[not_truly_hap] = False
+        multi_allelic_count += int(truly_hap_multi.sum())
+        row_has_haploid |= _grid(hap_multi_mask).any(axis=1)
+
+    # Assign dosages and ploidy
     raw = np.full((n_variants, n_samples), np.nan, dtype=np.float64)
     ploidy = np.full((n_variants, n_samples), 2.0, dtype=np.float64)
-    multi_allelic_count = 0
-    row_has_haploid = np.zeros(n_variants, dtype=bool)
-    row_has_diploid = np.zeros(n_variants, dtype=bool)
-    generic_missing = np.zeros((n_variants, n_samples), dtype=bool)
 
-    for s_idx, col in enumerate(gt_columns_list):
-        s_obj = (
-            gene_df[col].astype(object)
-            if isinstance(gene_df[col].dtype, pd.CategoricalDtype)
-            else gene_df[col]
-        )
-        s_str = s_obj.fillna("").astype(str).str.strip()
-        is_gen_miss = s_obj.isna() | s_str.str.lower().isin({"", "na", "nan", "none", "null"})
-        generic_missing[:, s_idx] = is_gen_miss.to_numpy()
+    raw[_grid(m_00)] = 0.0
+    raw[_grid(m_01)] = 1.0
+    raw[_grid(m_11)] = 2.0
+    raw[_grid(multi_mask)] = 1.0  # het-equivalent for multi-allelic
 
-        gt_series = s_str.str.replace("|", "/", regex=False)
-        m_diploid = ~is_gen_miss & gt_series.str.contains("/", regex=False)
-        row_has_diploid |= m_diploid.to_numpy()
+    raw[_grid(m_hap_0)] = 0.0
+    raw[_grid(m_hap_1)] = 1.0
+    raw[_grid(hap_multi_mask)] = 1.0
 
-        # Standard diploid genotypes — exact match for speed
-        m_00 = gt_series == "0/0"
-        m_01 = (gt_series == "0/1") | (gt_series == "1/0")
-        m_11 = gt_series == "1/1"
-
-        # Haploid genotypes
-        m_hap_0 = gt_series == "0"
-        m_hap_1 = gt_series == "1"
-        m_hap_miss = gt_series == "."
-        row_has_haploid |= (m_hap_0 | m_hap_1 | m_hap_miss).to_numpy()
-
-        # Multi-allelic: any allele > 1 (e.g. 1/2, 0/2, 2/2, 0/3)
-        multi_mask = gt_series.str.match(r"^[0-9]+/[0-9]+$", na=False) & ~(m_00 | m_01 | m_11)
-        hap_multi_mask = (
-            ~is_gen_miss
-            & ~m_diploid
-            & gt_series.str.match(r"^[0-9]+$", na=False)
-            & ~(m_hap_0 | m_hap_1)
-        )
-
-        # Filter: only flag as multi if actually contains allele > 1
-        if multi_mask.any():
-            candidates = gt_series[multi_mask]
-            left = candidates.str.split("/").str[0]
-            right = candidates.str.split("/").str[1]
-            truly_multi = (left.astype(int) > 1) | (right.astype(int) > 1)
-            multi_idx = multi_mask[multi_mask].index
-            truly_multi_values = truly_multi.to_numpy(dtype=bool)
-            not_truly = multi_idx[~truly_multi_values]
-            multi_mask.loc[not_truly] = False
-            multi_allelic_count += int(truly_multi.sum())
-
-        if hap_multi_mask.any():
-            candidates_hap = gt_series[hap_multi_mask]
-            truly_hap_multi = candidates_hap.astype(int) > 1
-            hap_multi_idx = hap_multi_mask[hap_multi_mask].index
-            truly_hap_multi_values = truly_hap_multi.to_numpy(dtype=bool)
-            not_truly_hap = hap_multi_idx[~truly_hap_multi_values]
-            hap_multi_mask.loc[not_truly_hap] = False
-            multi_allelic_count += int(truly_hap_multi.sum())
-            row_has_haploid |= hap_multi_mask.to_numpy()
-
-        # Assign dosages and ploidy
-        col_dosage = np.full(n_variants, np.nan, dtype=np.float64)
-        col_ploidy = np.full(n_variants, 2.0, dtype=np.float64)
-
-        col_dosage[m_00.values] = 0.0
-        col_dosage[m_01.values] = 1.0
-        col_dosage[m_11.values] = 2.0
-        col_dosage[multi_mask.values] = 1.0  # het-equivalent for multi-allelic
-
-        col_dosage[m_hap_0.values] = 0.0
-        col_dosage[m_hap_1.values] = 1.0
-        col_dosage[hap_multi_mask.values] = 1.0
-
-        col_ploidy[m_hap_0.values] = 1.0
-        col_ploidy[m_hap_1.values] = 1.0
-        col_ploidy[hap_multi_mask.values] = 1.0
-        col_ploidy[m_hap_miss.values] = 1.0
-
-        raw[:, s_idx] = col_dosage
-        ploidy[:, s_idx] = col_ploidy
+    ploidy[_grid(m_hap_0)] = 1.0
+    ploidy[_grid(m_hap_1)] = 1.0
+    ploidy[_grid(hap_multi_mask)] = 1.0
+    ploidy[_grid(m_hap_miss)] = 1.0
 
     haploid_rows = row_has_haploid & ~row_has_diploid
     if haploid_rows.any():

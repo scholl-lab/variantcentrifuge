@@ -15,7 +15,7 @@ class TestParallelCompleteProcessingStage:
     """Test ParallelCompleteProcessingStage."""
 
     @pytest.fixture
-    def context(self):
+    def context(self, tmp_path):
         """Create test context with config for parallel processing."""
         ctx = create_test_context()
         ctx.config["threads"] = 4
@@ -24,7 +24,8 @@ class TestParallelCompleteProcessingStage:
         ctx.config["filters"] = "QUAL >= 30"
         ctx.gene_bed_file = Path("/tmp/genes.bed")
         ctx.workspace.base_name = "test_output"
-        ctx.workspace.intermediate_dir = Path("/tmp/intermediate")
+        ctx.workspace.intermediate_dir = tmp_path / "intermediate"
+        ctx.workspace.intermediate_dir.mkdir()
         ctx.mark_complete("configuration_loading")
         ctx.mark_complete("gene_bed_creation")
         return ctx

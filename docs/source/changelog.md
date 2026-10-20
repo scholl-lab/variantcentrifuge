@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Faster association and variant analysis on wide cohorts (identical results): genotype-matrix parsing runs once per gene block instead of once per sample column, GT-column reconstruction normalises all cells at once and drops per-sample columns in one step (deleting them one by one was quadratic), and case/control counting no longer parses an implicit `0/0` for every absent sample. Panels under 50 genes run association in-process instead of starting a worker pool. One 1000 Genomes cohort (3,391 variants x 1,039 samples): 21.5 s -> 6.2 s.
+
+### Fixed
+
+- BED chunks for parallel extraction were written to a `chunks/` directory next to the input BED (for `--regions-bed`, the user's input directory). They now go to the run's workspace, so read-only input directories work and concurrent runs on one BED cannot overwrite each other's chunks.
+
 ## [0.20.0] - 2026-10-20
 
 Python 3.12+ and a faster CI.

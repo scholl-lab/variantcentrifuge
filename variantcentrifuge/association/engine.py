@@ -43,6 +43,9 @@ __all__ = [
 
 logger = logging.getLogger("variantcentrifuge")
 
+# Below this many genes, worker start-up and pickling cost more than the tests themselves.
+MIN_GENES_FOR_PARALLEL = 50
+
 
 def _build_registry() -> dict[str, type[AssociationTest]]:
     """Build the test registry lazily to avoid circular imports at module load."""
@@ -316,7 +319,9 @@ class AssociationEngine:
         all_parallel_safe = all(
             getattr(test, "parallel_safe", False) for test in self._tests.values()
         )
-        use_parallel = n_workers != 1 and all_parallel_safe and len(sorted_data) > 1
+        use_parallel = (
+            n_workers != 1 and all_parallel_safe and len(sorted_data) >= MIN_GENES_FOR_PARALLEL
+        )
 
         if n_workers != 1 and not all_parallel_safe:
             logger.warning(

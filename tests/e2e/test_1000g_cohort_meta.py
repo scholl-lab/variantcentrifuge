@@ -11,6 +11,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pandas as pd
@@ -44,7 +45,8 @@ def _vc(*args: str) -> None:
 @pytest.fixture(scope="module")
 def study(tmp_path_factory: pytest.TempPathFactory) -> Path:
     out = tmp_path_factory.mktemp("1000g")
-    for cohort in ("EUR", "SAS"):
+
+    def run_cohort(cohort: str) -> None:
         _vc(
             "-v", str(VCF),
             "--reference", "GRCh38.p14",
@@ -64,6 +66,10 @@ def study(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "--output-file", f"{cohort}.tsv",
             "--no-stats",
         )  # fmt: skip
+
+    # Cohorts are independent subprocesses; run them side by side.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(run_cohort, ("EUR", "SAS")))
     (out / "study.tsv").write_text("stratum_id\tartifact_path\nEUR\tEUR.npz\nSAS\tSAS.npz\n")
     _vc("meta", "--manifest", str(out / "study.tsv"), "--output", str(out / "meta.tsv"))
     return out

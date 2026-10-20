@@ -307,6 +307,11 @@ def assign_case_control_counts(
     proband_called_chrom_list = []
     control_called_chrom_list = []
 
+    # Samples absent from the GT string are implicit 0/0: called, diploid, no alt allele.
+    # Count them in bulk and parse only listed samples (cases win over controls).
+    case_in_all = case_samples & all_samples
+    ctrl_in_all = (control_samples - case_samples) & all_samples
+
     for idx, val in enumerate(df["GT"]):
         # Log progress every 1000 variants
         if idx % 1000 == 0:
@@ -328,14 +333,20 @@ def assign_case_control_counts(
         c_allele_count = 0
         p_hom_count = 0
         c_hom_count = 0
-        p_called_count = 0
-        c_called_count = 0
-        p_called_chrom = 0
-        c_called_chrom = 0
+        p_called_count = len(case_in_all)
+        c_called_count = len(ctrl_in_all)
+        p_called_chrom = 2 * p_called_count
+        c_called_chrom = 2 * c_called_count
 
-        # For each sample, if not in samples_with_variant, assume genotype=0/0
-        for sample_name in all_samples:
-            genotype = samples_with_variant.get(sample_name, "0/0")
+        for sample_name, genotype in samples_with_variant.items():
+            if sample_name in case_in_all:
+                p_called_count -= 1
+                p_called_chrom -= 2
+            elif sample_name in ctrl_in_all:
+                c_called_count -= 1
+                c_called_chrom -= 2
+            else:
+                continue
             if is_missing(genotype):
                 continue
 
