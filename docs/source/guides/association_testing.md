@@ -58,7 +58,8 @@ that position.
   consistent with those calls, but it cannot recover coverage evidence that the merge never had.
 
 Synthetic two-sample example. `S1.vcf.gz` has a PASS record `chr1:1000 A>G` with `GT=0/1` and
-`DP=35`. `S2.vcf.gz` has no record at that position.
+`DP=35`. The two S2 rows show two different ways the cohort VCF can get a genotype for S2 at that
+position: from joint genotyping, or from merging a variant-only `S2.vcf.gz` that has no record there.
 
 | Sample | Source of the `chr1:1000` genotype | Merged `GT` | `FORMAT/DP` | Evidence |
 |--------|------------------------------------|-------------|-------------|----------|
@@ -66,8 +67,9 @@ Synthetic two-sample example. `S1.vcf.gz` has a PASS record `chr1:1000 A>G` with
 | S2 | Joint genotyping or a gVCF reference block | `0/0` | `28` | Observed reference call |
 | S2 | `bcftools merge -0 -F x` of variant-only VCFs | `0/0` | `.` | Filled reference; S2 may have had no coverage |
 
-In all three cases the merged site is `PASS`, so both S2 rows look the same to an association
-test. Only the second S2 row supports a reference call.
+The site is `PASS` either way, and both S2 rows look the same to an association test. Only the
+S2 row with observed reference evidence (`DP=28`) supports a reference call. The filled `0/0`
+does not.
 
 Before you interpret a burden result, establish reference evidence for every sample at the tested
 sites. For example:
@@ -91,8 +93,14 @@ association testing. (`--genotype-filter` selects carriers by genotype class, su
 `comp_het`; it is not a QC filter.) Apply genotype-level QC upstream, for example with
 `bcftools filter` or `bcftools +setGT` on `FMT/DP` and `FMT/GQ`.
 
-Only genotypes that are explicitly missing (`./.`, `.|.`, `.`, or an empty/`NA` value) are
-treated as missing. Filled `0/0` calls are therefore invisible to the checks below:
+The following genotypes are treated as missing, which makes them subject to the missingness
+thresholds and imputation below:
+
+- fully missing calls (`./.`, `.|.`, `.`, or an empty/`NA` value);
+- partial biallelic calls (`0/.`, `./1`, `1|.`);
+- unparseable strings (for example `N/A` or `malformed`).
+
+Filled `0/0` calls are not missing, so the checks below cannot detect them:
 
 - **Fisher's exact test** uses the complete-case policy described in
   [Missing Genotypes and Complete-Case Policy](#missing-genotypes-and-complete-case-policy).
@@ -114,9 +122,11 @@ allele copies after these steps report `NA` for the matrix-based tests.
 
 ### Multi-Allelic Sites Must Be Split
 
-The genotype matrix encodes one ALT allele per variant. A genotype with an allele index above 1
-(`0/2`, `1/2`, `2/2`, or haploid `2`) stops the analysis with a `ValueError` that names the gene,
-variant and sample column. It is not recoded. Split and normalize multi-allelic records before
+The genotype matrix encodes one ALT allele per variant. Any genotype that contains a non-missing
+allele index above 1 stops the analysis with a `ValueError` that names the gene, variant and
+sample column. It is not recoded. This includes fully called genotypes (`0/2`, `1/2`, `2/2`,
+haploid `2`, and their phased forms), partial calls (`./2`, `2/.`, `.|2`) and polyploid calls
+(`0/1/2`). Split and normalize multi-allelic records before
 running VariantCentrifuge:
 
 ```bash
