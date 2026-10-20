@@ -27,7 +27,6 @@ from variantcentrifuge.association.backends.skato_integrate import (  # noqa: F4
     _skato_integrate_davies,
     _skato_integrate_liu,
     _skato_optimal_param,
-    _skato_quadrature_nodes,
 )
 
 if TYPE_CHECKING:

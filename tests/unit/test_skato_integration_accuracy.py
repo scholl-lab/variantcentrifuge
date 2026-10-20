@@ -65,7 +65,7 @@ def _surv(z: float, lam: np.ndarray) -> float:
     return min(max(sf, 0.0), 1.0)
 
 
-def _reference(case: dict) -> float:
+def _reference(case: dict, surv=None) -> float:
     """Independent SKAT-O integral p = int_0^edge f1(x) S(g(x)) dx + P[chi2_1 > edge].
 
     Adaptive quad split at all rho kinks; no x <= 40 truncation and no pmin cap, so it
@@ -81,7 +81,10 @@ def _reference(case: dict) -> float:
     total, eps = 0.0, 1e-10
     for lo, hi in itertools.pairwise(cuts):
         v, err = scipy.integrate.quad(
-            lambda x: scipy.stats.chi2.pdf(x, 1) * _surv((np.min(a - b * x) - mu) * sd + mu, lam),
+            lambda x: (
+                scipy.stats.chi2.pdf(x, 1)
+                * (surv or _surv)((np.min(a - b * x) - mu) * sd + mu, lam)
+            ),
             lo,
             hi,
             epsabs=0,
@@ -95,22 +98,16 @@ def _reference(case: dict) -> float:
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
-    ("name", "tol"),
-    [
-        # Davies acc=1e-6 in the integrand bounds the multi-eigenvalue error.
-        ("support_edge_k11", 1e-7),
-        ("multi_k8", 1e-7),
-        ("rank_one_moderate", 1e-10),
-        ("rank_one_narrow", 1e-10),
-        ("severe_imbalance", 1e-10),
-    ],
+    "name",
+    ["support_edge_k11", "multi_k8", "rank_one_moderate", "rank_one_narrow", "severe_imbalance"],
 )
-def test_integral_matches_independent_adaptive(name: str, tol: float) -> None:
+def test_integral_matches_independent_adaptive(name: str) -> None:
     """Support-edge splits: baseline split only at rho kinks (off by 8e-5 .. 1.5e-2)."""
     case = PARAMS[name]
     ref = _reference(case)
     assert ref < case["pmin"] * len(case["rho"])  # the shared cap cannot mask an error
-    assert _integrate(case) == pytest.approx(ref, abs=tol)
+    # budget 1e-4 relative (adaptive estimate); achieved errors are ~1e-8
+    assert _integrate(case) == pytest.approx(ref, rel=1e-6, abs=0.0)
 
 
 @pytest.mark.unit
@@ -133,7 +130,7 @@ def test_rank_one_does_not_fall_back_to_liu(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(skato_integrate, "_skato_integrate_liu", lambda *a: called.append(a) or 0.0)
     p = _integrate(PARAMS["rank_one_moderate"])
     assert not called
-    assert p == pytest.approx(0.220218733, abs=1e-9)
+    assert p == pytest.approx(0.220218733, rel=1e-6, abs=0.0)
 
 
 @pytest.mark.unit
@@ -159,7 +156,7 @@ def test_severe_imbalance_resolution() -> None:
     case = PARAMS["severe_imbalance"]
     p = _integrate(case)
     assert case["pmin"] <= p <= 1.0
-    assert p == pytest.approx(0.95593010347, abs=1e-9)
+    assert p == pytest.approx(0.95593010347, rel=1e-6, abs=0.0)
 
 
 @pytest.mark.unit
@@ -317,3 +314,58 @@ def test_tilted_survival_davies_failure_raises(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(skato_integrate, "davies_pvalue", lambda *a, **k: (2.0, 1))
     with pytest.raises(skato_integrate._DaviesFailureError):
         skato_integrate._tilted_sf(20.0, np.array([1.0, 0.3, 0.05]))
+
+
+@pytest.mark.unit
+def test_large_gene_outer_integral_converges(monkeypatch: pytest.MonkeyPatch) -> None:
+    """501 variants with an exactly chi2(500) conditional: fixed 16-node rule was +0.54%.
+
+    Reference: exact chi2(500) survival, adaptive quad without truncation or cap
+    (5.8764202692e-8; 64-node fixed rule 5.8764202648e-8).
+    """
+    n = 501
+    v = np.eye(1, n)[0] - np.ones(n) / np.sqrt(n)
+    v /= np.linalg.norm(v)
+    z1 = np.eye(n) - 2 * np.outer(v, v)
+    z1[0] *= 10
+    p, case = _tail_case(3500 * (1 - np.array(sm._SKATO_RHO_GRID)), z1, monkeypatch)
+    lam = np.array(case["lambdas"])
+    assert len(lam) == 500 and np.ptp(lam) < 1e-10 * lam[0]
+
+    def chi2_500(z: float, lam: np.ndarray) -> float:
+        return 1.0 if z <= 0 else float(scipy.stats.chi2.sf(z / lam.mean(), len(lam)))
+
+    ref = _reference(case, chi2_500)
+    assert ref == pytest.approx(5.8764202692e-8, rel=1e-9, abs=0.0)
+    assert p == pytest.approx(ref, rel=1e-4, abs=0.0)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("c", [1e-12, 1.0, 1e12])
+def test_scale_invariance(c: float) -> None:
+    """Q and the eigenvalues scale together; p-values must not change (brentq xtol was absolute)."""
+    lam = np.array([1.0, 0.1])
+    assert skato_integrate._tilted_sf(60 * c, lam * c) == pytest.approx(
+        1.0007853115258435e-14, rel=1e-9, abs=0.0
+    )
+    lam3 = np.array([1.0, 0.1, 0.3])
+    assert dv._kuonen_pvalue(60 * c, lam3 * c) == pytest.approx(
+        1.3419078340383e-14, rel=1e-9, abs=0.0
+    )
+    z1 = np.diag(np.sqrt([0.01, 0.1, 1.0])) @ _B3
+    for q, p_ref in ((5.0, 0.053395406190393), (46.0, 2.926508694375e-11)):
+        q_rho = c * q * (1 - np.array(sm._SKATO_RHO_GRID))
+        p, _each = sm._skato_get_pvalue(q_rho, np.sqrt(c) * z1, sm._SKATO_RHO_GRID)
+        assert p == pytest.approx(p_ref, rel=1e-9, abs=0.0)
+
+
+@pytest.mark.unit
+def test_subdivision_cap_is_logged(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Hitting the per-piece subdivision cap warns instead of failing silently."""
+    monkeypatch.setattr(skato_integrate, "_SKATO_QUAD_LIMIT", 1)
+    monkeypatch.setattr(skato_integrate, "_SKATO_DAVIES_REL_ACC", 1e-14)
+    with caplog.at_level("WARNING", logger="variantcentrifuge"):
+        _integrate(PARAMS["rank_one_narrow"])
+    assert "SKAT-O integral piece" in caplog.text

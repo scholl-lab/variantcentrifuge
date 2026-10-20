@@ -239,6 +239,8 @@ def _kuonen_pvalue(q: float, lambdas: np.ndarray) -> float | None:
     lam_pos = lambdas[lambdas > 0]
     if len(lam_pos) == 0:
         return None
+    # Scale-free: the brentq bracket/xtol below are absolute
+    q, lambdas, lam_pos = q / lam_pos.max(), lambdas / lam_pos.max(), lam_pos / lam_pos.max()
 
     t_max = 0.4999 / lam_pos.max()  # slightly inside singularity at 1/(2*lam_max)
 

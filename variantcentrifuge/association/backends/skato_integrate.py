@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import itertools
 import logging
 from typing import Any
 
@@ -24,9 +25,8 @@ from variantcentrifuge.association.backends.davies import (
 
 logger = logging.getLogger("variantcentrifuge")
 
-# Gauss-Legendre nodes on [-1, 1] for the SKAT-O integral over chi2(1) on [0, 40]
-# (R: upper=40). Applied piecewise in t = sqrt(x) by _skato_quadrature_nodes; a single
-# fixed rule over x was 5-8% off R on null genes and up to 2x off near p=1e-2.
+# Former fixed 16-node rule; unused since the adaptive integral, kept because
+# python_backend re-exports it.
 _GL_NODES_RAW, _GL_WEIGHTS_RAW = leggauss(16)
 _GL_A, _GL_B = 0.0, 40.0  # integration bounds (matches R: upper=40)
 # Conditional-statistic levels (in units of E[Q]) at which the SKAT-O integral is split
@@ -36,6 +36,8 @@ _SKATO_Z_LEVELS = np.array([0.0, 1.0, 8.0, 64.0])
 # nodes beyond that resolution use the tilted tail probability (_tilted_sf).
 _SKATO_DAVIES_REL_ACC, _SKATO_DAVIES_MIN_ACC = 1e-4, 1e-9
 _SKATO_X_MAX = 1500.0  # P[chi2_1 > 1500] underflows to 0
+_SKATO_QUAD_LIMIT = 50  # max subintervals per piece of the adaptive SKAT-O integral
+_SQRT_2_OVER_PI = float(np.sqrt(2.0 / np.pi))
 # Gauss-Laguerre rule for the exponentially tilted tail probability (_tilted_sf)
 _LAG_NODES, _LAG_WEIGHTS = laggauss(16)
 
@@ -57,11 +59,11 @@ def _tilted_sf(z: float, lambdas: np.ndarray) -> float:
     # ponytail: validated to ~1e-7 relative against exact survival for k <= 3 (down to
     # 1e-16) and to Monte Carlo standard error (<= 1%) for k = 8, 11 (down to 1e-34);
     # k > 3 has no exact reference here. Cost ~17 Davies calls per tail node.
-    t = brentq(
-        lambda u: float(np.sum(lambdas / (1 - 2 * u * lambdas))) - z,
-        0.0,
-        0.5 / lambdas.max() * (1 - 1e-12),
-    )
+    scale = float(lambdas.max())  # scale-free: brentq's xtol is absolute
+    z, lambdas = z / scale, lambdas / scale
+    t = brentq(lambda u: float(np.sum(lambdas / (1 - 2 * u * lambdas))) - z, 0.0, 0.5 - 1e-12)
+    if not 0.0 < t < 0.5:
+        raise _DaviesFailureError(f"invalid tilt t={t:.3g} at z={z:.6g}")
     lam_t = lambdas / (1 - 2 * t * lambdas)
     log_m = -0.5 * float(np.sum(np.log1p(-2 * t * lambdas)))
     sf = []
@@ -70,7 +72,10 @@ def _tilted_sf(z: float, lambdas: np.ndarray) -> float:
         if p is None or ifault != 0:
             raise _DaviesFailureError(f"tilted ifault={ifault} at q={q:.6g}")
         sf.append(p)
-    return float(np.exp(log_m - t * z) * np.dot(_LAG_WEIGHTS, sf[0] - np.array(sf[1:])))
+    out = float(np.exp(log_m - t * z) * np.dot(_LAG_WEIGHTS, sf[0] - np.array(sf[1:])))
+    if not 0.0 <= out <= 1.0:
+        raise _DaviesFailureError(f"tilted survival {out:.3g} at z={z:.6g}")
+    return out
 
 
 def _skato_breakpoints(
@@ -91,37 +96,6 @@ def _skato_breakpoints(
         x for x in cand if np.argmin(a - b * x * (1 - 1e-9)) != np.argmin(a - b * x * (1 + 1e-9))
     ]
     return np.unique(np.r_[kinks, roots[(roots > _GL_A) & (roots < upper)]])
-
-
-def _skato_quadrature_nodes(
-    pmin_q: np.ndarray,
-    tau: np.ndarray,
-    rho: np.ndarray,
-    levels: np.ndarray | None = None,
-    upper: float = _GL_B,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Nodes/weights for the SKAT-O integral, exact up to Davies accuracy.
-
-    The integrand min_rho((pmin_q - tau*x) / (1 - rho)) has kinks where the minimising
-    rho changes, the conditional CDF is non-smooth at its support edge, and chi2(1) has
-    an x^-1/2 singularity at 0. Splitting at these (see ``_skato_breakpoints``) and
-    substituting x = t^2 leaves smooth pieces that 16-node Gauss-Legendre integrates.
-    """
-    a, b = pmin_q / (1.0 - rho), tau / (1.0 - rho)
-    lv = np.empty(0) if levels is None else levels
-    cuts = np.sqrt(np.r_[_GL_A, _skato_breakpoints(a, b, lv, upper), upper])
-    lo, hi = cuts[:-1, None], cuts[1:, None]
-    u, du = (_GL_NODES_RAW + 1.0) / 2.0, _GL_WEIGHTS_RAW / 2.0
-    # The CDF of k chi2 terms grows like z^(k/2) from the support edge; grade the piece
-    # ending there as hi - (hi - lo)*v^2 so a sqrt (k = 1) edge stays smooth in v.
-    with np.errstate(divide="ignore", invalid="ignore"):
-        edge = np.sqrt(np.min((a - lv[0]) / b)) if lv.size else np.nan
-    graded = np.isclose(hi, edge, rtol=1e-12, atol=0.0)
-    s = np.where(graded, 1.0 - (1.0 - u) ** 2, u)
-    ds = np.where(graded, 2.0 * (1.0 - u), 1.0) * du
-    t = lo + (hi - lo) * s
-    w = (hi - lo) * ds * 2.0 * t  # dx = 2t dt
-    return (t**2).ravel(), w.ravel()
 
 
 def _get_lambda(kernel_mat: np.ndarray) -> np.ndarray:
@@ -342,10 +316,24 @@ def _skato_integrate_davies(
     edge = float(np.min((a - levels[0]) / b)) if levels.size else np.inf
     upper = min(edge, _GL_B)
     try:
-        gl_x, gl_w = _skato_quadrature_nodes(
-            pmin_q[valid], tau[valid], rho_arr[valid], levels, upper
-        )
-        pvalue = float(np.dot(surv(gl_x) * scipy.stats.chi2.pdf(gl_x, df=1), gl_w))
+        # Adaptive Gauss-Kronrod per piece in t = sqrt(x) (dx f1(x) = sqrt(2/pi) e^{-t^2/2} dt),
+        # with an absolute budget tied to the p scale (p >= ~pmin) and a subdivision cap.
+        cuts = np.sqrt(np.r_[_GL_A, _skato_breakpoints(a, b, levels, upper), upper])
+        tol = _SKATO_DAVIES_REL_ACC * pmin / len(cuts)
+        pvalue = 0.0
+        for lo, hi in itertools.pairwise(cuts):
+            v, err, *info = scipy.integrate.quad(
+                lambda t: float(np.exp(-t * t / 2) * surv(np.array([t * t]))[0]),
+                lo,
+                hi,
+                epsabs=tol / _SQRT_2_OVER_PI,
+                epsrel=_SKATO_DAVIES_REL_ACC,
+                limit=_SKATO_QUAD_LIMIT,
+                full_output=1,
+            )
+            if len(info) > 1:
+                logger.warning("SKAT-O integral piece [%g, %g]: %s", lo**2, hi**2, info[1])
+            pvalue += _SQRT_2_OVER_PI * v
         tail_hi = min(edge, _SKATO_X_MAX)
         # Mass beyond x = 40 is < 2.6e-10; integrate it only where it matters relative to p
         if tail_hi > _GL_B and scipy.stats.chi2.sf(_GL_B, 1) > _SKATO_DAVIES_REL_ACC * pvalue:
