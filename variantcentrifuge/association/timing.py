@@ -32,18 +32,24 @@ class Progress:
         label: str,
         total: int,
         interval: float = 30.0,
+        offset: int = 0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.label, self.total, self.interval, self._clock = label, total, interval, clock
+        self.offset = offset  # units finished before this tracker started (not in the rate)
         self._start = self._last = clock()
 
     def update(self, done: int) -> None:
-        """Log when ``interval`` seconds passed since the last line, and at completion."""
+        """Log when ``interval`` seconds passed since the last line, and at completion.
+
+        ``done`` counts units finished since the tracker started.
+        """
         now = self._clock()
+        rate_done, done = done, done + self.offset
         if done >= self.total or now - self._last >= self.interval:
             self._last = now
             elapsed = max(now - self._start, 1e-9)
-            rate = done / elapsed
+            rate = rate_done / elapsed
             eta = int((self.total - done) / rate) if rate else 0
             logger.info(
                 "%s: %d/%d (%.1f%%), %.2f/s, ETA %d:%02d:%02d",
@@ -53,15 +59,15 @@ class Progress:
 
 
 def log_stage_summary(timings: dict[str, float], facts: list[str]) -> None:
-    """Log one INFO line per sub-step, the total, peak RSS (self / largest child) and ``facts``."""
+    """Log one INFO line per non-trivial sub-step, the total, parent peak RSS and ``facts``."""
     for name, seconds in timings.items():
-        logger.info("Association sub-step %s: %.1f s", name, seconds)
+        if seconds >= 0.05:
+            logger.info("Association sub-step %s: %.1f s", name, seconds)
     unit = 1024 * 1024 if sys.platform == "darwin" else 1024  # ru_maxrss: bytes (macOS) / KiB
     own = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / unit
-    child = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / unit
     logger.info(
-        "Association total: %.1f s, peak RSS %.0f MiB (largest worker %.0f MiB)",
-        sum(timings.values()), own, child,
+        "Association total: %.1f s, peak RSS %.0f MiB (parent process)",
+        sum(timings.values()), own,
     )  # fmt: skip
     for fact in facts:
         logger.info("Association: %s", fact)

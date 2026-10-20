@@ -466,8 +466,6 @@ class AssociationAnalysisStage(Stage):
                 f"aggregation path: {'genotype-code' if genotypes is not None else 'legacy counts'}"
                 f"; genotypes parsed for {len(samples)} assigned samples of "
                 f"{len(vcf_samples_list or [])} in the VCF",
-                f"genes: {len(gene_burden_data)} given, {n_genes} tested, "
-                f"{len(gene_burden_data) - n_genes} skipped/no result",
                 subset_summary(context),
                 *getattr(engine, "run_info", []),
             ],

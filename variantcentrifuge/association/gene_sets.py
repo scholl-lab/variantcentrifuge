@@ -96,6 +96,7 @@ def run_gene_and_set_units(
     set_engine = AssociationEngine.from_names(
         test_names, dataclasses.replace(config, gene_prior_weights=None)
     )
+    set_engine.unit_label = "gene sets"
     frames = [
         engine.run_all([d for d in units if d.get("GENE") not in is_set], gene_hook).assign(
             unit_type="gene"
@@ -105,6 +106,7 @@ def run_gene_and_set_units(
         ),
     ]
     engine.gene_hook_results.update(set_engine.gene_hook_results)
+    engine.run_info += set_engine.run_info
     frames = [f for f in frames if "gene" in f.columns]
     if not frames:
         return pd.DataFrame()

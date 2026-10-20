@@ -254,6 +254,7 @@ def dispatch_parallel_genes(
     results_by_test: dict[str, dict[str, TestResult]],
     gene_hook: GeneHook | None = None,
     hook_results: dict[str, Any] | None = None,
+    progress: Progress | None = None,
 ) -> None:
     """Run genes in forked workers (see ``fork_map``); results match the sequential loop.
 
@@ -265,12 +266,12 @@ def dispatch_parallel_genes(
         logger.info("Parallel association needs fork (Linux); running genes sequentially")
         run_sequential_genes(
             remaining, tests, config, results_by_test, gene_hook, hook_results,
-            Progress("Association genes", len(remaining)),
+            progress or Progress("Association genes", len(remaining)),
         )  # fmt: skip
         return
     logger.info(f"Parallel association: {actual_workers} workers for {len(remaining)} genes")
     state = (remaining, tests, config, gene_hook)
-    progress = Progress("Association genes", len(remaining))
+    progress = progress or Progress("Association genes", len(remaining))
     for lo, hi, (chunk_results, qc, chunk_hooks) in fork_map(
         _run_gene_range, state, len(remaining), actual_workers
     ):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import pytest
 
@@ -99,3 +100,41 @@ def test_subset_summary_variants() -> None:
     assert "--no-sample-subset" in subset_summary(ctx(no_sample_subset=True))
     assert "--igv" in subset_summary(ctx(igv_enabled=True, no_stats=True))
     assert "no sample file" in subset_summary(ctx(no_stats=True))
+
+
+@pytest.mark.parametrize("workers", [1, 4])
+def test_progress_total_is_all_genes(
+    workers: int, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("variantcentrifuge.association.engine.MIN_GENES_FOR_PARALLEL", 2)
+    engine = AssociationEngine.from_names(
+        ["fisher"], AssociationConfig(association_workers=workers)
+    )
+    with caplog.at_level(logging.INFO):
+        engine.run_all(_genes(100))
+    last = [r.getMessage() for r in caplog.records if "Association genes:" in r.getMessage()][-1]
+    assert "100/100 (100.0%)" in last
+    given, with_p, without = map(int, re.findall(r"\d+", engine.run_info[1]))
+    assert (given, with_p + without) == (100, 100) and without > 0  # synthetic extremes untestable
+
+
+def test_gene_sets_get_own_label_and_run_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from variantcentrifuge.association.gene_sets import run_gene_and_set_units
+
+    cfg = AssociationConfig()
+    engine = AssociationEngine.from_names(["fisher"], cfg)
+    units = _genes(3) + [dict(g, GENE=f"SET{i}") for i, g in enumerate(_genes(2))]
+    with caplog.at_level(logging.INFO):
+        run_gene_and_set_units(engine, ["fisher"], cfg, units, ["SET0", "SET1"], None)
+    text = caplog.text
+    assert "Association genes: 3/3" in text and "Association gene sets: 2/2" in text
+    assert any(i.startswith("gene sets: 2 given") for i in engine.run_info)
+    assert any(i.startswith("genes: 3 given") for i in engine.run_info)
+
+
+def test_summary_omits_zero_steps_and_child_rss(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO):
+        log_stage_summary({"sample_setup": 0.0, "engine": 1.0}, [])
+    assert "sample_setup" not in caplog.text and "worker" not in caplog.text
