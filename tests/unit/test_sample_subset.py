@@ -6,6 +6,7 @@ import gzip
 import logging
 import shutil
 import subprocess
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -169,7 +170,7 @@ def test_extract_passes_samples_file_to_bcftools(tmp_path):
 
     def fake_run(cmd, stdout, **_kw):
         seen["cmd"] = cmd
-        seen["samples"] = open(cmd[cmd.index("-S") + 1]).read()
+        seen["samples"] = Path(cmd[cmd.index("-S") + 1]).read_text()
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     with patch("variantcentrifuge.extractor.subprocess.run", side_effect=fake_run):
@@ -275,6 +276,8 @@ def test_threaded_extraction_runs_after_case_control_assignment():
             ]
         )
     ]
-    assert names.index("phenotype_case_control_assignment") < names.index(
-        "parallel_complete_processing"
-    ) < names.index("genotype_replacement")
+    assert (
+        names.index("phenotype_case_control_assignment")
+        < names.index("parallel_complete_processing")
+        < names.index("genotype_replacement")
+    )

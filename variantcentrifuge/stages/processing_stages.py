@@ -113,6 +113,7 @@ class VariantExtractionStage(Stage):
             extract_config = {
                 "threads": context.config.get("threads", 1),
                 "bcftools_prefilter": context.config.get("bcftools_prefilter"),
+                "temp_dir": context.config.get("temp_dir"),
             }
 
             logger.info(f"Extracting variants from {vcf_file} using {bed_file}")
@@ -354,6 +355,7 @@ class SnpSiftFilterStage(Stage):
             "max_memory_gb": context.config.get("max_memory_gb"),
             "snpsift_memory_gb": context.config.get("snpsift_memory_gb"),
             "filter_exception_file": context.config.get("filter_exception_file"),
+            "temp_dir": context.config.get("temp_dir"),
         }
         apply_snpsift_filter(str(input_vcf), filter_expr, filter_config, str(output_vcf))
 
@@ -528,6 +530,7 @@ class FieldExtractionStage(Stage):
         extract_config = {
             "debug_level": context.config.get("log_level", "INFO"),
             "bcftools_samples": resolve_sample_subset(context),
+            "temp_dir": context.config.get("temp_dir"),
         }
 
         # Convert fields list to space-separated string
