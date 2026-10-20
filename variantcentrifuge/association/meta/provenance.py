@@ -26,6 +26,7 @@ PROVENANCE_FIELDS = (
     "gnomad_source",
     "regions_bed_sha256",
     "gene_file_sha256",
+    "gene_set_file_sha256",
 )
 
 
@@ -64,21 +65,34 @@ def _snpeff_genome(cmd: str) -> str | None:
     return args[-1] if args else None
 
 
-def _command_files(lines: list[str], needle: str) -> str | None:
-    """Basenames of the annotation databases in ``##*Cmd=``/``##*Command=`` lines that
-    contain ``needle``: the ``-db`` value, else the first file argument (SnpSift annotate
-    and bcftools annotate -a put the database first; the input VCF comes after it).
+def _annotation_db(key: str, value: str) -> str | None:
+    """The database operand of an annotation command header line, else None.
+
+    ``##bcftools_annotateCommand``: the ``-a``/``--annotations`` value. ``##SnpSiftCmd``
+    (``annotate``/``dbnsfp``): the ``-db`` value, else the first file argument (the
+    database precedes the input VCF). Any other command (view, -o outputs) is ignored.
     """
+    toks = value.strip().strip('"').split()
+    if key == "bcftools_annotateCommand":
+        for i, t in enumerate(toks):
+            if t in ("-a", "--annotations") and i + 1 < len(toks):
+                return toks[i + 1].rstrip(";")
+            if t.startswith("--annotations="):
+                return t.split("=", 1)[1].rstrip(";")
+        return None
+    if key != "SnpSiftCmd" or len(toks) < 2 or toks[1].lower() not in ("annotate", "dbnsfp"):
+        return None
+    if "-db" in toks[:-1]:
+        return toks[toks.index("-db") + 1]
+    return next((t for t in toks[2:] if not t.startswith("-") and "." in t), None)
+
+
+def _command_files(lines: list[str], needle: str) -> str | None:
+    """Basenames of the annotation databases (see ``_annotation_db``) containing ``needle``."""
     names: set[str] = set()
     for ln in lines:
         key, _, value = ln[2:].partition("=")
-        if not key.endswith(("Cmd", "Command")):
-            continue
-        toks = value.strip().strip('"').split()
-        if "-db" in toks[:-1]:
-            db: str | None = toks[toks.index("-db") + 1]
-        else:
-            db = next((t for t in toks[1:] if not t.startswith("-") and "." in t), None)
+        db = _annotation_db(key, value)
         if db and needle in db.lower():
             names.add(os.path.basename(db))
     return ",".join(sorted(names)) or None
@@ -104,6 +118,7 @@ def collect_provenance(config: dict[str, Any]) -> dict[str, str | None]:
         "gnomad_source": _command_files(lines, "gnomad"),
         "regions_bed_sha256": _file_sha256(config.get("regions_bed")),
         "gene_file_sha256": _file_sha256(config.get("gene_file")),
+        "gene_set_file_sha256": _file_sha256(config.get("gene_set_file")),
     }
 
 

@@ -78,10 +78,11 @@ With `--missing-as-ref`, the stored `AN` counts every sample.
 `--mask-label NAME` stores a readable name for the mask (e.g. `pLoF`) next to its
 hash. The artifact also records annotation provenance: the snpEff version
 (`##SnpEffVersion`) and genome database (from `##SnpEffCmd`), the dbNSFP and gnomAD
-database files used by annotation command lines (`##SnpSiftCmd` and other `##...Cmd`/
-`##...Command` lines: the basename of the `-db` value, else of the first file argument,
-never the input VCF), and SHA-256 hashes of the `--regions-bed` and
-`--gene-file` contents (`none` when not used). A header line the input VCF does not
+database files of the annotation commands in the header (basenames only):
+`##SnpSiftCmd` `annotate`/`dbnsfp` (the `-db` value, else the first file argument) and
+`##bcftools_annotateCommand` (the `-a`/`--annotations` value); other commands and
+input/output file names are ignored. It also stores SHA-256 hashes of the
+`--regions-bed`, `--gene-file` and `--gene-set-file` contents (`none` when not used). A header line the input VCF does not
 carry is recorded as unknown.
 
 ## Study manifest
