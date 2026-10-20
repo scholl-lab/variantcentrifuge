@@ -183,25 +183,23 @@ class DataFrameLoadingStage(Stage):
                     threshold_mb = context.config.get("chunk_threshold_mb", 500)
                     memory_threshold_mb = 2000
 
-                if file_size_mb > threshold_mb:
-                    logger.info(
-                        f"Using chunked processing: file size {file_size_mb:.1f}MB > "
-                        f"{threshold_mb}MB threshold"
-                    )
-                    return True
-
-                if estimated_memory_mb > memory_threshold_mb:
-                    logger.info(
-                        f"Using chunked processing: estimated memory {estimated_memory_mb:.1f}MB > "
-                        f"{memory_threshold_mb}MB threshold"
-                    )
-                    logger.info(
-                        f"Memory estimation: {estimated_variants} variants x {sample_count} samples"
-                    )
-                    return True
+                chunked = file_size_mb > threshold_mb or estimated_memory_mb > memory_threshold_mb
+                logger.info(
+                    f"Chunked processing {'ON' if chunked else 'OFF'}: file size "
+                    f"{file_size_mb:.1f}MB (threshold {threshold_mb}MB), estimated memory "
+                    f"{estimated_memory_mb:.1f}MB for {estimated_variants} variants x "
+                    f"{sample_count} samples (threshold {memory_threshold_mb}MB)"
+                )
+                return chunked
             else:
                 threshold_mb = context.config.get("chunk_threshold_mb", 500)
-                return bool(file_size_mb > threshold_mb)
+                chunked = bool(file_size_mb > threshold_mb)
+                logger.info(
+                    f"Chunked processing {'ON' if chunked else 'OFF'}: file size "
+                    f"{file_size_mb:.1f}MB (threshold {threshold_mb}MB), no sample count, "
+                    f"estimated memory unavailable"
+                )
+                return chunked
 
         except Exception as e:
             logger.debug(f"Error in chunking decision: {e}")
