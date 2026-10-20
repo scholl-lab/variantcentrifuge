@@ -139,6 +139,15 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         ),
     )
     stats_group.add_argument(
+        "--mask-label",
+        type=str,
+        default=None,
+        help=(
+            "Readable name of this run's variant mask (e.g. 'pLoF'), recorded in the "
+            "--score-artifact for meta-analysis."
+        ),
+    )
+    stats_group.add_argument(
         "--variant-weights",
         type=str,
         default="beta:1,25",

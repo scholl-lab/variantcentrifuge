@@ -75,6 +75,15 @@ The artifact (schema version 2) also records the missing-genotype policy as
 still load. They are read as `bestguess` with unknown thresholds, which is what they used.
 With `--missing-as-ref`, the stored `AN` counts every sample.
 
+`--mask-label NAME` stores a readable name for the mask (e.g. `pLoF`) next to its
+hash. The artifact also records annotation provenance: the snpEff version
+(`##SnpEffVersion`) and genome database (from `##SnpEffCmd`), the dbNSFP and gnomAD
+database files used by annotation command lines (`##SnpSiftCmd` and other `##...Cmd`/
+`##...Command` lines: the basename of the `-db` value, else of the first file argument,
+never the input VCF), and SHA-256 hashes of the `--regions-bed` and
+`--gene-file` contents (`none` when not used). A header line the input VCF does not
+carry is recorded as unknown.
+
 ## Study manifest
 
 A TSV, one row per stratum:
@@ -89,12 +98,42 @@ Relative paths are read relative to the manifest file. The `stratum_id` names th
 cohort in the output (e.g. `per_stratum_directions` = `adult_cohort:1,pediatric_cohort:-1`).
 It must not contain `:`, `;` or `,`, which separate the per-stratum output fields.
 
+### Several masks
+
+An optional `mask_id` column runs several masks in one `meta` call, one row per mask
+and stratum (each row points at that mask's artifact for the stratum):
+
+```
+stratum_id	artifact_path	mask_id
+adult_cohort	adult.plof.npz	pLoF
+pediatric_cohort	pediatric.plof.npz	pLoF
+adult_cohort	adult.missense.npz	missense
+pediatric_cohort	pediatric.missense.npz	missense
+```
+
+Each mask needs at least two strata and is validated and combined on its own, exactly
+as a single-mask run (identical results); the output stacks one row per gene and mask,
+with `mask` set to the `mask_id`. Two columns are added, repeated on each of a gene's
+rows: `acat_masks_p`, the Cauchy (ACAT, Liu et al. 2019) combination with equal
+weights of the gene's per-mask `primary_p`, and `acat_masks_q`, corrected with
+`--correction` across genes (one ACAT test per gene). Only masks inside their own
+correction family (`primary_q` set; not `low_mac`, `not_in_all_strata` or degenerate)
+enter the combination; a gene with none has no ACAT value. Report `acat_masks_p`
+rather than the best mask: picking the smallest per-mask p-value inflates type I error.
+Without a `mask_id` column the output is unchanged, and `mask` is the artifacts'
+`--mask-label` (or the mask hash prefix).
+
 The meta step **refuses** (hard error, no silent fallback) when strata disagree on
 genome build, annotation version, mask definition, trait type, or missing-genotype
 imputation mode, or when their (hashed) sample sets overlap — overlap would violate the additive-covariance
 independence assumption. Sample non-overlap does not by itself establish
 independence for related or shared-control populations; that remains a caller
 assumption. Strata whose missingness thresholds differ are pooled, with a warning.
+
+It also refuses strata whose annotation provenance differs, naming the field and each
+stratum's value; `--allow-annotation-mismatch` pools them anyway with a warning.
+Unknown provenance (an older artifact, or a VCF without those header lines) is only
+warned about, never refused.
 
 ## Running it
 
@@ -109,7 +148,16 @@ variantcentrifuge meta \
 ```
 
 Only `beta:a,b` and `uniform` weights are supported (the only schemes reproducible
-from the artifact). Output columns include `meta_burden_p`,
+from the artifact). `--weights` takes several schemes, e.g.
+`--weights beta:1,25 uniform`: every column that depends on the weights (p-values,
+`meta_burden_beta`/`_direction`, `meta_skato_rho`, heterogeneity, leave-one-out,
+`burden_firth_ivw_*`, `primary_p`/`primary_q`, `status`, and with several masks
+`acat_masks_p`/`_q`) then
+appears once per scheme, suffixed by the scheme name with non-alphanumerics replaced
+by `_` (`primary_p_beta_1_25`, `primary_p_uniform`). Each scheme is corrected on its
+own, and its diagnostics go to `DIR/[<mask_id>/]<scheme>/`. Gene, mask, sample
+counts, MAC, carrier and `warnings` columns are shared. With one scheme the column
+names are unchanged. Output columns include `meta_burden_p`,
 `meta_burden_direction`, `meta_skat_p`, `meta_skato_p`, `meta_skato_rho`, `het_q`,
 `het_p`, `het_i2`, `per_stratum_directions`, `loo_min_p`, `primary_p`,
 `primary_q`, and a `status`/`warnings` pair (e.g. a non-converged stratum is
@@ -152,15 +200,21 @@ every stratum in the manifest contributes at least one informative minor allele
 converge there, fails). Such genes are reported but handled like `low_mac` genes:
 no `primary_q`, no diagnostics.
 
-Per-stratum carrier counts are not available yet; they need a new artifact field.
+`carriers_by_stratum` (`stratum:n;...`) gives, per stratum, the number of ALT-allele
+carriers: samples with at least one observed ALT allele among the gene's variants (the
+allele the artifact's scores are coded on; at a site where ALT is the major allele
+nearly every sample counts), after the artifact's
+missingness QC (a missing call is never a carrier; with `--missing-as-ref` it is REF);
+`n_carriers_total` is their sum. Artifacts written before this field existed show
+`NA` for their stratum and leave the total empty. Like `cmac_*`, both cover the
+strata whose null model converged.
 
 ### Diagnostics (λ_GC and QQ)
 
 `--diagnostics-output DIR` writes the same files as a single-cohort run
 (`lambda_gc.tsv`, `qq_data.tsv`, `summary.txt`, and `qq_plot.png` when matplotlib is
-installed) for `meta_burden`, `meta_skat`, `meta_skato` and `primary`. A `meta` run
-covers one mask, so each run's directory holds that mask's diagnostics; run once per
-mask for multi-mask designs. λ and QQ use exactly the genes in the correction family
+installed) for `meta_burden`, `meta_skat`, `meta_skato` and `primary`, per mask:
+with several masks each gets its own subdirectory `DIR/<mask_id>/`. λ and QQ use exactly the genes in the correction family
 (those with a `primary_q`; `low_mac` and `degenerate` genes are left out), while the
 warning count in `summary.txt` covers every gene. λ from fewer than 100 genes is
 flagged as unreliable.

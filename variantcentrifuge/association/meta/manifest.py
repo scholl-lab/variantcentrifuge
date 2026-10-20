@@ -3,11 +3,13 @@
 Study-manifest reading and cross-stratum comparability validation.
 
 The manifest is a small TSV: one row per stratum with columns ``stratum_id`` and
-``artifact_path``. Before any combination, strata must be comparable — the meta
-step refuses (hard error, no silent fallback) when strata disagree on genome
-build, annotation version, mask definition, or trait type, or when their
-(hashed) sample sets overlap (overlap violates the additive-covariance
-independence assumption; issue #112 forbids shared controls).
+``artifact_path``, plus an optional ``mask_id`` column for several masks in one run
+(one row per mask and stratum; each mask is validated and combined separately, #196).
+Before any combination, strata must be comparable — the meta step refuses (hard
+error, no silent fallback) when strata disagree on genome build, annotation
+version, mask definition, or trait type, or when their (hashed) sample sets
+overlap (overlap violates the additive-covariance independence assumption;
+issue #112 forbids shared controls).
 
 Sample-hash non-overlap does NOT by itself establish independence for related or
 shared-control populations — that remains an explicit caller assumption.
@@ -21,6 +23,7 @@ import os
 from dataclasses import dataclass
 
 from variantcentrifuge.association.meta.artifact import ScoreCovarianceArtifact, load_artifact
+from variantcentrifuge.association.meta.provenance import check_provenance
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -35,10 +38,11 @@ class StratumRef:
 
     stratum_id: str
     artifact_path: str
+    mask_id: str | None = None
 
 
 def read_study_manifest(path: str) -> list[StratumRef]:
-    """Read a study manifest TSV (columns: stratum_id, artifact_path)."""
+    """Read a study manifest TSV (columns: stratum_id, artifact_path[, mask_id])."""
     refs: list[StratumRef] = []
     with open(path, encoding="utf-8") as fh:
         reader = csv.DictReader(fh, delimiter="\t")
@@ -47,26 +51,38 @@ def read_study_manifest(path: str) -> list[StratumRef]:
             raise MetaCompatibilityError(
                 f"Manifest '{path}' must have columns {sorted(required)}; found {reader.fieldnames}"
             )
+        has_mask = "mask_id" in reader.fieldnames
         for row in reader:
             sid = (row.get("stratum_id") or "").strip()
             apath = (row.get("artifact_path") or "").strip()
-            if not sid or not apath:
+            mask = (row.get("mask_id") or "").strip() if has_mask else None
+            if not sid or not apath or mask == "":
                 raise MetaCompatibilityError(
                     f"Manifest '{path}' has a row with empty fields: {row}"
                 )
             # Relative paths are relative to the manifest, not the working directory.
             apath = os.path.join(os.path.dirname(os.path.abspath(path)), apath)
-            refs.append(StratumRef(stratum_id=sid, artifact_path=apath))
-    if len(refs) < 2:
-        raise MetaCompatibilityError(
-            f"Manifest '{path}' lists {len(refs)} stratum; meta-analysis needs at least 2."
-        )
-    seen: set[str] = set()
-    for ref in refs:
-        if ref.stratum_id in seen:
-            raise MetaCompatibilityError(f"Duplicate stratum_id '{ref.stratum_id}' in manifest.")
-        seen.add(ref.stratum_id)
+            refs.append(StratumRef(stratum_id=sid, artifact_path=apath, mask_id=mask))
+    for mask, group in group_by_mask(refs).items():
+        what = f"mask '{mask}'" if mask is not None else "it"
+        if len(group) < 2:
+            raise MetaCompatibilityError(
+                f"Manifest '{path}' lists {len(group)} stratum for {what}; "
+                "meta-analysis needs at least 2."
+            )
+        ids = [r.stratum_id for r in group]
+        dup = sorted({s for s in ids if ids.count(s) > 1})
+        if dup:
+            raise MetaCompatibilityError(f"Duplicate stratum_id {dup} for {what} in manifest.")
     return refs
+
+
+def group_by_mask(refs: list[StratumRef]) -> dict[str | None, list[StratumRef]]:
+    """Manifest rows per mask, in first-appearance order (one group without ``mask_id``)."""
+    groups: dict[str | None, list[StratumRef]] = {}
+    for ref in refs:
+        groups.setdefault(ref.mask_id, []).append(ref)
+    return groups
 
 
 def load_manifest_artifacts(refs: list[StratumRef]) -> list[ScoreCovarianceArtifact]:
@@ -102,11 +118,15 @@ def _check_missing_policy(artifacts: list[ScoreCovarianceArtifact]) -> None:
             logger.warning("Strata use different missingness %s (%s).", key, listing)
 
 
-def validate_comparability(artifacts: list[ScoreCovarianceArtifact]) -> None:
+def validate_comparability(
+    artifacts: list[ScoreCovarianceArtifact], allow_annotation_mismatch: bool = False
+) -> None:
     """Raise MetaCompatibilityError unless all strata are comparable.
 
     Checks: identical genome_build, annotation_version, mask_hash, trait_type,
-    missing-genotype imputation, and disjoint sample_id_hashes across strata.
+    missing-genotype imputation, annotation provenance (a mismatch only warns with
+    ``allow_annotation_mismatch``; unknown values warn), and disjoint
+    sample_id_hashes across strata.
     """
     if len(artifacts) < 2:
         raise MetaCompatibilityError("Need at least 2 strata to validate comparability.")
@@ -122,6 +142,7 @@ def validate_comparability(artifacts: list[ScoreCovarianceArtifact]) -> None:
     for attr in ("genome_build", "annotation_version", "mask_hash", "trait_type"):
         _uniform(attr)
     _check_missing_policy(artifacts)
+    check_provenance(artifacts, allow_annotation_mismatch, MetaCompatibilityError)
 
     # Sample-hash overlap check (independence of covariances).
     seen: dict[str, str] = {}
@@ -143,6 +164,7 @@ def validate_comparability(artifacts: list[ScoreCovarianceArtifact]) -> None:
 __all__ = [
     "MetaCompatibilityError",
     "StratumRef",
+    "group_by_mask",
     "load_manifest_artifacts",
     "read_study_manifest",
     "validate_comparability",

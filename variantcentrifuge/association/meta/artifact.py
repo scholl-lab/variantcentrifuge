@@ -56,6 +56,9 @@ class GeneScore:
         Observed allele numbers = 2 * non-missing samples (pre-imputation).
     null_converged : bool
         Whether the stratum null model converged.
+    n_carriers : int | None
+        Samples with >= 1 observed ALT allele over the gene's variants (#194);
+        None for artifacts written before it was recorded.
     firth : dict | None
         Optional Firth burden fit ``{"beta", "se", "weights"}`` (#198); None if absent.
     """
@@ -66,6 +69,7 @@ class GeneScore:
     ac: np.ndarray
     an: np.ndarray
     null_converged: bool
+    n_carriers: int | None = None
     firth: dict[str, Any] | None = None
 
 
@@ -85,7 +89,12 @@ class ScoreCovarianceArtifact:
     genes: dict[str, GeneScore]
     schema_version: int = SCHEMA_VERSION
     # imputation ("bestguess" | "missing_as_ref") + site/sample missingness thresholds
-    missing_policy: dict[str, Any] = field(default_factory=lambda: dict(V1_MISSING_POLICY))
+    # Required, keyword-only: how missing genotypes were handled must be stated, never
+    # defaulted (V1_MISSING_POLICY applies only when loading a v1 artifact).
+    missing_policy: dict[str, Any] = field(kw_only=True)
+    # Optional v2 fields (#197): readable mask name; annotation provenance (meta/provenance.py)
+    mask_label: str | None = None
+    provenance: dict[str, Any] = field(default_factory=dict)
 
 
 def fit_stratum_null(
@@ -191,6 +200,7 @@ def compute_gene_score(
         ac=ac,
         an=an,
         null_converged=_null_converged(null_model),
+        n_carriers=int((raw > 0).any(axis=1).sum()),  # NaN (missing) is not a carrier
     )
 
 
@@ -208,10 +218,13 @@ def build_stratum_artifact(
     n_cases: int,
     n_controls: int,
     sample_id_hashes: list[str] | None = None,
+    missing_policy: dict[str, Any],
 ) -> ScoreCovarianceArtifact:
     """Fit the null once and compute a GeneScore for every gene.
 
     ``genes`` maps gene -> (imputed_matrix, raw_dosage, variant_keys).
+    ``missing_policy`` states how the imputed matrices were filled (see
+    :class:`ScoreCovarianceArtifact`); it is recorded, not inferred.
     """
     null_model = fit_stratum_null(phenotype, covariates, trait_type)
     gene_scores: dict[str, GeneScore] = {}
@@ -228,6 +241,7 @@ def build_stratum_artifact(
         n_controls=int(n_controls),
         sample_id_hashes=list(sample_id_hashes or []),
         genes=gene_scores,
+        missing_policy=dict(missing_policy),
     )
 
 
@@ -243,6 +257,7 @@ def save_artifact(artifact: ScoreCovarianceArtifact, path: str) -> None:
         gene_meta[gene] = {
             "variant_keys": gs.variant_keys,
             "null_converged": gs.null_converged,
+            "n_carriers": gs.n_carriers,
         }
         if gs.firth is not None:
             gene_meta[gene]["firth"] = gs.firth
@@ -259,6 +274,8 @@ def save_artifact(artifact: ScoreCovarianceArtifact, path: str) -> None:
         "n_controls": artifact.n_controls,
         "sample_id_hashes": artifact.sample_id_hashes,
         "missing_policy": artifact.missing_policy,
+        "mask_label": artifact.mask_label,
+        "provenance": artifact.provenance,
         "genes": gene_meta,
     }
     with open(f"{path}.meta.json", "w", encoding="utf-8") as fh:
@@ -294,6 +311,7 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
                 ac=data[f"{gene}::ac"],
                 an=data[f"{gene}::an"],
                 null_converged=bool(gmeta["null_converged"]),
+                n_carriers=gmeta.get("n_carriers"),
                 firth=gmeta.get("firth"),
             )
     return ScoreCovarianceArtifact(
@@ -309,6 +327,8 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
         genes=genes,
         schema_version=int(meta["schema_version"]),
         missing_policy=dict(policy),
+        mask_label=meta.get("mask_label"),
+        provenance=dict(meta.get("provenance") or {}),
     )
 
 
@@ -330,6 +350,8 @@ def emit_stratum_artifact(
     annotation_version: str,
     mask_id: str,
     mask_hash: str,
+    mask_label: str | None = None,
+    provenance: dict[str, Any] | None = None,
     firth_weights: str | None = None,
 ) -> ScoreCovarianceArtifact:
     """Write a stratum artifact from the association stage's per-gene matrix builders.
@@ -465,6 +487,8 @@ def emit_stratum_artifact(
             "site_threshold": first.missing_site_threshold,
             "sample_threshold": first.missing_sample_threshold,
         },
+        mask_label=mask_label,
+        provenance=dict(provenance or {}),
     )
     save_artifact(artifact, path)
     logger.info("Wrote meta-analysis score artifact (%d genes) to %s", len(gene_scores), path)

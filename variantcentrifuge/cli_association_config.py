@@ -78,6 +78,7 @@ def populate_association_config(
         cfg["variant_weight_params"] = None
     cfg["diagnostics_output"] = getattr(args, "diagnostics_output", None)
     cfg["score_artifact"] = getattr(args, "score_artifact", None)
+    cfg["mask_label"] = getattr(args, "mask_label", None)
     # Phase 32: Region restriction
     cfg["regions_bed"] = getattr(args, "regions_bed", None)
     # Phase 32: Unified PCA configuration (--pca replaces --pca-file/--pca-tool)
@@ -222,6 +223,7 @@ def validate_association_args(
         "covariate_file",
         "diagnostics_output",
         "score_artifact",
+        "mask_label",
         "gene_set_file",
         "missing_site_threshold",
         "missing_sample_threshold",
