@@ -52,3 +52,19 @@ def test_build_assoc_config_reads_workers():
     result = _build_assoc_config_from_context(context)
 
     assert result.association_workers == 4
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("cfg", "expected"),
+    [
+        ({"association_workers": 0, "threads": 6}, 6),  # default: one worker per --threads
+        ({"threads": 3}, 3),
+        ({"association_workers": 2, "threads": 6}, 2),  # explicit --association-workers wins
+    ],
+)
+def test_workers_default_from_threads(cfg, expected):
+    """--threads N alone gives N association workers; an explicit worker count wins (#212)."""
+    context = MagicMock()
+    context.config = cfg
+    assert _build_assoc_config_from_context(context).association_workers == expected

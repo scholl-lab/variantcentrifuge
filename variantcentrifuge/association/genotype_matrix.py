@@ -42,13 +42,16 @@ _SPLIT_HINT = (
 )
 
 
-def _multiallelic_error(gene_df: pd.DataFrame, row: int, column: str) -> ValueError:
+def _multiallelic_error(
+    gene_df: pd.DataFrame, row: int, column: str, value: object = None
+) -> ValueError:
     """Build the actionable #175 error naming the gene, variant and sample column."""
     record = gene_df.iloc[row]
+    value = record[column] if value is None else value
     site = ":".join(str(record[c]) for c in ("CHROM", "POS", "REF", "ALT") if c in gene_df)
     gene = f"gene {record['GENE']}, " if "GENE" in gene_df else ""
     return ValueError(
-        f"Unsplit multi-allelic genotype {record[column]!r} ({gene}variant "
+        f"Unsplit multi-allelic genotype {value!r} ({gene}variant "
         f"{site or f'row {gene_df.index[row]!r}'}, column {column!r}): {_SPLIT_HINT}"
     )
 
@@ -265,6 +268,7 @@ def build_genotype_matrix(
     phenotype_vector: np.ndarray | None = None,
     return_keep_mask: bool = False,
     missing_as_ref: bool = False,
+    parsed: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
 ) -> (
     tuple[np.ndarray, np.ndarray, list[bool], list[str]]
     | tuple[np.ndarray, np.ndarray, list[bool], list[str], np.ndarray]
@@ -307,6 +311,9 @@ def build_genotype_matrix(
         imputed or dropped for missingness (``bcftools +setGT -t . -n 0``). Meant for
         merged single-sample VCFs where ``./.`` means "not called as variant".
         Default False keeps the SKAT conventions (bestguess / mean imputation).
+    parsed : tuple of np.ndarray, optional
+        Pre-parsed ``(dosage, ploidy, kind)`` arrays (``GenotypeCodes.gene_arrays``); when
+        given, ``gt_columns`` is not read (#219).
 
     Returns
     -------
@@ -345,7 +352,9 @@ def build_genotype_matrix(
     # Vectorized: processes one GT column at a time using pandas string    #
     # ops instead of per-cell Python function calls.                       #
     # ------------------------------------------------------------------ #
-    raw, ploidy, kind = _vectorized_parse_gt_columns(gene_df, gt_columns_list)
+    if parsed is None:
+        parsed = _vectorized_parse_gt_columns(gene_df, gt_columns_list)
+    raw, ploidy, kind = parsed
     if missing_as_ref:
         # Missing ploidy is still inferred below (generic missing calls on haploid rows -> 1).
         raw[np.isnan(raw)] = 0.0
@@ -384,16 +393,15 @@ def build_genotype_matrix(
         n_cases = int(case_mask.sum())
         n_ctrls = int(ctrl_mask.sum())
         if n_cases > 0 and n_ctrls > 0:
-            for v_idx in range(raw.shape[0]):
-                miss_v = np.isnan(raw[v_idx])
-                case_missing_rate = miss_v[case_mask].mean()
-                ctrl_missing_rate = miss_v[ctrl_mask].mean()
-                if abs(case_missing_rate - ctrl_missing_rate) > 0.05:
-                    warnings_list.append(
-                        f"Variant index {v_idx}: differential missingness "
-                        f"(cases={case_missing_rate:.2f}, "
-                        f"controls={ctrl_missing_rate:.2f})."
-                    )
+            miss = np.isnan(raw)
+            case_rates = miss[:, case_mask].mean(axis=1)
+            ctrl_rates = miss[:, ctrl_mask].mean(axis=1)
+            for v_idx in np.flatnonzero(np.abs(case_rates - ctrl_rates) > 0.05):
+                warnings_list.append(
+                    f"Variant index {v_idx}: differential missingness "
+                    f"(cases={case_rates[v_idx]:.2f}, "
+                    f"controls={ctrl_rates[v_idx]:.2f})."
+                )
 
     # ------------------------------------------------------------------ #
     # Step 5 — Layer 2: Compute MAFs and impute missing values            #
@@ -401,34 +409,21 @@ def build_genotype_matrix(
     # ------------------------------------------------------------------ #
     retained = np.asarray(sample_mask, dtype=bool)
     _infer_missing_ploidy(ploidy, kind, retained)
-    geno = raw.copy()
-    n_kept_variants = geno.shape[0]
-    mafs = np.zeros(n_kept_variants, dtype=np.float64)
-
-    for v_idx in range(n_kept_variants):
-        obs_mask = ~np.isnan(geno[v_idx]) & retained
-        observed_dosages = geno[v_idx, obs_mask]
-        observed_ploidies = ploidy[v_idx, obs_mask]
-        if len(observed_dosages) == 0:
-            # Every retained sample missing: MAF=0, impute 0
-            mafs[v_idx] = 0.0
-            geno[v_idx] = 0.0
-            continue
-        total_ac = float(observed_dosages.sum())
-        total_an = float(observed_ploidies.sum())
-        if total_an <= 0.0 or total_ac >= total_an:
-            # Monomorphic for ALT (or no observed chromosomes): MAF=0, zero out dosages
-            mafs[v_idx] = 0.0
-            geno[v_idx] = 0.0
-            continue
-        alt_freq = total_ac / total_an if total_an > 0 else 0.0
-        mafs[v_idx] = min(alt_freq, 1.0 - alt_freq)
-        missing_mask = np.isnan(geno[v_idx])
-        if np.any(missing_mask):
-            v = ploidy[v_idx, missing_mask] * alt_freq
-            geno[v_idx, missing_mask] = np.round(v) if is_binary else v
-        if alt_freq > 0.5:
-            geno[v_idx] = ploidy[v_idx] - geno[v_idx]
+    # Vectorised over variants; dosages and ploidies are small integers, so the sums
+    # (and everything derived from them) are exact and match a per-variant loop.
+    missing = np.isnan(raw)
+    obs = ~missing & retained
+    total_ac = np.where(obs, raw, 0.0).sum(axis=1)
+    total_an = np.where(obs, ploidy, 0.0).sum(axis=1)
+    # No retained call, no observed chromosomes, or monomorphic ALT: MAF=0, dosages 0.
+    zero = ~obs.any(axis=1) | (total_an <= 0.0) | (total_ac >= total_an)
+    alt_freq = np.divide(total_ac, total_an, out=np.zeros_like(total_ac), where=~zero)
+    mafs = np.where(zero, 0.0, np.minimum(alt_freq, 1.0 - alt_freq))
+    imputed = ploidy * alt_freq[:, None]
+    geno = np.where(missing, np.round(imputed) if is_binary else imputed, raw)
+    flip = ~zero & (alt_freq > 0.5)
+    geno[flip] = ploidy[flip] - geno[flip]
+    geno[zero] = 0.0
 
     # ------------------------------------------------------------------ #
     # Step 6: Transpose to (n_samples, n_variants)                        #

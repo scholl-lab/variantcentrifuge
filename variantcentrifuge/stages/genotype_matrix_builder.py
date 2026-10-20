@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from ..association.gt_codes import GenotypeCodes
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +22,11 @@ class _GenotypeMatrixBuilder:
     Instead of pre-building all matrices, this callable is stored in gene_data
     and invoked by the engine just before running tests. The matrix is discarded
     after test execution, keeping peak memory at O(1 gene).
+
+    With ``genotypes`` (the run-level code matrix shared by all builders) and ``rows``
+    (this gene's row indices in it), genotypes come from those codes and ``gene_df``
+    only needs the annotation columns; otherwise they are parsed from
+    ``gene_df[gt_columns]`` (#219).
     """
 
     gene_df: pd.DataFrame
@@ -34,6 +42,16 @@ class _GenotypeMatrixBuilder:
     revel_column: str | None = None
     effect_column: str | None = None
     missing_as_ref: bool = False
+    genotypes: GenotypeCodes | None = None
+    rows: np.ndarray | None = None
+
+    def gene_arrays(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Return this gene's parsed (dosage, ploidy, kind) arrays, variants x samples."""
+        if self.genotypes is not None and self.rows is not None:
+            return self.genotypes.gene_arrays(self.rows, self.gene_df)
+        from ..association.genotype_matrix import _vectorized_parse_gt_columns
+
+        return _vectorized_parse_gt_columns(self.gene_df, list(self.gt_columns))
 
     def _aligned_annotation_payload(self, keep_variants_mask: np.ndarray) -> dict[str, Any]:
         payload: dict[str, Any] = {}
@@ -75,7 +93,8 @@ class _GenotypeMatrixBuilder:
         Returns dict with keys: genotype_matrix, variant_mafs,
         phenotype_vector, covariate_matrix, gt_warnings, mac_filtered and
         n_variants_qc (variants kept by site-missingness QC, before the MAC check) and
-        variant_keep_mask (bool per gene_df row: kept by that QC, before the MAC check).
+        variant_keep_mask (bool per gene_df row: kept by that QC, before the MAC check);
+        non-empty genes add qc_genotype_matrix, sample_mask and parsed for the score artifact.
         """
         from ..association.genotype_matrix import build_genotype_matrix
 
@@ -94,6 +113,7 @@ class _GenotypeMatrixBuilder:
             result.update(self._empty_annotation_payload())
             return result
 
+        parsed = self.gene_arrays()
         geno, mafs, sample_mask, gt_warnings, keep_variants_mask = cast(
             tuple[np.ndarray, np.ndarray, list[bool], list[str], np.ndarray],
             build_genotype_matrix(
@@ -106,17 +126,20 @@ class _GenotypeMatrixBuilder:
                 phenotype_vector=self.phenotype_vector,
                 return_keep_mask=True,
                 missing_as_ref=self.missing_as_ref,
+                parsed=parsed,
             ),
         )
         annotation_payload = self._aligned_annotation_payload(keep_variants_mask)
         # Apply sample mask to phenotype and covariates
         pv = self.phenotype_vector
         cm = self.covariate_matrix
-        if not all(sample_mask):
-            mask_arr = np.array(sample_mask, dtype=bool)
+        mask_arr = np.array(sample_mask, dtype=bool)
+        if not mask_arr.all():
             pv = pv[mask_arr] if pv is not None else None
             cm = cm[mask_arr] if cm is not None else None
             geno = geno[mask_arr]
+        # For the score artifact (#212): the matrix before the MAC check and its inputs.
+        artifact_inputs = {"qc_genotype_matrix": geno, "sample_mask": mask_arr, "parsed": parsed}
 
         # Per-gene MAC check: skip regression if < 5 minor allele copies
         mac_filtered = False
@@ -136,6 +159,7 @@ class _GenotypeMatrixBuilder:
             "mac_filtered": mac_filtered,
             "n_variants_qc": int(keep_variants_mask.sum()),
             "variant_keep_mask": keep_variants_mask,
+            **artifact_inputs,
         }
         result.update(annotation_payload)
         return result

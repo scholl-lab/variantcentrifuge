@@ -21,7 +21,6 @@ merge_pca_covariates(pca_matrix, pca_col_names, covariate_matrix, covariate_col_
 
 from __future__ import annotations
 
-import csv
 import logging
 import os
 from collections.abc import Sequence
@@ -41,13 +40,15 @@ def _is_numeric(s: str) -> bool:
         return False
 
 
-def _detect_pca_format(lines: list[str]) -> str:
+def _detect_pca_format(lines: list[str], sep: str | None = None) -> str:
     """Detect PCA file format from the first few non-empty lines.
 
     Parameters
     ----------
     lines : list[str]
         First 5 (or fewer) non-empty lines from the file.
+    sep : str or None
+        Field separator; ``None`` splits on any whitespace.
 
     Returns
     -------
@@ -58,15 +59,13 @@ def _detect_pca_format(lines: list[str]) -> str:
     if not lines:
         return "generic"
 
-    first = lines[0].strip()
+    parts = [p.strip() for p in lines[0].strip().split(sep)]
 
-    # PLINK .eigenvec with header: first line starts with #FID or FID
-    first_lower = first.lower()
-    if first_lower.startswith("#fid") or first_lower.startswith("fid"):
+    # PLINK .eigenvec with header: first token is exactly #FID or FID (a sample "fido" is data)
+    if parts[0].lower() in ("#fid", "fid"):
         return "plink_header"
 
     # Inspect first non-empty data line (could be line 0 itself if no header)
-    parts = first.split()
     if len(parts) < 2:
         return "generic"
 
@@ -84,6 +83,14 @@ def _detect_pca_format(lines: list[str]) -> str:
         return "akt_or_generic"
 
     return "generic"
+
+
+def _clean_ids(ids: pd.Index | pd.Series, remove_sample_substring: str | None) -> pd.Index:
+    """Strip IDs and apply the VCF sample-name substring removal."""
+    ids = pd.Index(ids).astype(str).str.strip()
+    if remove_sample_substring:
+        ids = ids.str.replace(remove_sample_substring, "", regex=False)
+    return ids
 
 
 def load_pca_file(
@@ -127,6 +134,8 @@ def load_pca_file(
     ValueError
         If any sample in ``vcf_samples`` is absent from the PCA file.
         All missing samples are reported in the error message.
+        Also if ``n_components < 1``, the file has no PC columns, or a used PC
+        cell is NaN/non-numeric (usually a delimiter or format problem).
     """
     if n_components > 20:
         logger.warning(
@@ -135,98 +144,66 @@ def load_pca_file(
             n_components,
         )
 
-    # 1. Auto-detect delimiter from extension, fallback to csv.Sniffer
-    ext = os.path.splitext(filepath)[1].lower()
-    if ext in (".tsv", ".tab"):
-        sep: str | None = "\t"
-    elif ext == ".csv":
-        sep = ","
-    elif ext == ".eigenvec":
-        sep = None  # whitespace — PLINK and AKT both use mixed tab+space
-    else:
-        try:
-            with open(filepath) as fh:
-                sample_text = fh.read(2048)
-            sep = csv.Sniffer().sniff(sample_text).delimiter
-        except Exception:
-            sep = None  # let pandas decide (whitespace for PLINK .eigenvec)
+    if n_components < 1:
+        raise ValueError(f"pca: n_components must be >= 1, got {n_components}")
 
-    # 2. Read first few lines to detect format (before pandas parsing)
+    # 1. Delimiter: .csv is comma; otherwise tab only for a clean TSV (same tab count on
+    #    every line, no whitespace inside data fields), else any whitespace. Never sniff:
+    #    csv.Sniffer misreads akt's "ID<TAB>  padded values" layout (#221).
     with open(filepath) as fh:
-        raw_lines = [fh.readline() for _ in range(5)]
-    non_empty_lines = [ln.strip() for ln in raw_lines if ln.strip()]
-    fmt = _detect_pca_format(non_empty_lines)
+        lines = [ln.rstrip("\r\n") for ln in fh if ln.strip()]
+    tab_rows = [ln.split("\t") for ln in lines]
+    clean_tsv = (
+        bool(tab_rows)
+        and len(tab_rows[0]) >= 2
+        and len({len(r) for r in tab_rows}) == 1
+        # header names may contain spaces; data fields after the ID must not (akt pads with them)
+        and not any(len(f.split()) > 1 for r in (tab_rows[1:] or tab_rows) for f in r[1:])
+    )
+    is_csv = os.path.splitext(filepath)[1].lower() == ".csv"
+    sep = "," if is_csv else ("\t" if clean_tsv else r"\s+")
 
-    # 3. Read file with pandas
-    # PLINK .eigenvec files are whitespace-delimited
-    read_sep = sep if sep is not None else r"\s+"
+    # 2. Detect format and header from the first non-empty line
+    split_sep = None if sep == r"\s+" else sep
+    parts = [p.strip() for p in lines[0].split(split_sep)] if lines else []
+    fmt = _detect_pca_format(lines[:1], split_sep)
+    n_id = 2 if fmt in ("plink_header", "plink_nohdr") else 1
+    # Header iff the first non-ID field is not a number
+    has_header = fmt == "plink_header" or (len(parts) > n_id and not _is_numeric(parts[n_id]))
 
-    if fmt == "plink_header":
-        # Header row present; strip leading # from column names
-        df = pd.read_csv(filepath, sep=read_sep, header=0, engine="python")
-        df.columns = [c.lstrip("#") for c in df.columns]
-        # IID is the second column after FID
-        id_col = df.columns[1]  # IID
-        df = df.set_index(id_col)
-        # Drop FID column (first column) if still present
-        fid_col = df.columns[0] if len(df.columns) > 0 else None
-        if fid_col is not None and fid_col.upper() == "FID":
-            df = df.drop(columns=[fid_col])
+    # 3. Read all cells as strings; IID (PLINK) or the single ID column becomes the index
+    df = pd.read_csv(filepath, sep=sep, header=0 if has_header else None, dtype=str)
+    if not has_header:
+        if n_id == 1 and df.shape[1] > 2:
+            # Headerless "ID PC1 ..." vs PLINK "FID IID PC1 ..." with a numeric IID:
+            # pick the layout whose ID column matches the VCF samples
+            vcf_set = set(vcf_samples)
+            n_col0, n_col1 = (
+                len(vcf_set.intersection(_clean_ids(df.iloc[:, c], remove_sample_substring)))
+                for c in (0, 1)
+            )
+            # exactly one layout may match; a partial match in the other is ambiguous
+            if min(n_col0, n_col1) > 0 or n_col0 == n_col1:
+                raise ValueError(
+                    f"PCA file {filepath}: cannot tell whether column 1 (sample ID) or "
+                    f"column 2 (PLINK FID/IID) holds the sample IDs ({n_col0} vs {n_col1} VCF "
+                    "samples match). Add a header line, e.g. '#FID IID PC1 PC2 ...' or "
+                    "'sample_id PC1 PC2 ...'."
+                )
+            n_id = 2 if n_col1 > n_col0 else 1
+        df.columns = ["FID", "IID"][2 - n_id :] + [
+            f"PC{i}" for i in range(1, df.shape[1] - n_id + 1)
+        ]
+    df.columns = [str(c).lstrip("#") for c in df.columns]
+    df = df.set_index(df.columns[n_id - 1]).iloc[:, n_id - 1 :]
+    df.index = _clean_ids(df.index, remove_sample_substring)
 
-    elif fmt == "plink_nohdr":
-        # No header; first column = FID, second = IID, rest = PCs
-        df = pd.read_csv(filepath, sep=read_sep, header=None, engine="python")
-        # Assign names: FID, IID, PC1, PC2, ...
-        n_cols = df.shape[1]
-        pc_col_names_raw = [f"PC{i}" for i in range(1, n_cols - 1)]
-        df.columns = ["FID", "IID", *pc_col_names_raw]
-        df = df.set_index("IID")
-        df = df.drop(columns=["FID"])
-
-    else:
-        # AKT stdout or generic TSV: first column = sample ID
-        # Check if first line looks like a header (non-numeric first cell)
-        has_header = False
-        if non_empty_lines:
-            parts = non_empty_lines[0].split()
-            if parts and not _is_numeric(parts[0]):
-                # Could be a header; check if second token is also non-numeric
-                # (which would suggest it's a data row with non-numeric sample ID)
-                # Generic TSV with header: all remaining tokens would also be string labels
-                if len(parts) > 1 and not _is_numeric(parts[1]):
-                    has_header = True
-                elif len(parts) > 1 and _is_numeric(parts[1]):
-                    # First column is sample ID, rest are numeric values — no header
-                    has_header = False
-
-        if has_header:
-            df = pd.read_csv(filepath, sep=read_sep, header=0, index_col=0, engine="python")
-        else:
-            # AKT format: no header; first column = sample ID
-            df = pd.read_csv(filepath, sep=read_sep, header=None, engine="python")
-            n_cols = df.shape[1]
-            pc_col_names_raw = [f"PC{i}" for i in range(1, n_cols)]
-            df.columns = ["sample_id", *pc_col_names_raw]
-            df = df.set_index("sample_id")
-
-    # Ensure index is string
-    df.index = df.index.astype(str)
-
-    # Apply sample substring removal to match VCF sample name processing
-    if remove_sample_substring:
-        df.index = df.index.str.replace(remove_sample_substring, "", regex=False)
-
-    # 4. Select only numeric columns (drop any remaining string columns)
-    numeric_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-    if not numeric_cols:
-        # Try converting all columns to numeric
-        df = df.apply(pd.to_numeric, errors="coerce")
-        numeric_cols = list(df.columns)
-    else:
-        df = df[numeric_cols]
-
-    # 5. Slice to first n_components columns
-    available = len(df.columns)
+    # 4. Validate PC count (requested vs available)
+    available = df.shape[1]
+    if available == 0:
+        raise ValueError(
+            f"PCA file {filepath}: no principal component columns after the sample ID."
+        )
     if available < n_components:
         logger.warning(
             "pca: requested %d components but file only has %d — using %d.",
@@ -236,7 +213,26 @@ def load_pca_file(
         )
         n_components = available
 
-    df = df.iloc[:, :n_components]
+    # 5. Coerce the used PCs to numbers; any NaN/non-numeric cell is a hard error
+    df = df.iloc[:, :n_components].apply(pd.to_numeric, errors="coerce")
+    bad = df.isna()
+    if bad.any().any():
+        bad_rows = bad.any(axis=1)
+        raise ValueError(
+            f"PCA file {filepath}: {int(bad.values.sum())} NaN/non-numeric cell(s) in "
+            f"column(s) {list(bad.columns[bad.any()])}, e.g. sample(s) "
+            f"{list(df.index[bad_rows][:3])} ({int(bad_rows.sum())} affected). Likely a "
+            "delimiter/format problem: expected whitespace-separated (PLINK .eigenvec, "
+            "akt pca stdout, TSV) or comma-separated (.csv) rows of sample ID(s) followed "
+            "by numeric PCs, with all rows the same length."
+        )
+
+    dup = df.index[df.index.duplicated()].unique()
+    if len(dup):
+        raise ValueError(
+            f"PCA file {filepath}: {len(dup)} sample ID(s) appear on more than one row, "
+            f"e.g. {list(dup[:3])}. Each sample must have exactly one row."
+        )
 
     # 6. Sample alignment — VCF samples missing from PCA file are an error
     vcf_samples_list = list(vcf_samples)
@@ -262,9 +258,6 @@ def load_pca_file(
 
     # 7. Reindex to VCF sample order
     df_aligned = df.reindex(vcf_samples_list)
-    assert not df_aligned.isnull().any().any(), (
-        "NaN in PCA matrix after reindex — unreachable if step 6 passed"
-    )
 
     pc_matrix = df_aligned.values.astype(np.float64)
     col_names = [f"PC{i + 1}" for i in range(n_components)]

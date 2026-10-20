@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from ..gt_reconstruction import _find_per_sample_gt_columns
+from ..gt_reconstruction import _copy_gt_columns_to_samples, _find_per_sample_gt_columns
 from ..pipeline_core import PipelineContext, Stage
 from .sample_column_helpers import (
     cleanup_sample_columns,
@@ -108,15 +108,13 @@ class InheritanceAnalysisStage(Stage):
         elif not sample_columns_exist:
             gt_cols = _find_per_sample_gt_columns(df)
             if gt_cols:
-                n = min(len(gt_cols), len(vcf_samples))
+                prep_start = self._start_subtask("sample_column_preparation")
+                n = _copy_gt_columns_to_samples(df, gt_cols, vcf_samples)  # by GEN index
+                self._end_subtask("sample_column_preparation", prep_start)
                 logger.info(
-                    f"Creating sample columns from {n} per-sample GT columns "
+                    f"Created sample columns from {n} per-sample GT columns "
                     f"for inheritance analysis"
                 )
-                prep_start = self._start_subtask("sample_column_preparation")
-                for i in range(n):
-                    df[vcf_samples[i]] = df[gt_cols[i]]
-                self._end_subtask("sample_column_preparation", prep_start)
 
         analysis_start = self._start_subtask("inheritance_calculation")
 

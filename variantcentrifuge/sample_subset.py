@@ -129,3 +129,17 @@ def resolve_sample_subset(context: Any) -> list[str] | None:
         cfg["sample_subset_sha256"][:12],
     )
     return raw_subset
+
+
+def subset_summary(context: Any) -> str:
+    """One-line statement of the sample-subset decision, from what the run already recorded."""
+    cfg = context.config
+    if sha := cfg.get("sample_subset_sha256"):
+        return (
+            f"sample subset: {len(context.vcf_samples or [])} VCF samples extracted (sha {sha[:8]})"
+        )
+    if cfg.get("no_sample_subset"):
+        why = "--no-sample-subset"
+    else:
+        why = blocking_reason(cfg) or "no sample file or every VCF sample analysed"
+    return f"sample subset: not used - {why}"
