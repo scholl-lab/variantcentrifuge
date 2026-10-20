@@ -173,6 +173,9 @@ pytest -x
 pytest -n auto
 ```
 
+The `make test*` and `make ci-check` targets use `-n auto`; set `PYTEST_WORKERS` to use fewer
+workers, e.g. under a memory limit: `make ci-check PYTEST_WORKERS=8`.
+
 #### Test Categories
 
 Tests are organized using pytest markers:
