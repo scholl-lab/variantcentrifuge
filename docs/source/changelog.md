@@ -13,6 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.bed.gz` input for `--annotate-bed`.
 - Association diagnostics: with `--diagnostics-output` and categorical covariates, `covariate_case_control.tsv` lists cases/controls per level of each categorical covariate (raw labels); levels with no cases or no controls are warned (#202).
 - New AF presets `popmax_1percent` and `popmax_rare` filter on the dbNSFP gnomAD popmax allele frequency (`gnomAD_exomes/genomes_POPMAX_AF` for dbnsfp4, `gnomAD4.1_joint_POPMAX_AF` for dbnsfp5) (#202).
+- `meta --diagnostics-output DIR` writes λ_GC, QQ data and a summary for the meta burden, SKAT, SKAT-O and primary p-values, one set per run (= per mask) (#192).
+- `meta` reports leave-one-stratum-out p-values named by stratum for burden (with direction) and SKAT-O, plus the largest LOO p-value and the stratum whose removal gives it (`loo_burden_by_stratum`, `loo_skato_by_stratum`, `loo_max_{burden,skato}_{p,stratum}`) (#193).
+- `meta` reports cumulative minor-allele counts (`cmac_total`, `cmac_by_stratum`); `--min-mac N` marks genes below N as `status=low_mac`, and `--require-variants-in-all-strata` marks genes without an informative minor allele in every stratum as `status=not_in_all_strata`; both are left out of the multiple-testing correction and the diagnostics (#194).
+
+### Changed
+
+- `meta` leave-one-out (including `loo_min_p`) re-derives the variant weights from the remaining strata, so each LOO result equals a meta-analysis without that stratum (#193).
 
 ### Fixed
 

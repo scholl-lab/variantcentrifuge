@@ -41,6 +41,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="Multiple-testing correction across genes (default: fdr).",
     )
     parser.add_argument(
+        "--min-mac",
+        type=float,
+        default=0.0,
+        help="Genes with cumulative minor-allele count below N get status=low_mac and "
+        "are excluded from the multiple-testing correction (default: 0, no filter).",
+    )
+    parser.add_argument(
+        "--require-variants-in-all-strata",
+        action="store_true",
+        help="Genes without an informative minor allele in every stratum get "
+        "status=not_in_all_strata and are excluded from the correction.",
+    )
+    parser.add_argument(
+        "--diagnostics-output",
+        default=None,
+        metavar="DIR",
+        help="Write lambda_GC and QQ diagnostics for the meta p-values to DIR.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -70,6 +89,9 @@ def main(argv: list[str] | None = None) -> int:
             output_path=args.output,
             weight_scheme=args.weights,
             correction=args.correction,
+            min_mac=args.min_mac,
+            diagnostics_dir=args.diagnostics_output,
+            require_variants_in_all_strata=args.require_variants_in_all_strata,
         )
     except MetaCompatibilityError as exc:
         logger.error("Meta-analysis refused (strata not comparable): %s", exc)

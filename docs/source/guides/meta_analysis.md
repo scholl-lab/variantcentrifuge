@@ -81,6 +81,7 @@ pediatric_cohort	/data/meta/pediatric.npz
 
 Relative paths are read relative to the manifest file. The `stratum_id` names the
 cohort in the output (e.g. `per_stratum_directions` = `adult_cohort:1,pediatric_cohort:-1`).
+It must not contain `:`, `;` or `,`, which separate the per-stratum output fields.
 
 The meta step **refuses** (hard error, no silent fallback) when strata disagree on
 genome build, annotation version, mask definition, or trait type, or when their
@@ -96,7 +97,9 @@ variantcentrifuge meta \
   --manifest study.tsv \
   --output meta_results.tsv \
   --weights beta:1,25 \
-  --correction fdr
+  --correction fdr \
+  --min-mac 5 \
+  --diagnostics-output meta_diagnostics/
 ```
 
 Only `beta:a,b` and `uniform` weights are supported (the only schemes reproducible
@@ -105,6 +108,56 @@ from the artifact). Output columns include `meta_burden_p`,
 `het_p`, `het_i2`, `per_stratum_directions`, `loo_min_p`, `primary_p`,
 `primary_q`, and a `status`/`warnings` pair (e.g. a non-converged stratum is
 excluded with an explicit warning).
+
+### Leave-one-stratum-out
+
+Each leave-one-out result is a full meta-analysis of the remaining strata (variants
+re-aligned, weights re-derived from their pooled frequency), so it equals running
+`meta` on the manifest without that stratum (checked against R MetaSKAT). Fixed
+columns, independent of the number of strata:
+
+- `loo_burden_by_stratum` — `stratum:p:direction;...`, the burden p-value and
+  direction (`+1`/`-1`/`+0`) without each stratum, e.g. `adult_cohort:0.0123:+1`;
+- `loo_skato_by_stratum` — `stratum:p;...` for SKAT-O (`NA` when not computable);
+- `loo_max_burden_p` / `loo_max_burden_stratum` and `loo_max_skato_p` /
+  `loo_max_skato_stratum` — the largest LOO p-value and the stratum whose removal
+  gives it. A gene that is significant only while one stratum is included has a
+  large `loo_max_*_p` naming that stratum (a "needs replication" flag);
+- `loo_min_p` — the smallest burden LOO p-value (kept for compatibility).
+
+With a single contributing stratum the LOO columns are empty.
+
+### Minor-allele counts and `--min-mac`
+
+`cmac_total` is the cumulative minor-allele count over the gene's union of variants,
+the sum of the per-stratum counts in `cmac_by_stratum` (`stratum:mac;...`, integers),
+each `Σ min(AC, AN − AC)` over that stratum's variants from the artifact's
+per-variant `AC`/`AN`. Both count only variants that carry score
+information (non-zero variance after the covariate projection): a site that is
+monomorphic within a stratum, or explained by its covariates, adds nothing to the
+test and so nothing to the MAC used by `--min-mac`.
+
+`--min-mac N` (a finite number ≥ 0) labels genes with `cmac_total < N` as `status=low_mac`. Their p-values
+are still reported, but `primary_q` is empty: like untestable genes in the main
+engine, they are left out of the multiple-testing family (and of the diagnostics).
+`--require-variants-in-all-strata` labels genes as `status=not_in_all_strata` unless
+every stratum in the manifest contributes at least one informative minor allele
+(per-stratum MAC > 0; a gene absent from a stratum, or whose null model did not
+converge there, fails). Such genes are reported but handled like `low_mac` genes:
+no `primary_q`, no diagnostics.
+
+Per-stratum carrier counts are not available yet; they need a new artifact field.
+
+### Diagnostics (λ_GC and QQ)
+
+`--diagnostics-output DIR` writes the same files as a single-cohort run
+(`lambda_gc.tsv`, `qq_data.tsv`, `summary.txt`, and `qq_plot.png` when matplotlib is
+installed) for `meta_burden`, `meta_skat`, `meta_skato` and `primary`. A `meta` run
+covers one mask, so each run's directory holds that mask's diagnostics; run once per
+mask for multi-mask designs. λ and QQ use exactly the genes in the correction family
+(those with a `primary_q`; `low_mac` and `degenerate` genes are left out), while the
+warning count in `summary.txt` covers every gene. λ from fewer than 100 genes is
+flagged as unreliable.
 
 ## API
 
