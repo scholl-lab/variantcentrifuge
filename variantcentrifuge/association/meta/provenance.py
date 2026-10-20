@@ -30,15 +30,22 @@ PROVENANCE_FIELDS = (
 
 
 def _vcf_meta_lines(path: str) -> list[str]:
-    """The ``##`` header lines of a plain or (b)gzipped VCF."""
+    """The ``##`` header lines of a plain or (b)gzipped VCF, or a BCF."""
     with open(path, "rb") as fh:
         is_gz = fh.read(2) == b"\x1f\x8b"
-    lines: list[str] = []
-    with gzip.open(path, "rt") if is_gz else open(path) as fh:
-        for line in fh:
+    with gzip.open(path, "rb") if is_gz else open(path, "rb") as fh:
+        if fh.read(3) == b"BCF":  # BCF2: magic(5) + uint32 l_text + NUL-terminated header
+            fh.read(2)
+            size = int.from_bytes(fh.read(4), "little")
+            text = fh.read(size).rstrip(b"\0").decode("utf-8", "replace")
+            return [ln for ln in text.splitlines() if ln.startswith("##")]
+        fh.seek(0)
+        lines: list[str] = []
+        for raw in fh:
+            line = raw.decode("utf-8", "replace").rstrip("\r\n")
             if not line.startswith("##"):
                 break
-            lines.append(line.rstrip("\n"))
+            lines.append(line)
     return lines
 
 
@@ -58,16 +65,22 @@ def _snpeff_genome(cmd: str) -> str | None:
 
 
 def _command_files(lines: list[str], needle: str) -> str | None:
-    """Basenames of files named in ``##*Cmd=``/``##*Command=`` lines containing ``needle``."""
+    """Basenames of the annotation databases in ``##*Cmd=``/``##*Command=`` lines that
+    contain ``needle``: the ``-db`` value, else the first file argument (SnpSift annotate
+    and bcftools annotate -a put the database first; the input VCF comes after it).
+    """
     names: set[str] = set()
     for ln in lines:
         key, _, value = ln[2:].partition("=")
         if not key.endswith(("Cmd", "Command")):
             continue
-        for tok in value.strip().strip('"').split():
-            base = os.path.basename(tok)
-            if needle in tok.lower() and "." in base:
-                names.add(base)
+        toks = value.strip().strip('"').split()
+        if "-db" in toks[:-1]:
+            db: str | None = toks[toks.index("-db") + 1]
+        else:
+            db = next((t for t in toks[1:] if not t.startswith("-") and "." in t), None)
+        if db and needle in db.lower():
+            names.add(os.path.basename(db))
     return ",".join(sorted(names)) or None
 
 
@@ -75,7 +88,7 @@ def _file_sha256(path: str | None) -> str:
     if not path:
         return "none"
     with open(path, "rb") as fh:
-        return hashlib.sha256(fh.read()).hexdigest()
+        return hashlib.file_digest(fh, "sha256").hexdigest()
 
 
 def collect_provenance(config: dict[str, Any]) -> dict[str, str | None]:

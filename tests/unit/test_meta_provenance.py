@@ -129,3 +129,29 @@ def test_cli_allow_annotation_mismatch(tmp_path):
     out = str(tmp_path / "o.tsv")
     assert main(["--manifest", str(manifest), "--output", out]) == 2
     assert main(["--manifest", str(manifest), "--output", out, "--allow-annotation-mismatch"]) == 0
+
+
+def test_collect_provenance_reads_bcf_header(tmp_path):
+    """BCF (BGZF, binary length prefix, binary records) must not crash emission."""
+    text = HEADER.encode() + b"\0"
+    payload = b"BCF\x02\x02" + len(text).to_bytes(4, "little") + text + b"\xff\xfe\x80" * 50
+    bcf = tmp_path / "in.bcf"
+    with gzip.open(bcf, "wb") as fh:
+        fh.write(payload)
+    prov = collect_provenance({"vcf_file": str(bcf)})
+    assert prov["snpeff_genome_db"] == "GRCh38.p14"
+    assert prov["dbnsfp_version"] == "dbNSFP4.4a.txt.gz"
+
+
+def test_input_file_names_are_not_annotation_sources(tmp_path):
+    """Only the database argument counts, not the cohort's input/intermediate VCF name."""
+    vcf = _vcf(
+        tmp_path,
+        '##SnpSiftCmd="SnpSift annotate -info AF /db/gnomad.v4.vcf.gz cohortA.dbnsfp.vcf.gz"\n'
+        "##bcftools_annotateCommand=annotate -a /x/gnomad.g.vcf.gz -c INFO/AF in.gnomad.vcf.gz\n"
+        "#CHROM\n",
+        gz=False,
+    )
+    prov = collect_provenance({"vcf_file": vcf})
+    assert prov["dbnsfp_version"] is None
+    assert prov["gnomad_source"] == "gnomad.g.vcf.gz,gnomad.v4.vcf.gz"

@@ -166,8 +166,6 @@ def test_acat_masks_keeps_null_mask(tmp_path):
     """A mask with primary_p == 1 pulls acat_masks_p to 1 instead of being dropped."""
     from variantcentrifuge.association.meta.runner import add_acat_masks
 
-    df = pd.DataFrame(
-        {"gene": ["G", "G"], "primary_p": [0.01, 1.0], "primary_q": [0.02, 1.0]}
-    )
+    df = pd.DataFrame({"gene": ["G", "G"], "primary_p": [0.01, 1.0], "primary_q": [0.02, 1.0]})
     out = add_acat_masks(df, "fdr")
     assert out["acat_masks_p"].iloc[0] == pytest.approx(1.0, abs=1e-12)

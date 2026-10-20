@@ -78,8 +78,9 @@ With `--missing-as-ref`, the stored `AN` counts every sample.
 `--mask-label NAME` stores a readable name for the mask (e.g. `pLoF`) next to its
 hash. The artifact also records annotation provenance: the snpEff version
 (`##SnpEffVersion`) and genome database (from `##SnpEffCmd`), the dbNSFP and gnomAD
-files named in annotation command lines (`##SnpSiftCmd` and other `##...Cmd`/
-`##...Command` lines; file basenames), and SHA-256 hashes of the `--regions-bed` and
+database files used by annotation command lines (`##SnpSiftCmd` and other `##...Cmd`/
+`##...Command` lines: the basename of the `-db` value, else of the first file argument,
+never the input VCF), and SHA-256 hashes of the `--regions-bed` and
 `--gene-file` contents (`none` when not used). A header line the input VCF does not
 carry is recorded as unknown.
 
@@ -198,8 +199,10 @@ every stratum in the manifest contributes at least one informative minor allele
 converge there, fails). Such genes are reported but handled like `low_mac` genes:
 no `primary_q`, no diagnostics.
 
-`carriers_by_stratum` (`stratum:n;...`) gives, per stratum, the number of samples
-with at least one observed ALT allele among the gene's variants, after the artifact's
+`carriers_by_stratum` (`stratum:n;...`) gives, per stratum, the number of ALT-allele
+carriers: samples with at least one observed ALT allele among the gene's variants (the
+allele the artifact's scores are coded on; at a site where ALT is the major allele
+nearly every sample counts), after the artifact's
 missingness QC (a missing call is never a carrier; with `--missing-as-ref` it is REF);
 `n_carriers_total` is their sum. Artifacts written before this field existed show
 `NA` for their stratum and leave the total empty. Like `cmac_*`, both cover the
