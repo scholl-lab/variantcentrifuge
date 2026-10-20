@@ -200,3 +200,28 @@ def test_acat_masks_matches_r_reference(ps, expected):
     df = pd.DataFrame({"gene": ["G"] * len(ps), "primary_p": ps, "primary_q": ps})
     got = add_acat_masks(df, "fdr")["acat_masks_p"].iloc[0]
     assert got == pytest.approx(expected, rel=1e-12, abs=1e-15)
+
+
+def test_acat_masks_with_exact_zero_and_one_is_na_with_warning(caplog):
+    """R ACAT stops on p = 0 and p = 1 together: NaN for that gene, named in a warning."""
+    import logging
+
+    from variantcentrifuge.association.meta.runner import add_acat_masks
+
+    df = pd.DataFrame(
+        {
+            "gene": ["G", "G", "H", "H"],
+            "primary_p": [0.0, 1.0, 0.01, 0.2],
+            "primary_q": [0.0, 1.0, 0.02, 0.2],
+            "warnings": [None, "excluded_non_converged:A", None, None],
+        }
+    )
+    with caplog.at_level(logging.WARNING, logger="variantcentrifuge"):
+        out = add_acat_masks(df, "fdr").set_index("gene")
+    assert out.loc["G", "acat_masks_p"].isna().all() and out.loc["G", "acat_masks_q"].isna().all()
+    assert out.loc["H", "acat_masks_q"].notna().all()
+    assert "G" in caplog.text and "exactly 0 and 1" in caplog.text
+    assert list(out.loc["G", "warnings"]) == [
+        "acat_masks_undefined",
+        "excluded_non_converged:A;acat_masks_undefined",
+    ]

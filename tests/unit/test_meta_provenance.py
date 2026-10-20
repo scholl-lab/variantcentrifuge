@@ -183,3 +183,17 @@ def test_gene_set_file_hash_recorded_and_compared(tmp_path):
     arts = _pair({"gene_set_file_sha256": "aa"}, {"gene_set_file_sha256": "bb"})
     with pytest.raises(MetaCompatibilityError, match="gene_set_file_sha256"):
         validate_comparability(arts)
+
+
+def test_snpsift_db_operands_only(tmp_path):
+    """dbnsfp: only an explicit -db; annotate: option values (e.g. -name X) are skipped."""
+    vcf = _vcf(
+        tmp_path,
+        '##SnpSiftCmd="SnpSift dbnsfp -f CADD cohortA.dbnsfp.vcf"\n'
+        '##SnpSiftCmd="SnpSift annotate -name gnomad.x. -info AF /db/gnomad.v4.vcf.gz in.vcf"\n'
+        "#CHROM\n",
+        gz=False,
+    )
+    prov = collect_provenance({"vcf_file": vcf})
+    assert prov["dbnsfp_version"] is None
+    assert prov["gnomad_source"] == "gnomad.v4.vcf.gz"

@@ -304,8 +304,26 @@ def add_acat_masks(df: pd.DataFrame, correction: str, suffix: str = "") -> pd.Da
     p_col, q_col = f"primary_p{suffix}", f"primary_q{suffix}"
     in_family = df[df[q_col].notna()]
     acat: dict[str, float] = {}
+    undefined: list[str] = []
     for gene, rows in in_family.groupby("gene", sort=False):
-        acat[gene] = _acat_r(rows[p_col].to_numpy(dtype=float))
+        ps = rows[p_col].to_numpy(dtype=float)
+        if (ps == 0).any() and (ps == 1).any():
+            undefined.append(gene)  # R ACAT stops here: the combination is undefined
+            continue
+        acat[gene] = _acat_r(ps)
+    if undefined:
+        logger.warning(
+            "acat_masks_p%s left empty for %d gene(s) whose masks have p-values of exactly "
+            "0 and 1 (ACAT undefined): %s",
+            suffix,
+            len(undefined),
+            ", ".join(undefined),
+        )
+        flag = f"acat_masks_undefined{suffix}"
+        hit = df["gene"].isin(undefined)
+        df.loc[hit, "warnings"] = [
+            w + ";" + flag if isinstance(w, str) and w else flag for w in df.loc[hit, "warnings"]
+        ]
     q = apply_correction(np.array(list(acat.values()), dtype=float), correction) if acat else ()
     df[f"acat_masks_p{suffix}"] = df["gene"].map(acat)
     df[f"acat_masks_q{suffix}"] = df["gene"].map(dict(zip(acat, q, strict=True)))

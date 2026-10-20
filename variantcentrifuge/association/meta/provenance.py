@@ -65,6 +65,10 @@ def _snpeff_genome(cmd: str) -> str | None:
     return args[-1] if args else None
 
 
+# SnpSift annotate options that take a value (SnpSift 5.x usage text)
+_SNPSIFT_VALUE_OPTIONS = {"-name", "-info", "-exists", "-c", "-config", "-dataDir", "-db"}
+
+
 def _annotation_db(key: str, value: str) -> str | None:
     """The database operand of an annotation command header line, else None.
 
@@ -84,7 +88,17 @@ def _annotation_db(key: str, value: str) -> str | None:
         return None
     if "-db" in toks[:-1]:
         return toks[toks.index("-db") + 1]
-    return next((t for t in toks[2:] if not t.startswith("-") and "." in t), None)
+    if toks[1].lower() == "dbnsfp":
+        return None  # its default database is not recorded in the header: unknown
+    # annotate: the first positional after skipping options and their values.
+    # ponytail: value-taking options are listed; extend if SnpSift adds more.
+    rest = iter(toks[2:])
+    for t in rest:
+        if t in _SNPSIFT_VALUE_OPTIONS:
+            next(rest, None)
+        elif not t.startswith("-"):
+            return t
+    return None
 
 
 def _command_files(lines: list[str], needle: str) -> str | None:
