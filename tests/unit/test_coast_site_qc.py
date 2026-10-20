@@ -92,3 +92,30 @@ def test_r_coast_receives_kept_variants(monkeypatch):
     assert result.p_value == pytest.approx(0.5)
     assert seen["anno"].tolist() == [1, 1, 2, 3, 3]
     assert seen["geno"].shape[1] == 5
+
+
+def test_uncomputable_allelic_skato_is_undefined_and_left_out_of_omnibus():
+    """A rank-1 allelic SKAT-O is not a p-value of 1: None, excluded from the omnibus (#216)."""
+    from tests.unit.test_coast_python_comparison import _load_synth_fixture, _run_synth_coast
+    from variantcentrifuge.association.tests.acat import cauchy_combination
+
+    res = _run_synth_coast(*_load_synth_fixture("synth_g3_single_variant"))
+    assert res["skat_p_value"] is None
+    assert res["p_value"] == cauchy_combination(res["burden_p_values"], weights=[1.0] * 6)
+
+
+def test_allelic_skato_placeholders_are_none(monkeypatch):
+    """No variants, or a non-finite SKAT-O p, is undefined rather than p = 1 (#216)."""
+    from variantcentrifuge.association.backends import python_backend
+    from variantcentrifuge.association.backends.coast_python import PythonCOASTBackend
+
+    backend = PythonCOASTBackend()
+    backend._ensure_skat_backend()
+    rng = np.random.default_rng(3)
+    geno = rng.binomial(2, 0.2, (200, 3)).astype(float)
+    null = backend._skat_backend.fit_null_model(
+        rng.binomial(1, 0.5, 200).astype(float), None, "binary"
+    )
+    assert backend._run_allelic_skat(geno[:, :0], np.ones(0), null) is None
+    monkeypatch.setattr(python_backend, "_skato_get_pvalue", lambda *a: (np.nan, [np.nan]))
+    assert backend._run_allelic_skat(geno, np.ones(3), null) is None

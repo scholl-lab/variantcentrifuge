@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - COAST no longer skips a gene (`ANNOTATION_GENOTYPE_MISMATCH`) when genotype site QC drops a variant; it tests the kept variants, like burden and SKAT (#215).
-- Single-cohort ACAT (ACAT-O, ACAT-V, COAST omnibus) follows R `ACAT()`: p = 1 components are kept instead of dropped, p outside [0, 1] is an error, p = 0 with p = 1 is undefined. COAST omnibus p-values with a p = 1 component (e.g. a rank-1 allelic SKAT-O) change (#216).
+- Single-cohort ACAT (ACAT-O, ACAT-V, COAST omnibus) follows R `ACAT()`: p = 1 components are kept instead of dropped, p outside [0, 1] is an error, p = 0 with p = 1 is undefined. An allelic SKAT-O that COAST cannot compute (rank < 2) is now reported as undefined (`coast_skat_pvalue` empty) and left out of the COAST omnibus instead of entering as p = 1 (#216).
 
 ## [0.22.1] - 2026-10-20
 

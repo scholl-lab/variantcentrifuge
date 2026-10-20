@@ -338,7 +338,7 @@ def test_near_collinear_covariates_explain_variants_in_all_consumers(backend):
     from variantcentrifuge.association.backends.coast_python import PythonCOASTBackend
     from variantcentrifuge.association.tests.acat import compute_acat_v
 
-    assert PythonCOASTBackend()._run_allelic_skat(geno, w, null) == 1.0
+    assert PythonCOASTBackend()._run_allelic_skat(geno, w, null) is None  # undefined (#216)
     acat = compute_acat_v(
         geno, null.extra["residuals"], "binary", 1.0, null.extra["mu_hat"], w, null_model=null
     )
