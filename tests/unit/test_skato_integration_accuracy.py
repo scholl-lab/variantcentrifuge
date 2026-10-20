@@ -29,6 +29,7 @@ import scipy.stats
 
 from variantcentrifuge.association.backends import davies as dv
 from variantcentrifuge.association.backends import skat_math as sm
+from variantcentrifuge.association.backends import skato_integrate
 from variantcentrifuge.association.backends.python_backend import PythonSKATBackend
 from variantcentrifuge.association.weights import beta_maf_weights
 
@@ -129,7 +130,7 @@ def test_support_edge_case_needs_the_edge_split() -> None:
 def test_rank_one_does_not_fall_back_to_liu(monkeypatch: pytest.MonkeyPatch) -> None:
     """Davies cannot evaluate one eigenvalue near the support edge; use the exact chi2(1)."""
     called = []
-    monkeypatch.setattr(sm, "_skato_integrate_liu", lambda *a: called.append(a) or 0.0)
+    monkeypatch.setattr(skato_integrate, "_skato_integrate_liu", lambda *a: called.append(a) or 0.0)
     p = _integrate(PARAMS["rank_one_moderate"])
     assert not called
     assert p == pytest.approx(0.220218733, abs=1e-9)
@@ -214,7 +215,7 @@ def test_skato_low_rank_matches_r(spec: tuple[int, int, int, int], r_ref: float)
 def test_davies_failure_in_integrand_uses_liu_like_r(monkeypatch: pytest.MonkeyPatch) -> None:
     """R SKAT_Optimal_PValue_Davies: any Davies ifault -> SKAT_Optimal_PValue_Liu."""
     case = PARAMS["multi_k8"]
-    monkeypatch.setattr(sm, "davies_pvalue", lambda *a, **k: (2.0, 1))
+    monkeypatch.setattr(skato_integrate, "davies_pvalue", lambda *a, **k: (2.0, 1))
     assert _integrate(case) == _integrate(case, sm._skato_integrate_liu)
 
 
@@ -234,7 +235,7 @@ def _tail_case(q_rho: np.ndarray, z1: np.ndarray, monkeypatch: pytest.MonkeyPatc
         seen.update(tau=list(param["tau"]), lambdas=list(param["lambdas"]))
         return real(pq, param, rho, pmin)
 
-    monkeypatch.setattr(sm, "_skato_integrate_davies", spy)
+    monkeypatch.setattr(skato_integrate, "_skato_integrate_davies", spy)
     p, _each = sm._skato_get_pvalue(q_rho, z1, sm._SKATO_RHO_GRID)
     return p, seen
 
