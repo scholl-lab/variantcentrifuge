@@ -50,9 +50,9 @@
 | variantcentrifuge/cli\_sync.py                                |      165 |        0 |    100.00% |           |
 | variantcentrifuge/clinvar\_pm5.py                             |       79 |        0 |    100.00% |           |
 | variantcentrifuge/config.py                                   |       52 |        2 |     96.15% |    51, 60 |
-| variantcentrifuge/converter.py                                |      160 |        9 |     94.38% |115, 120, 248-250, 257, 278-280 |
+| variantcentrifuge/converter.py                                |      160 |        8 |     95.00% |120, 248-250, 257, 278-280 |
 | variantcentrifuge/converter\_helpers.py                       |       76 |        9 |     88.16% |32, 46-48, 52, 77-79, 126 |
-| variantcentrifuge/dataframe\_optimizer.py                     |      141 |       10 |     92.91% |151, 332-344, 349 |
+| variantcentrifuge/dataframe\_optimizer.py                     |      141 |        5 |     96.45% |151, 342-344, 349 |
 | variantcentrifuge/display\_utils.py                           |      125 |       81 |     35.20% |29-90, 164-197, 209-239 |
 | variantcentrifuge/extractor.py                                |      202 |       22 |     89.11% |149-151, 248, 255, 292, 376-377, 394-395, 410-420, 428, 454-455, 561-564 |
 | variantcentrifuge/feature\_loaders.py                         |      133 |       16 |     87.97% |93-94, 116-117, 128-129, 173-174, 204-205, 215-216, 230, 234, 253-254 |
@@ -130,7 +130,7 @@
 | variantcentrifuge/vcf\_eff\_one\_per\_line.py                 |      283 |       71 |     74.91% |104, 148, 173, 178-179, 196-210, 228-234, 251, 255, 259, 266-272, 293, 302, 345, 393-447, 452-472 |
 | variantcentrifuge/vcf\_header\_parser.py                      |      171 |       18 |     89.47% |153, 164, 199, 204, 231-245, 380, 392-393, 410 |
 | variantcentrifuge/version.py                                  |        1 |        0 |    100.00% |           |
-| **TOTAL**                                                     | **17562** | **2739** | **84.40%** |           |
+| **TOTAL**                                                     | **17562** | **2733** | **84.44%** |           |
 
 
 ## Setup coverage badge
