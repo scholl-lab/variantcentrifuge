@@ -16,15 +16,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
@@ -47,15 +47,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.3.0
 
       - name: Build distributions
         run: uv build
@@ -85,7 +85,7 @@ jobs:
           /tmp/isolated_env/bin/python -I -c "import importlib.metadata as m, os, pathlib, variantcentrifuge as vc; v = m.version('variantcentrifuge'); assert vc.__version__ == v, (vc.__version__, v); p = pathlib.Path(vc.__file__).parent; assert 'site-packages' in p.parts, vc.__file__; assert (p / 'templates' / 'index.html').is_file() and list((p / 'assets' / 'js').glob('*.js')); exp = os.environ['TAG'].removeprefix('v'); assert not exp or vc.__version__ == exp, f'Version mismatch: got {vc.__version__}, expected {exp}'"
 
       - name: Store built distribution artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pypi-dist
           path: dist/
@@ -102,7 +102,7 @@ jobs:
       id-token: write
     steps:
       - name: Download distribution artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: pypi-dist
           path: dist/

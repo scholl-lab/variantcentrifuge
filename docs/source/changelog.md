@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** requires Python 3.12+ (was 3.10+). Python 3.10 is end-of-life, pandas 3 needs 3.11+, and the Docker/conda builds already ship 3.12. Users on 3.10/3.11 keep getting the last 0.19.x release from pip.
+- CI: PRs test Python 3.12 only; `main` and releases test 3.12 and 3.14. Tests run in parallel (`-n auto --dist worksteal`), coverage runs once (in the Coverage workflow, with the `sysmon` tracer), feature branches no longer run CI twice (push + PR), and superseded PR runs are cancelled. Actions moved to Node 24 releases, every job has a timeout, and Dependabot now updates actions and `uv.lock` weekly.
+
 ## [0.19.2] - 2026-10-20
 
 - Re-release of 0.19.1 with version metadata synchronised across `version.py`, `CITATION.cff` and `.zenodo.json`. The v0.19.1 tag failed release validation because only `version.py` had been bumped.

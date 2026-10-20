@@ -72,7 +72,7 @@ dependencies in `pyproject.toml`; do not hand-edit generated environment state.
 
 ## Engineering conventions
 
-- Python 3.10+; use modern built-in generics (`list[str]`, `str | None`) and
+- Python 3.12+; use modern built-in generics (`list[str]`, `str | None`) and
   Ruff-compatible formatting.
 - Keep configuration-driven behavior in the established JSON/configuration
   surfaces rather than hard-coding new filter or scoring rules.

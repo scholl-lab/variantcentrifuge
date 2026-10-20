@@ -2,41 +2,45 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/*, fix/*]
+    branches: [main]
   pull_request:
     branches: [main]
   workflow_dispatch:
   workflow_call:
 
-# Cancel in-progress runs for the same workflow + branch/PR
+permissions:
+  contents: read
+
+# Cancel superseded PR/branch runs; never cancel main or release runs.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
     name: Lint with Ruff
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
-          python-version: "3.10"
+          python-version: "3.12"
 
       - name: Check production Python module size
         run: python scripts/check_file_size.py variantcentrifuge --allowlist .loc-allowlist
 
       - name: Run Ruff linter
-        uses: astral-sh/ruff-action@v3
+        uses: astral-sh/ruff-action@v4.1.0
         with:
           args: "check --output-format=github"
           src: "variantcentrifuge/ tests/"
 
       - name: Check code formatting with Ruff
-        uses: astral-sh/ruff-action@v3
+        uses: astral-sh/ruff-action@v4.1.0
         with:
           args: "format --check --diff"
           src: "variantcentrifuge/ tests/"
@@ -44,39 +48,33 @@ jobs:
   type-check:
     name: Type Check with mypy
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v10.3.0
         with:
-          python-version: "3.10"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
+          python-version: "3.12"
+          activate-environment: true
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
-        run: |
-          uv sync --locked --extra dev
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+        run: uv sync --locked --extra dev
 
       - name: Check version synchronization
         run: python scripts/check_version_sync.py
 
-      - name: Create mypy cache directory
-        run: mkdir -p .mypy_cache
-
       - name: Cache mypy
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .mypy_cache
-          key: mypy-${{ runner.os }}-py3.10-${{ hashFiles('pyproject.toml') }}
+          key: mypy-${{ runner.os }}-py3.12-${{ hashFiles('uv.lock', 'pyproject.toml') }}-${{ github.sha }}
           restore-keys: |
-            mypy-${{ runner.os }}-py3.10-
+            mypy-${{ runner.os }}-py3.12-${{ hashFiles('uv.lock', 'pyproject.toml') }}-
+            mypy-${{ runner.os }}-py3.12-
 
       - name: Run mypy type checker
         run: python -m mypy variantcentrifuge/
@@ -84,42 +82,36 @@ jobs:
   test:
     name: Test on Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        # PRs test the shipped runtime (Docker/conda pin 3.12); main and releases also test the newest Python.
+        python-version: ${{ fromJSON(github.event_name == 'pull_request' && '["3.12"]' || '["3.12", "3.14"]') }}
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Install uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@v10.3.0
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
+          activate-environment: true
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
-        run: |
-          uv sync --locked --extra dev
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+        run: uv sync --locked --extra dev
 
+      # Coverage is measured once, in coverage.yml.
       - name: Run tests with pytest
         run: |
-          python -m pytest -m "not slow and not integration" tests/ \
-            --verbose \
-            --cov=variantcentrifuge \
-            --cov-report=xml \
-            --cov-report=term-missing \
+          python -m pytest -n auto --dist worksteal -m "not slow and not integration" tests/ \
             --junitxml=junit/test-results-${{ matrix.python-version }}.xml \
             --tb=short
 
       - name: Upload pytest results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         continue-on-error: true
         with:
@@ -130,36 +122,32 @@ jobs:
   integration-test:
     name: Mocked Integration Tests
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@v10.3.0
         with:
-          python-version: "3.10"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-        with:
+          python-version: "3.12"
+          activate-environment: true
           enable-cache: true
           cache-dependency-glob: "uv.lock"
 
       - name: Install dependencies
-        run: |
-          uv sync --locked --extra dev
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
+        run: uv sync --locked --extra dev
 
       - name: Run mocked integration tests
         run: |
-          python -m pytest -m "integration and not slow" tests/ \
-            --verbose \
+          python -m pytest -n auto --dist worksteal -m "integration and not slow" tests/ \
             --tb=short
 
   # Summary gate job for branch protection rules
   ci-success:
     name: CI Success
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [lint, type-check, test, integration-test]
     if: always()
     steps:

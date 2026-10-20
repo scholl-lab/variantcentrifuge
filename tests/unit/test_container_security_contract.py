@@ -2,17 +2,13 @@ import os
 import re
 import subprocess
 import sys
+import tomllib
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from packaging import requirements
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python 3.10
-    import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[2]
 MAVEN_NAMESPACE = {"m": "http://maven.apache.org/POM/4.0.0"}
@@ -1096,7 +1092,7 @@ def test_docker_workflow_uses_node24_action_releases() -> None:
         if line.strip().startswith("uses: ")
     ]
     for action in (
-        "actions/checkout@v6",
+        "actions/checkout@v7",
         "docker/setup-buildx-action@v4",
         "docker/metadata-action@v6",
         "docker/build-push-action@v7",

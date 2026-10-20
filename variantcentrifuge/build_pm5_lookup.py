@@ -260,7 +260,7 @@ def build_pm5_lookup(
             "source": "ClinVar variant_summary.txt.gz",
             "source_url": source_url,
             "sha256": file_sha256,
-            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
             "assembly": assembly,
             "min_review_stars": min_stars,
             "include_lp": include_lp,

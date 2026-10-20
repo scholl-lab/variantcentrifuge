@@ -6,7 +6,7 @@ This guide provides information for developers who want to contribute to Variant
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.12+
 - Git
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip
 - External bioinformatics tools (bcftools, snpEff, SnpSift, bedtools)

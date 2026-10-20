@@ -8,7 +8,7 @@ We welcome contributions to VariantCentrifuge! This document provides guidelines
 
 Before contributing, ensure you have:
 
-- Python 3.10+ installed
+- Python 3.12+ installed
 - Git configured with your GitHub account
 - External bioinformatics tools (bcftools, snpEff, SnpSift, bedtools) installed
 - Familiarity with the VariantCentrifuge codebase and documentation
