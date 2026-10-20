@@ -91,7 +91,7 @@ test-fast: $(DAVIES_EXT) ## Run non-slow, non-integration tests
 	$(PYTHON) -m pytest -n auto --dist worksteal -m "not slow and not integration" tests/ --tb=short -q
 
 # Real-data e2e: run inside the variantcentrifuge image (bcftools, snpEff, SnpSift).
-E2E_IMAGE ?= variantcentrifuge:0.18.0
+E2E_IMAGE ?= ghcr.io/scholl-lab/variantcentrifuge:latest
 SNPEFF_DATA ?= /mnt/nas-bioinformatics/bioinformatics/variantcentrifuge/resources/snpeff
 
 fixture-1000g: ## Rebuild tests/fixtures/1000g_cohort from 1000 Genomes (needs SNPEFF_DATA with GRCh38.p14)
@@ -99,8 +99,11 @@ fixture-1000g: ## Rebuild tests/fixtures/1000g_cohort from 1000 Genomes (needs S
 		-v $(SNPEFF_DATA):/data/snpeff --entrypoint micromamba $(E2E_IMAGE) run -n base \
 		bash scripts/build_1000g_fixture.sh
 
+# Mounts only tests/ and pyproject.toml so the image's installed package (with its compiled
+# Davies extension) is under test, not the uncompiled checkout. Rebuild the image to test changes.
 test-e2e: ## Run real-data e2e tests (1000 Genomes cohort meta-analysis) in the image
-	docker run --rm --user root -e PYTHONDONTWRITEBYTECODE=1 -e PYTHONPATH=/repo -v $(CURDIR):/repo -w /repo \
+	docker run --rm --user root -e PYTHONDONTWRITEBYTECODE=1 \
+		-v $(CURDIR)/tests:/work/tests:ro -v $(CURDIR)/pyproject.toml:/work/pyproject.toml:ro -w /work \
 		--entrypoint micromamba $(E2E_IMAGE) run -n base bash -c \
 		'micromamba install -q -y -n base -c conda-forge pytest >/dev/null && \
 		python -m pytest -p no:cacheprovider -o addopts= -m e2e tests/e2e -v'

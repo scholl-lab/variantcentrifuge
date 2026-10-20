@@ -197,3 +197,29 @@ class TestParallelProcessingSubtasks:
         assert "bed_splitting (avg)" not in log_text
         assert "tsv_merging (avg)" not in log_text
         assert "cleanup (avg)" not in log_text
+
+
+def test_bed_chunks_are_written_to_workspace_not_next_to_input_bed(tmp_path):
+    """A --regions-bed in a read-only input directory must not receive chunk files."""
+    inputs = tmp_path / "inputs"
+    inputs.mkdir()
+    bed = inputs / "genes.bed"
+    bed.write_text("chr1\t100\t200\tA\nchr1\t300\t400\tB\nchr2\t100\t200\tC\n")
+    inputs.chmod(0o555)
+    workspace = Workspace(tmp_path / "out", "test")
+    ctx = PipelineContext(args=Mock(), config={"threads": 2}, workspace=workspace)
+    ctx.gene_bed_file = bed
+    stage = ParallelCompleteProcessingStage()
+    try:
+        with (
+            patch.object(stage, "_process_chunks_parallel", return_value=[]) as process,
+            patch.object(stage, "_merge_tsv_outputs", return_value=tmp_path / "m.tsv"),
+            patch.object(stage, "_cleanup_chunks"),
+        ):
+            stage._process(ctx)
+        chunks = process.call_args[0][1]
+        assert chunks
+        assert all(c.parent == workspace.intermediate_dir / "chunks" for c in chunks)
+        assert sorted(p.name for p in inputs.iterdir()) == ["genes.bed"]
+    finally:
+        inputs.chmod(0o755)

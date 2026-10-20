@@ -171,7 +171,11 @@ class ParallelCompleteProcessingStage(Stage):
         if context.gene_bed_file is None:
             raise ValueError("gene_bed_file is required for parallel complete processing")
         split_start = self._start_subtask("bed_splitting")
-        bed_chunks = self._split_bed_file(context.gene_bed_file, threads)
+        # Chunks live in the run's workspace: a user --regions-bed may sit in a read-only or
+        # shared input directory, and concurrent runs on one BED must not collide.
+        bed_chunks = self._split_bed_file(
+            context.gene_bed_file, threads, context.workspace.intermediate_dir / "chunks"
+        )
         self._end_subtask("bed_splitting", split_start)
         logger.info(f"Split BED file into {len(bed_chunks)} chunks for parallel processing")
 
@@ -207,9 +211,8 @@ class ParallelCompleteProcessingStage(Stage):
         """Return output files for checkpoint tracking."""
         return [context.extracted_tsv] if context.extracted_tsv is not None else []
 
-    def _split_bed_file(self, bed_file: Path, n_chunks: int) -> list[Path]:
-        """Split BED file into roughly equal chunks."""
-        chunk_dir = bed_file.parent / "chunks"
+    def _split_bed_file(self, bed_file: Path, n_chunks: int, chunk_dir: Path) -> list[Path]:
+        """Split BED file into roughly equal chunks inside ``chunk_dir``."""
         chunk_dir.mkdir(exist_ok=True)
         split_fn = _ps_attr("split_bed_file", split_bed_file)
         chunks = split_fn(str(bed_file), n_chunks, str(chunk_dir))

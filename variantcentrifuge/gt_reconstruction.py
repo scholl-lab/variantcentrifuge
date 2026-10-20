@@ -5,11 +5,10 @@ Reconstructs packed GT columns from per-sample GEN[i].GT columns and removes
 per-sample GEN columns before materializing final TSV/Excel outputs.
 """
 
-import contextlib
 import logging
 import re
-from typing import Any
 
+import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -98,78 +97,64 @@ def reconstruct_gt_column(
 
     logger.info(f"Reconstructing GT column from {n_samples} per-sample columns")
 
-    # Vectorized approach: build GT strings using numpy for speed
     skip_values = set() if extra_fields else {"0/0", "0|0"}
     missing_sentinels = {"NA", "", "nan", "None"}
 
-    batch_size = 2048
     n_rows = len(df)
     sample_cols = gt_cols[:n_samples]
     sample_ids = [
         sample_mapping.get(s, s) if sample_mapping else s for s in vcf_samples[:n_samples]
     ]
 
-    extra_field_cols: list[tuple[int, str, str]] = []
-    if extra_fields:
-        for col_idx in range(n_samples):
-            for ef in extra_fields:
-                ecol = s_cols.get((col_idx, ef))
-                if ecol and ecol in df.columns:
-                    extra_field_cols.append((col_idx, ef, ecol))
+    # Per extra field: (column names present, sample index -> position in that list)
+    extra_layout: dict[str, tuple[list[str], dict[int, int]]] = {}
+    for ef in extra_fields:
+        present = [i for i in range(n_samples) if (i, ef) in s_cols]
+        extra_layout[ef] = (
+            [s_cols[(i, ef)] for i in present],
+            {i: p for p, i in enumerate(present)},
+        )
 
+    def _clean(rv: object) -> str:
+        return "" if rv is None or (not isinstance(rv, str) and pd.isna(rv)) else str(rv).strip()
+
+    # ~1M cells per batch bounds peak memory (~100 bytes per cell in flight). Within a batch
+    # every cell is normalised at once and Python only touches the cells that are kept.
+    batch_size = max(1, 1_000_000 // max(1, n_samples))
     gt_strings: list[str] = []
     for start in range(0, n_rows, batch_size):
-        end = min(start + batch_size, n_rows)
-        batch_slice = df.iloc[start:end]
-        batch_gt = batch_slice[sample_cols].values
-        batch_extra: dict[str, Any] = {}
-        if extra_field_cols:
-            for _, _, ecol in extra_field_cols:
-                if ecol not in batch_extra:
-                    batch_extra[ecol] = batch_slice[ecol].values
+        batch = df.iloc[start : start + batch_size]
+        flat = pd.Series(batch[sample_cols].to_numpy(dtype=object).ravel(), dtype=object)
+        gt_flat = flat.astype(str).str.strip()
+        gt_flat = gt_flat.where(~(flat.isna() | gt_flat.isin(missing_sentinels)), "./.")
+        gt_vals = gt_flat.to_numpy(dtype=object)
+        kept = np.flatnonzero(~gt_flat.isin(skip_values).to_numpy())
+        extra_vals = {
+            ef: (batch[cols].to_numpy(dtype=object), pos)
+            for ef, (cols, pos) in extra_layout.items()
+        }
 
-        batch_len = end - start
-        for r_idx in range(batch_len):
-            entries = []
-            for col_idx in range(n_samples):
-                val = batch_gt[r_idx, col_idx]
-                is_na = val is None
-                if not is_na:
-                    with contextlib.suppress(TypeError, ValueError):
-                        is_na = bool(pd.isna(val))
-                if is_na:
-                    gt_str = "./."
-                else:
-                    gt_str = str(val).strip()
-                    if gt_str in missing_sentinels:
-                        gt_str = "./."
-                if gt_str in skip_values:
-                    continue
-                if extra_fields:
-                    vals = []
-                    for ef in extra_fields:
-                        ecol = s_cols.get((col_idx, ef))
-                        if ecol is not None and ecol in batch_extra:
-                            rv = batch_extra[ecol][r_idx]
-                            vals.append(
-                                ""
-                                if rv is None or (not isinstance(rv, str) and pd.isna(rv))
-                                else str(rv).strip()
-                            )
-                        else:
-                            vals.append("")
-                    entries.append(f"{sample_ids[col_idx]}({delimiter.join([gt_str, *vals])})")
-                else:
-                    entries.append(f"{sample_ids[col_idx]}({gt_str})")
-            gt_strings.append(";".join(entries))
+        entries_by_row: list[list[str]] = [[] for _ in range(len(batch))]
+        for flat_idx in kept:
+            r_idx, col_idx = divmod(int(flat_idx), n_samples)
+            gt_str = gt_vals[flat_idx]
+            if extra_fields:
+                vals = []
+                for ef in extra_fields:  # keeps requested order, duplicates included
+                    arr, pos = extra_vals[ef]
+                    vals.append(_clean(arr[r_idx, pos[col_idx]]) if col_idx in pos else "")
+                entry = f"{sample_ids[col_idx]}({delimiter.join([gt_str, *vals])})"
+            else:
+                entry = f"{sample_ids[col_idx]}({gt_str})"
+            entries_by_row[r_idx].append(entry)
+        gt_strings.extend(";".join(entries) for entries in entries_by_row)
 
     df["GT"] = gt_strings
 
     # Drop per-sample GT and requested extra GEN columns
     extra_cols = [col for (_, f), col in s_cols.items() if f in extra_fields]
-    for col in gt_cols + extra_cols:
-        if col in df.columns:
-            del df[col]
+    # One drop: per-column `del` re-slices every block each time (quadratic in columns).
+    df = df.drop(columns=[c for c in gt_cols + extra_cols if c in df.columns])
     logger.info(f"Dropped {len(gt_cols)} per-sample GT columns from output")
 
     return df
