@@ -75,6 +75,14 @@ The artifact (schema version 2) also records the missing-genotype policy as
 still load. They are read as `bestguess` with unknown thresholds, which is what they used.
 With `--missing-as-ref`, the stored `AN` counts every sample.
 
+`--mask-label NAME` stores a readable name for the mask (e.g. `pLoF`) next to its
+hash. The artifact also records annotation provenance: the snpEff version
+(`##SnpEffVersion`) and genome database (from `##SnpEffCmd`), the dbNSFP and gnomAD
+files named in annotation command lines (`##SnpSiftCmd` and other `##...Cmd`/
+`##...Command` lines; file basenames), and SHA-256 hashes of the `--regions-bed` and
+`--gene-file` contents (`none` when not used). A header line the input VCF does not
+carry is recorded as unknown.
+
 ## Study manifest
 
 A TSV, one row per stratum:
@@ -95,6 +103,11 @@ imputation mode, or when their (hashed) sample sets overlap — overlap would vi
 independence assumption. Sample non-overlap does not by itself establish
 independence for related or shared-control populations; that remains a caller
 assumption. Strata whose missingness thresholds differ are pooled, with a warning.
+
+It also refuses strata whose annotation provenance differs, naming the field and each
+stratum's value; `--allow-annotation-mismatch` pools them anyway with a warning.
+Unknown provenance (an older artifact, or a VCF without those header lines) is only
+warned about, never refused.
 
 ## Running it
 

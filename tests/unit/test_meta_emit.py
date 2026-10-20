@@ -144,6 +144,7 @@ def test_stage_writes_score_artifact_for_fisher_only_run(monkeypatch, tmp_path):
         "filters": "(ANN[0].IMPACT has 'HIGH')",
         "score_artifact": artifact,
         "gzip_intermediates": False,
+        "mask_label": "HIGH",
     }
     ctx = PipelineContext(args=Namespace(), config=config, workspace=workspace)
     ctx.current_dataframe = df
@@ -155,6 +156,9 @@ def test_stage_writes_score_artifact_for_fisher_only_run(monkeypatch, tmp_path):
     assert art.stratum_id == "cohortA" and art.genome_build == "GRCh38"
     assert art.genes["GENE1"].variant_keys == ["1:10:A:G", "1:20:C:T"]
     assert (art.n_cases, art.n_controls) == (10, 10)
+    assert art.mask_label == "HIGH"  # #197: label + provenance (no VCF here: unknown)
+    assert art.provenance["snpeff_version"] is None
+    assert art.provenance["regions_bed_sha256"] == "none"
     assert all("_genotype_matrix_builder" not in d for d in captured)
 
 

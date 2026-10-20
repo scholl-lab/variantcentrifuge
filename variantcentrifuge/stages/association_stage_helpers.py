@@ -18,6 +18,7 @@ def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) 
     import json
 
     from ..association.meta.artifact import emit_stratum_artifact
+    from ..association.meta.provenance import collect_provenance
     from ..links import normalize_reference
 
     reference = str(config.get("reference") or "")
@@ -36,6 +37,8 @@ def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) 
         annotation_version=reference,
         mask_id=mask_hash[:12],
         mask_hash=mask_hash,
+        mask_label=config.get("mask_label"),
+        provenance=collect_provenance(config),
     )
 
 

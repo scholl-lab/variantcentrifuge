@@ -259,6 +259,7 @@ def run_meta(
     min_mac: float = 0.0,
     diagnostics_dir: str | None = None,
     require_variants_in_all_strata: bool = False,
+    allow_annotation_mismatch: bool = False,
 ) -> pd.DataFrame:
     """Full pipeline: manifest → validated artifacts → meta results → TSV.
 
@@ -267,7 +268,7 @@ def run_meta(
     """
     refs = read_study_manifest(manifest_path)
     artifacts = load_manifest_artifacts(refs)
-    validate_comparability(artifacts)
+    validate_comparability(artifacts, allow_annotation_mismatch)
     logger.info("Meta-analysis: %d strata, mask '%s'", len(artifacts), artifacts[0].mask_id)
 
     df = meta_analyze_artifacts(

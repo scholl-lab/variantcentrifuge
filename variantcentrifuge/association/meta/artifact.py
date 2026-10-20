@@ -83,6 +83,9 @@ class ScoreCovarianceArtifact:
     schema_version: int = SCHEMA_VERSION
     # imputation ("bestguess" | "missing_as_ref") + site/sample missingness thresholds
     missing_policy: dict[str, Any] = field(default_factory=lambda: dict(V1_MISSING_POLICY))
+    # Optional v2 fields (#197): readable mask name; annotation provenance (meta/provenance.py)
+    mask_label: str | None = None
+    provenance: dict[str, Any] = field(default_factory=dict)
 
 
 def fit_stratum_null(
@@ -254,6 +257,8 @@ def save_artifact(artifact: ScoreCovarianceArtifact, path: str) -> None:
         "n_controls": artifact.n_controls,
         "sample_id_hashes": artifact.sample_id_hashes,
         "missing_policy": artifact.missing_policy,
+        "mask_label": artifact.mask_label,
+        "provenance": artifact.provenance,
         "genes": gene_meta,
     }
     with open(f"{path}.meta.json", "w", encoding="utf-8") as fh:
@@ -303,6 +308,8 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
         genes=genes,
         schema_version=int(meta["schema_version"]),
         missing_policy=dict(policy),
+        mask_label=meta.get("mask_label"),
+        provenance=dict(meta.get("provenance") or {}),
     )
 
 
@@ -324,6 +331,8 @@ def emit_stratum_artifact(
     annotation_version: str,
     mask_id: str,
     mask_hash: str,
+    mask_label: str | None = None,
+    provenance: dict[str, Any] | None = None,
 ) -> ScoreCovarianceArtifact:
     """Write a stratum artifact from the association stage's per-gene matrix builders.
 
@@ -451,6 +460,8 @@ def emit_stratum_artifact(
             "site_threshold": first.missing_site_threshold,
             "sample_threshold": first.missing_sample_threshold,
         },
+        mask_label=mask_label,
+        provenance=dict(provenance or {}),
     )
     save_artifact(artifact, path)
     logger.info("Wrote meta-analysis score artifact (%d genes) to %s", len(gene_scores), path)

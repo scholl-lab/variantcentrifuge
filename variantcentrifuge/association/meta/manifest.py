@@ -21,6 +21,7 @@ import os
 from dataclasses import dataclass
 
 from variantcentrifuge.association.meta.artifact import ScoreCovarianceArtifact, load_artifact
+from variantcentrifuge.association.meta.provenance import check_provenance
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -102,11 +103,15 @@ def _check_missing_policy(artifacts: list[ScoreCovarianceArtifact]) -> None:
             logger.warning("Strata use different missingness %s (%s).", key, listing)
 
 
-def validate_comparability(artifacts: list[ScoreCovarianceArtifact]) -> None:
+def validate_comparability(
+    artifacts: list[ScoreCovarianceArtifact], allow_annotation_mismatch: bool = False
+) -> None:
     """Raise MetaCompatibilityError unless all strata are comparable.
 
     Checks: identical genome_build, annotation_version, mask_hash, trait_type,
-    missing-genotype imputation, and disjoint sample_id_hashes across strata.
+    missing-genotype imputation, annotation provenance (a mismatch only warns with
+    ``allow_annotation_mismatch``; unknown values warn), and disjoint
+    sample_id_hashes across strata.
     """
     if len(artifacts) < 2:
         raise MetaCompatibilityError("Need at least 2 strata to validate comparability.")
@@ -122,6 +127,7 @@ def validate_comparability(artifacts: list[ScoreCovarianceArtifact]) -> None:
     for attr in ("genome_build", "annotation_version", "mask_hash", "trait_type"):
         _uniform(attr)
     _check_missing_policy(artifacts)
+    check_provenance(artifacts, allow_annotation_mismatch, MetaCompatibilityError)
 
     # Sample-hash overlap check (independence of covariances).
     seen: dict[str, str] = {}

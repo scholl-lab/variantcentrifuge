@@ -54,6 +54,13 @@ def build_parser() -> argparse.ArgumentParser:
         "status=not_in_all_strata and are excluded from the correction.",
     )
     parser.add_argument(
+        "--allow-annotation-mismatch",
+        action="store_true",
+        help="Pool strata whose annotation provenance (snpEff version/genome, dbNSFP, "
+        "gnomAD source, regions-bed/gene-file hashes) differs, with a warning instead of "
+        "refusing.",
+    )
+    parser.add_argument(
         "--diagnostics-output",
         default=None,
         metavar="DIR",
@@ -92,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
             min_mac=args.min_mac,
             diagnostics_dir=args.diagnostics_output,
             require_variants_in_all_strata=args.require_variants_in_all_strata,
+            allow_annotation_mismatch=args.allow_annotation_mismatch,
         )
     except MetaCompatibilityError as exc:
         logger.error("Meta-analysis refused (strata not comparable): %s", exc)
