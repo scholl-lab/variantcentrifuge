@@ -7,6 +7,7 @@ from __future__ import annotations
 import concurrent.futures
 import contextlib
 import ctypes
+import gc
 import logging
 import multiprocessing
 import os
@@ -39,7 +40,11 @@ _BLAS_THREAD_API = (
 
 
 def _loaded_blas_libraries() -> list[str]:
-    """Paths of the BLAS shared libraries mapped into this process (Linux only)."""
+    """Paths of the BLAS shared libraries mapped into this process (Linux only).
+
+    ponytail: matches OpenBLAS and the single-library MKL (mkl_rt) only; split MKL
+    builds (libmkl_core + threading layer) stay unpinned. Add their names if one shows up.
+    """
     try:
         with open("/proc/self/maps") as fh:
             paths = {line.split()[-1] for line in fh if "/" in line}
@@ -191,6 +196,10 @@ def fork_map(
     chunk = max(1, n_items // (workers * 8))
     bounds = [(lo, min(lo + chunk, n_items)) for lo in range(0, n_items, chunk)]
     _FORK_STATE = (task, state)
+    # Frozen objects are skipped by the children's GC, so its passes don't dirty (copy) the
+    # parent's heap pages that the workers share copy-on-write.
+    gc.collect()
+    gc.freeze()
     try:
         with concurrent.futures.ProcessPoolExecutor(
             max_workers=workers,
@@ -201,6 +210,7 @@ def fork_map(
                 yield lo, hi, result
     finally:
         _FORK_STATE = None
+        gc.unfreeze()
 
 
 def fork_available() -> bool:
