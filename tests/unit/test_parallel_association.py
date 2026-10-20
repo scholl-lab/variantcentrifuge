@@ -493,3 +493,40 @@ def test_matrices_are_built_in_workers() -> None:
     )
     assert len(engine.run_all(genes)) == 12
     assert parent_calls.value == 1
+
+
+@pytest.mark.unit
+def test_without_fork_genes_run_sequentially(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Off Linux (no fork) the parallel request falls back to the sequential loop."""
+    monkeypatch.setattr(
+        "variantcentrifuge.association.engine_workers.fork_available", lambda: False
+    )
+    tables = []
+    for workers in (1, 3):
+        genes = [_real_gene(f"G{i:02d}", i) for i in range(8)]
+        engine = AssociationEngine.from_names(
+            ["logistic_burden"], AssociationConfig(association_workers=workers)
+        )
+        with patch("variantcentrifuge.association.engine_workers.fork_map") as fork_map:
+            tables.append(engine.run_all(genes))
+        fork_map.assert_not_called()
+    pd.testing.assert_frame_equal(tables[0], tables[1], check_exact=True)
+
+
+@pytest.mark.unit
+def test_fork_task_runs_gene_range_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The worker entry point (normally only run in a child) returns results and QC counts."""
+    from variantcentrifuge.association import engine_workers as ew
+
+    genes = [_real_gene(f"G{i:02d}", i) for i in range(3)]
+    tests = {
+        "logistic_burden": AssociationEngine.from_names(
+            ["logistic_burden"], AssociationConfig()
+        )._tests["logistic_burden"]
+    }
+    monkeypatch.setattr(
+        ew, "_FORK_STATE", (ew._run_gene_range, (genes, tests, AssociationConfig()))
+    )
+    results, qc = ew._fork_task((1, 3))
+    assert list(results["logistic_burden"]) == ["G01", "G02"]
+    assert qc == {"G01": 6, "G02": 6}
