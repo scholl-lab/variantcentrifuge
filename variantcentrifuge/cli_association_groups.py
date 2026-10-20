@@ -301,7 +301,8 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "TSV with columns set_id and gene. Each set is tested as one extra unit (the "
-            "union of its genes' qualifying variants) with the same tests, written as rows "
+            "union of its genes' qualifying variants; a shared variant counts once with its "
+            "first row's annotation) with the same tests, written as rows "
             "with unit_type=set and corrected for multiple testing separately from genes."
         ),
     )

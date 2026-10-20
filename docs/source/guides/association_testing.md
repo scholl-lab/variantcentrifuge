@@ -1009,6 +1009,12 @@ variant annotated to several member genes counted once. It runs through the same
 weights and covariates as the genes, so a one-gene set gives exactly that gene's result and a
 two-gene set gives the result of one gene holding both genes' variants.
 
+- **Shared variants.** A variant annotated to several member genes enters the set once and
+  keeps the annotation of its first row in input order, which can change its COAST class or
+  functional weight within the set compared with the other gene.
+- **Run time.** Cost grows with sets × variants: each set rebuilds its genotype matrix and
+  reruns every test (for example about 20 s extra for 200 sets on 20,000 variants × 2,000
+  samples).
 - **Output.** Set rows carry the set id in the `gene` column. A `unit_type` column (`gene` or
   `set`) is added after `gene` only when `--gene-set-file` is given.
 - **Multiple testing.** Genes and sets are separate correction families: the gene rows and
