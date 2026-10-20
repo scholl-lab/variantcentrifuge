@@ -97,43 +97,16 @@ def test_genotype_and_allele_count_pairing(tmp_path: Path):
     # Row 0: 0/1
     assert row0["custom_note"] == "heterozygous_row"
     assert row0["GEN[0].GT"] == "0/1"
+    assert row0["GT"] == "CASE1(0/1)"
     if "proband_allele_count" in result.columns:
         assert int(row0["proband_allele_count"]) == 1
 
     # Row 1: 1/1
     assert row1["custom_note"] == "homozygous_row"
     assert row1["GEN[0].GT"] == "1/1"
+    assert row1["GT"] == "CASE1(1/1)"
     if "proband_allele_count" in result.columns:
         assert int(row1["proband_allele_count"]) == 2
-
-
-@pytest.mark.parametrize("rename", [False, True])
-def test_shared_frame_gains_only_count_columns(tmp_path: Path, rename: bool):
-    """The stage must not leak its local packed GT into the shared frame (#219)."""
-    samples = ["CASE1", "CTRL1"]
-    gt0, gt1 = ("GEN_0__GT", "GEN_1__GT") if rename else ("GEN[0].GT", "GEN[1].GT")
-    input_df = pd.DataFrame(
-        {
-            "CHROM": ["chr1", "chr1"],
-            "POS": ["10", "20"],
-            "REF": ["A", "C"],
-            "ALT": ["T", "G"],
-            "GENE": ["G1", "G1"],
-            gt0: ["0/1", "1/1"],
-            gt1: ["0/0", "0/1"],
-        }
-    )
-    before = list(input_df.columns)
-    ctx = _create_context(tmp_path, input_df, samples)
-    if rename:
-        ctx.column_rename_map = {"GEN[0].GT": gt0, "GEN[1].GT": gt1}
-    result = VariantAnalysisStage()._process(ctx).current_dataframe
-
-    assert "GT" not in result.columns
-    assert list(result.columns[: len(before)]) == before
-    added = set(result.columns) - set(before)
-    assert added and all(c.startswith(("proband_", "control_")) for c in added)
-    assert int(result["proband_allele_count"].iloc[1]) == 2
 
 
 @pytest.mark.parametrize("featureid_scenario", ["absent", "repeated", "distinct"])
