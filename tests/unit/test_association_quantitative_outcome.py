@@ -282,3 +282,165 @@ def test_binary_cohort_size_guard(caplog, n_cases, n_controls, ok, message):
     with caplog.at_level("WARNING"):
         assert _cohort_size_ok(n_cases, n_controls) is ok
     assert message in caplog.text
+
+
+def test_remove_sample_substring_applies_to_phenotype_ids(tmp_path):
+    """Like binary phenotype matching, phenotype-file IDs get the same substring removal
+    that SampleConfigLoadingStage applied to the VCF IDs (e.g. 'S000.bam' -> 'S000')."""
+    context = _context(tmp_path, {"remove_sample_substring": ".bam"})
+    context.phenotype_data = {f"{s}.bam": v for s, v in context.phenotype_data.items()}
+    _assert_matches(_run(context), R_LM)
+
+
+def test_build_outcome_substring_removal_merges_and_checks_conflicts():
+    samples, values = build_quantitative_outcome(
+        {"A.bam": {"1"}, "B": {"2"}}, ["A", "B"], "gfr", remove_substring=".bam"
+    )
+    assert samples == ["A", "B"]
+    np.testing.assert_array_equal(values, [1.0, 2.0])
+    with pytest.raises(ValueError, match="conflicting"):
+        build_quantitative_outcome({"A.bam": {"1"}, "A": {"2"}}, ["A"], "gfr", ".bam")
+
+
+# --- remaining stage responsibilities ------------------------------------------------------
+
+
+@pytest.mark.parametrize("existing", ["gz", "plain", None])
+def test_checkpoint_skip_restores_output_path(tmp_path, existing, caplog):
+    context = _context(tmp_path, {})
+    if existing:
+        name = "t.association.tsv" + (".gz" if existing == "gz" else "")
+        (tmp_path / name).write_text("")
+    with caplog.at_level("WARNING"):
+        result = AssociationAnalysisStage()._handle_checkpoint_skip(context)
+    if existing:
+        assert result.config["association_output"].endswith(name)
+    else:
+        assert "association_output" not in result.config
+        assert "not found during checkpoint skip" in caplog.text
+    off = _context(tmp_path, {"perform_association": False})
+    assert (
+        "association_output" not in AssociationAnalysisStage()._handle_checkpoint_skip(off).config
+    )
+
+
+def test_empty_dataframe_writes_header_only_output(tmp_path):
+    context = _context(tmp_path, {"gzip_intermediates": True})
+    context.current_dataframe = context.current_dataframe.iloc[0:0]
+    result = AssociationAnalysisStage()._process(context)
+    assert result.association_results.empty
+    out = pd.read_csv(tmp_path / "t.association.tsv.gz", sep="\t")
+    assert list(out.columns)[:4] == ["gene", "n_cases", "n_controls", "n_variants"]
+    assert "linear_burden_pvalue" in out.columns
+    assert AssociationAnalysisStage().get_output_files(result) == [
+        tmp_path / "t.association.tsv.gz"
+    ]
+
+
+def test_missing_gene_column_and_missing_weight_column(tmp_path):
+    context = _context(tmp_path, {})
+    context.current_dataframe = context.current_dataframe.drop(columns="GENE")
+    assert AssociationAnalysisStage()._process(context).association_results is None
+
+    context = _context(tmp_path, {"variant_weights": "column:NOPE"})
+    with pytest.raises(ValueError, match="'NOPE' is missing"):
+        AssociationAnalysisStage()._process(context)
+
+
+def test_missing_dataframe_raises(tmp_path):
+    context = _context(tmp_path, {})
+    context.current_dataframe = None
+    with pytest.raises(RuntimeError, match="No DataFrame loaded"):
+        AssociationAnalysisStage()._process(context)
+
+
+@pytest.mark.parametrize("model", [None, "cadd"])
+def test_coast_without_required_columns_is_skipped(tmp_path, model):
+    only_coast = _context(tmp_path, {"association_tests": ["coast"], "coast_classification": model})
+    assert AssociationAnalysisStage()._process(only_coast).association_results is None
+
+    both = _context(tmp_path, {"association_tests": ["coast", "linear_burden"]})
+    results = _run(both)
+    assert "coast_pvalue" not in results.columns
+    _assert_matches(results, R_LM)
+
+
+def test_pca_file_from_pipeline_stage_is_used(tmp_path):
+    pca = tmp_path / "pcs.tsv"
+    pca.write_text(
+        "sample\tPC1\tPC2\n"
+        + "".join(f"{s}\t{np.sin(i):.6f}\t{np.cos(i * 0.7):.6f}\n" for i, s in enumerate(SAMPLES))
+    )
+    context = _context(tmp_path, {"pca_components": 2})
+    context.stage_results["pca_computation"] = {"pca_file": str(pca)}
+    results = _run(context)
+    assert context.config["pca_file"] == str(pca)
+    assert set(results.index) == set(R_LM)
+
+
+@pytest.mark.parametrize("trait", ["binary", "quantitative"])
+def test_diagnostics_output_written(tmp_path, trait):
+    config = {**(_BINARY if trait == "binary" else {}), "diagnostics_output": str(tmp_path / "d")}
+    _run(_context(tmp_path, config))
+    assert any((tmp_path / "d").iterdir())
+
+
+def test_binary_regression_from_packed_gt_column(tmp_path):
+    """Packed GT strings are unpacked per sample for regression tests."""
+    context = _context(tmp_path, {**_BINARY, "association_tests": ["logistic_burden"]})
+    df = context.current_dataframe
+    gt_cols = [f"GEN_{j}__GT" for j in range(N)]
+    df["GT"] = [
+        ";".join(f"{s}({row[c]})" for s, c in zip(SAMPLES, gt_cols, strict=True) if row[c] != "0/0")
+        for _, row in df.iterrows()
+    ]
+    context.current_dataframe = df.drop(columns=gt_cols)
+    packed = _run(context)
+    per_sample = _run(
+        _context(tmp_path / "ref", {**_BINARY, "association_tests": ["logistic_burden"]})
+    )
+    pd.testing.assert_series_equal(
+        packed["logistic_burden_pvalue"], per_sample["logistic_burden_pvalue"]
+    )
+
+
+def test_cohort_size_abort_returns_without_results(tmp_path):
+    config = {**_BINARY, "case_samples": SAMPLES[:5], "control_samples": SAMPLES[5:]}
+    assert (
+        AssociationAnalysisStage()._process(_context(tmp_path, config)).association_results is None
+    )
+
+
+def test_no_ratio_warning_without_controls(caplog):
+    from variantcentrifuge.stages.association_analysis_stages import _cohort_size_ok
+
+    with caplog.at_level("WARNING"):
+        assert _cohort_size_ok(300, 0) is True
+    assert "ratio" not in caplog.text
+
+
+def test_stage_metadata():
+    stage = AssociationAnalysisStage()
+    assert stage.name == "association_analysis"
+    assert "dataframe_loading" in stage.dependencies
+    assert "chunked_analysis" in stage.soft_dependencies
+    assert stage.parallel_safe is False
+    assert stage.get_input_files(Mock()) == []
+
+
+@pytest.mark.parametrize(
+    ("cases", "controls", "message"),
+    [([], SAMPLES[60:], "case cohort is missing"), (SAMPLES[:60], [], "control cohort is missing")],
+)
+def test_binary_single_missing_cohort_raises(tmp_path, cases, controls, message):
+    config = {**_BINARY, "case_samples": cases, "control_samples": controls}
+    with pytest.raises(ValueError, match=message):
+        AssociationAnalysisStage()._process(_context(tmp_path, config))
+
+
+def test_binary_comma_string_cohorts_are_parsed(tmp_path):
+    config = {**_BINARY, "case_samples": ",".join(SAMPLES[:60]), "association_tests": ["fisher"]}
+    context = _context(tmp_path, config)
+    results = _run(context)
+    assert context.config["case_samples"] == SAMPLES[:60]
+    assert (results["n_cases"] == 60).all()

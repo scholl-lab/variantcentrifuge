@@ -356,6 +356,7 @@ class AssociationAnalysisStage(Stage):
                 context.phenotype_data,
                 vcf_samples_list,
                 context.config.get("phenotype_value_column"),
+                context.config.get("remove_sample_substring"),
             )
         else:
             assigned_samples = (

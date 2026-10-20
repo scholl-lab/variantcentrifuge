@@ -18,19 +18,27 @@ def build_quantitative_outcome(
     phenotype_data: Mapping[str, set[str]] | None,
     vcf_samples: list[str],
     value_column: str | None,
+    remove_substring: str | None = None,
 ) -> tuple[list[str], np.ndarray]:
     """Return VCF-ordered samples with a numeric outcome and the aligned outcome vector.
 
     ``phenotype_data`` is the sample -> values map loaded by ``PhenotypeLoadingStage`` from
     ``--phenotype-value-column``. Samples without a value are excluded (and counted);
     non-numeric, non-finite or conflicting values abort, since fitting a different
-    outcome than the one requested would be silently wrong.
+    outcome than the one requested would be silently wrong. ``vcf_samples`` are already
+    stripped of ``remove_substring``; phenotype IDs get the same removal, as in the binary
+    phenotype-based case/control matching.
     """
     if not phenotype_data:
         raise ValueError(
             "Quantitative association needs the numeric outcome: provide --phenotype-file "
             "with --phenotype-sample-column and --phenotype-value-column."
         )
+    if remove_substring and remove_substring.strip():
+        merged: dict[str, set[str]] = {}
+        for sample, raw in phenotype_data.items():
+            merged.setdefault(sample.replace(remove_substring, ""), set()).update(raw)
+        phenotype_data = merged
     samples: list[str] = []
     values: list[float] = []
     invalid: list[str] = []
