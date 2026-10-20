@@ -17,6 +17,7 @@ Examples
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import os
 import platform
@@ -63,7 +64,7 @@ ARTIFACT_SUFFIX = ".scores.npz"  # ... and, with --artifact, PATH.scores.npz(+.m
 CHUNK_CELLS = 4_000_000  # bounds the transient float64 draw to ~32 MB per chunk
 
 
-def make_df(n_genes, n_samples, layout, seed=42, vmin=5, vmax=45, miss=0.005):
+def make_df(n_genes, n_samples, layout, seed=42, vmin=5, vmax=45, miss=0.005, prefix="S"):
     """Return (variants DataFrame, sample IDs); same genotypes for both layouts."""
     import numpy as np
     import pandas as pd
@@ -74,7 +75,7 @@ def make_df(n_genes, n_samples, layout, seed=42, vmin=5, vmax=45, miss=0.005):
     n = len(genes)
     af = np.clip(rng.beta(0.5, 150, n), 1e-4, 0.05)
     effect = rng.choice(["missense_variant", "stop_gained", "synonymous_variant"], n)
-    samples = [f"S{i:05d}" for i in range(n_samples)]
+    samples = [f"{prefix}{i:05d}" for i in range(n_samples)]
     sids = np.array(samples, dtype=object)
     codes = np.empty((n, n_samples), dtype=np.int8) if layout == "columns" else None
     packed: list[str] = []
@@ -256,6 +257,72 @@ def _compare_artifacts(path_a, path_b) -> int:
     return 0
 
 
+class PssPeak:
+    """Sample summed PSS of this process and all its children (forked workers) every 0.2 s."""
+
+    def __enter__(self):
+        import threading
+
+        import psutil
+
+        self.peak_mb, self._stop = 0.0, threading.Event()
+        me = psutil.Process()
+
+        def poll():
+            while not self._stop.wait(0.2):
+                total = 0
+                for proc in [me, *me.children(recursive=True)]:
+                    with contextlib.suppress(psutil.Error):  # worker exited meanwhile
+                        total += proc.memory_full_info().pss
+                self.peak_mb = max(self.peak_mb, total / 2**20)
+
+        self._thread = threading.Thread(target=poll, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        self._thread.join()
+
+
+def run_meta(args) -> int:
+    """Time ``variantcentrifuge meta`` in-process on two score artifacts (``--meta A B``)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import logging
+
+    from variantcentrifuge.association.meta import runner
+    from variantcentrifuge.association.meta.cli import main as meta_main
+
+    with tempfile.TemporaryDirectory(prefix="bench_meta_", dir=args.tmp) as tmp:
+        manifest = Path(tmp) / "manifest.tsv"
+        rows = [f"s{i}\t{Path(a).resolve()}" for i, a in enumerate(args.meta)]
+        manifest.write_text("stratum_id\tartifact_path\n" + "\n".join(rows) + "\n")
+        out = args.out or str(Path(tmp) / "meta.tsv")
+        captured = {}
+        real_run_meta = runner.run_meta
+
+        def keep(*a, **kw):  # the CLI returns an exit code; keep the frame for --out .pkl
+            captured["df"] = real_run_meta(*a, **kw)
+            return captured["df"]
+
+        runner.run_meta = keep
+        with PssPeak() as pss:
+            t0 = time.perf_counter()
+            rc = meta_main(["--manifest", str(manifest), "--output", out, "--log-level", "ERROR"])
+            wall = time.perf_counter() - t0
+        logging.shutdown()
+    if args.out and "df" in captured:
+        captured["df"].to_pickle(args.out + PICKLE_SUFFIX)
+    rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    rss_children = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss / 1024
+    rows_n = len(captured["df"]) if "df" in captured else 0
+    print(
+        f"RESULT mode=meta rc={rc} meta_s={wall:.3f} rows={rows_n} peak_rss_mb={rss:.0f} "
+        f"children_peak_rss_mb={rss_children:.0f} peak_pss_mb={pss.peak_mb:.0f}"
+    )
+    return rc
+
+
 def compare(path_a, path_b) -> int:
     """Return 0 only if the result tables (text, frame pickles) and score artifacts match."""
     rc = _compare_text(path_a, path_b)
@@ -297,6 +364,15 @@ def parse_args(argv=None):
     p.add_argument("--write-baseline", metavar="JSON", help="store this run as a baseline")
     p.add_argument("--tmp", help="scratch directory (default: system temp)")
     p.add_argument("--compare", nargs=2, metavar=("A", "B"), help="compare two result tables")
+    p.add_argument(
+        "--sample-prefix", default="S", help="sample ID prefix (distinct cohorts for --meta)"
+    )
+    p.add_argument(
+        "--meta",
+        nargs="+",
+        metavar="NPZ",
+        help="time `variantcentrifuge meta` on these score artifacts (from --artifact --out)",
+    )
     args = p.parse_args(argv)
     if args.size in WORKLOADS:
         p.set_defaults(**WORKLOADS[args.size])
@@ -311,6 +387,8 @@ def main(argv=None) -> int:
         return compare(*args.compare)
     for var in BLAS_VARS:  # must precede the first numpy import to take effect
         os.environ[var] = str(args.blas_threads)
+    if args.meta:
+        return run_meta(args)
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     import logging
 
@@ -320,11 +398,11 @@ def main(argv=None) -> int:
     genes = args.genes or genes
     samples_n = args.samples or samples_n
     t0 = time.perf_counter()
-    df, samples = make_df(genes, samples_n, args.layout, args.seed)
+    df, samples = make_df(genes, samples_n, args.layout, args.seed, prefix=args.sample_prefix)
     gen_s = time.perf_counter() - t0
     gen_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
     best = None
-    with tempfile.TemporaryDirectory(prefix="bench_assoc_", dir=args.tmp) as tmp:
+    with tempfile.TemporaryDirectory(prefix="bench_assoc_", dir=args.tmp) as tmp, PssPeak() as pss:
         for _ in range(max(1, args.repeat)):
             run = run_stage(df, samples, args, Path(tmp))
             if best is None or run[1] < best[1]:
@@ -353,6 +431,7 @@ def main(argv=None) -> int:
         "gen_peak_rss_mb": round(gen_rss),
         "peak_rss_mb": round(rss_self),
         "children_peak_rss_mb": round(rss_children),
+        "peak_pss_mb": round(pss.peak_mb),
         "cases": args.cases,
         "controls": args.controls,
         "covariates": args.covariates,
