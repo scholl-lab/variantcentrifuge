@@ -2,7 +2,7 @@
 Unit tests for variantcentrifuge.association.genotype_matrix.
 
 Tests cover:
-- parse_gt_to_dosage: standard, missing, phased, multi-allelic, partial missing (BURDEN-03)
+- parse_gt_to_dosage: standard, missing, phased, multi-allelic rejection, partial missing
 - build_genotype_matrix: shape, imputation, site filter, sample filter, MAF, warnings
 """
 
@@ -101,31 +101,17 @@ class TestParseGtToDosage:
         assert dosage == 2
         assert is_multi is False
 
-    # Multi-allelic genotypes — critical BURDEN-03 test
+    # Multi-allelic genotypes (#175): allele indices >1 must be rejected, not recoded
 
-    def test_parse_gt_multi_allelic_1_2(self) -> None:
-        """1/2 -> dosage=1 (het-equivalent), is_multi_allelic=True."""
-        dosage, is_multi = parse_gt_to_dosage("1/2")
-        assert dosage == 1
-        assert is_multi is True
+    @pytest.mark.parametrize("gt", ["1/2", "0/2", "2/2", "1|2", "2|1", "2", "0/10"])
+    def test_parse_gt_multi_allelic_raises(self, gt: str) -> None:
+        """Unsplit multi-allelic calls raise an actionable error naming bcftools norm."""
+        with pytest.raises(ValueError, match=r"bcftools norm -m-"):
+            parse_gt_to_dosage(gt)
 
-    def test_parse_gt_multi_allelic_0_2(self) -> None:
-        """0/2 -> dosage=1, is_multi_allelic=True."""
-        dosage, is_multi = parse_gt_to_dosage("0/2")
-        assert dosage == 1
-        assert is_multi is True
-
-    def test_parse_gt_multi_allelic_2_2(self) -> None:
-        """2/2 -> dosage=1, is_multi_allelic=True."""
-        dosage, is_multi = parse_gt_to_dosage("2/2")
-        assert dosage == 1
-        assert is_multi is True
-
-    def test_parse_gt_multi_allelic_phased(self) -> None:
-        """1|2 -> (1, True) — phased multi-allelic."""
-        dosage, is_multi = parse_gt_to_dosage("1|2")
-        assert dosage == 1
-        assert is_multi is True
+    def test_parse_gt_negative_haploid_is_missing(self) -> None:
+        """A malformed negative haploid allele is missing, as in the vectorized parser."""
+        assert parse_gt_to_dosage("-1") == (None, False)
 
     # Partial missing
 
@@ -453,17 +439,13 @@ class TestBuildGenotypeMatrixMAF:
 class TestBuildGenotypeMatrixWarnings:
     """Warning message generation tests."""
 
-    def test_build_genotype_matrix_multi_allelic_warning(self) -> None:
-        """1/2 genotype triggers multi-allelic warning in warnings_list."""
+    def test_build_genotype_matrix_multi_allelic_raises(self) -> None:
+        """1/2 genotype is rejected at the matrix boundary (#175), not warned about."""
         gt_values = [["1/2", "0/0", "0/1"]]
         gene_df, vcf_samples, gt_cols = _make_gene_df(3, 1, gt_values)
 
-        _, _, _, warnings_list = build_genotype_matrix(gene_df, vcf_samples, gt_cols)
-
-        assert len(warnings_list) > 0, "Expected multi-allelic warning"
-        assert any(
-            "multi-allelic" in w.lower() or "bcftools" in w.lower() for w in warnings_list
-        ), f"Expected bcftools norm recommendation in warnings, got: {warnings_list}"
+        with pytest.raises(ValueError, match=r"'1/2'.*GEN_0__GT.*bcftools norm -m-"):
+            build_genotype_matrix(gene_df, vcf_samples, gt_cols)
 
     def test_build_genotype_matrix_no_warnings_clean_data(self) -> None:
         """Clean data (no multi-allelic, no differential missingness) -> empty warnings."""
@@ -473,22 +455,6 @@ class TestBuildGenotypeMatrixWarnings:
         _, _, _, warnings_list = build_genotype_matrix(gene_df, vcf_samples, gt_cols)
 
         assert warnings_list == [], f"Expected no warnings, got: {warnings_list}"
-
-    def test_build_genotype_matrix_multiple_multi_allelic_counted(self) -> None:
-        """Multiple multi-allelic genotypes are counted in the warning message."""
-        # 2 variants, each has a 1/2 genotype -> 2 total multi-allelic genotypes
-        gt_values = [
-            ["1/2", "0/0", "0/1"],
-            ["0/0", "1/2", "0/1"],
-        ]
-        gene_df, vcf_samples, gt_cols = _make_gene_df(3, 2, gt_values)
-
-        _, _, _, warnings_list = build_genotype_matrix(gene_df, vcf_samples, gt_cols)
-
-        assert len(warnings_list) > 0
-        # The warning should mention the count (2 genotypes)
-        warning_text = " ".join(warnings_list)
-        assert "2" in warning_text, f"Expected count '2' in warning, got: {warning_text}"
 
     def test_build_genotype_matrix_returns_four_tuple(self) -> None:
         """Return value is a 4-tuple (geno, mafs, sample_mask, warnings_list)."""

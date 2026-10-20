@@ -338,7 +338,7 @@ def emit_stratum_artifact(
         )
         # ponytail: parses GT twice per gene (build_genotype_matrix hides raw/ploidy);
         # fine for an opt-in export, expose them from the builder if it shows in profiles.
-        raw, plo, _ = _vectorized_parse_gt_columns(b.gene_df, list(b.gt_columns))
+        raw, plo = _vectorized_parse_gt_columns(b.gene_df, list(b.gt_columns))
         raw, plo = raw[keep].T, plo[keep].T
         observed = ~np.isnan(raw)
         ac = np.where(observed, raw, 0.0).sum(axis=0)
