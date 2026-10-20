@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import gzip
 import logging
 import os
 import shutil
 import subprocess
 import tempfile
 import time
+import warnings
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -24,6 +26,59 @@ from .sample_column_helpers import (
 )
 
 logger = logging.getLogger(__name__)
+
+# load_optimized_dataframe's pandas (C engine) settings: only "" is missing (REF=NA survives),
+# quotes are literal, over-long rows are skipped with a warning, short rows are padded.
+TSV_READ_KWARGS: dict[str, Any] = {
+    "sep": "\t",
+    "dtype": str,
+    "keep_default_na": False,
+    "na_values": [""],
+    "quoting": csv.QUOTE_NONE,
+    "on_bad_lines": "warn",
+    "low_memory": False,
+}
+
+
+def serial_tsv_header(path: Path) -> list[str]:
+    """Header as load_optimized_dataframe reads it (BOM stripped, tab split)."""
+    opener: Any = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "rt", encoding="utf-8", errors="replace") as f:
+        return list(f.readline().lstrip("\ufeff").rstrip("\r\n").split("\t"))
+
+
+def arrow_tsv_batches(path: Path, header: list[str]) -> Iterator[pd.DataFrame]:
+    """Stream rows with load_optimized_dataframe's PyArrow options, one ~1 MB block at a time.
+
+    Over-long rows are skipped with a warning; a short row raises (``ValueError``), which is
+    where the serial loader falls back to the pandas C engine.
+    """
+    import pyarrow as pa  # type: ignore[import-untyped]
+    import pyarrow.csv as pv  # type: ignore[import-untyped]
+
+    def handler(row: Any) -> str:
+        if row.actual_columns < row.expected_columns:
+            return "error"
+        warnings.warn(
+            f"Skipping line: expected {row.expected_columns} fields, saw {row.actual_columns}",
+            pd.errors.ParserWarning,
+            stacklevel=2,
+        )
+        return "skip"
+
+    reader = pv.open_csv(
+        pa.input_stream(str(path), compression="gzip" if str(path).endswith(".gz") else None),
+        parse_options=pv.ParseOptions(
+            delimiter="\t", quote_char=False, double_quote=False, invalid_row_handler=handler
+        ),
+        convert_options=pv.ConvertOptions(
+            column_types={c: pa.string() for c in header},
+            strings_can_be_null=True,
+            null_values=[""],
+        ),
+    )
+    for batch in reader:
+        yield batch.to_pandas()
 
 
 def ensure_sorted_by_gene(input_file: Path, gene_col: str, context: PipelineContext) -> Path:
@@ -40,7 +95,6 @@ def ensure_sorted_by_gene(input_file: Path, gene_col: str, context: PipelineCont
     logger.info(f"Sorting {input_file} by {gene_col} column")
 
     if str(input_file).endswith(".gz"):
-        import gzip
 
         def open_func(f: Any) -> Any:
             return gzip.open(f, "rt")
@@ -195,19 +249,7 @@ def read_tsv_in_gene_chunks(
         f"Reading {filepath} in gene-aware chunks (column: {gene_column}, size: {chunksize})"
     )
 
-    # Same parse rules as the non-chunked load_optimized_dataframe call: only "" is missing
-    # (REF=NA survives), quotes are literal, and over-long rows are skipped with a warning.
-    reader = pd.read_csv(
-        filepath,
-        sep="\t",
-        chunksize=chunksize,
-        low_memory=False,
-        dtype=str,
-        keep_default_na=False,
-        na_values=[""],
-        quoting=csv.QUOTE_NONE,
-        on_bad_lines="warn",
-    )
+    reader = pd.read_csv(filepath, chunksize=chunksize, **TSV_READ_KWARGS)
 
     gene_buffer = pd.DataFrame()
     chunks_yielded = 0

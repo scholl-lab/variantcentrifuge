@@ -376,3 +376,58 @@ def test_get_input_files(tmp_path):
     context.data = None
     context.extracted_tsv = None
     assert stage.get_input_files(context) == []
+
+
+_MALFORMED = {
+    "overlong_first_in_input": "CHROM\tPOS\tGENE\n1\t1\tA\tx\n1\t2\tB\n1\t3\tC\n",
+    "overlong_first_after_sort": "CHROM\tPOS\tGENE\n1\t1\tB\n1\t2\tA\textra\n1\t3\tC\n",
+    "blank_lines": "CHROM\tPOS\tGENE\n1\t1\tB\n\n1\t2\tA\n\n",
+    "short_row": "CHROM\tPOS\tGENE\tREF\n1\t1\tB\tA\n1\t2\tA\n1\t3\tB\tG\n",
+    "short_and_overlong": "CHROM\tPOS\tGENE\tREF\n1\t1\tB\tA\n1\t2\tA\tG\tx\n1\t3\tA\n1\t4\tC\tT\n",
+    "crlf": "CHROM\tPOS\tGENE\r\n1\t1\tB\r\n1\t2\tA\r\n",
+    "bom": "﻿CHROM\tPOS\tGENE\n1\t1\tB\n1\t2\tA\n",
+}
+
+
+@pytest.mark.filterwarnings("ignore::pandas.errors.ParserWarning")
+@pytest.mark.parametrize("gz", [False, True], ids=["plain", "gzip"])
+@pytest.mark.parametrize("case", sorted(_MALFORMED))
+def test_chunked_parses_rows_exactly_like_serial(tmp_path, monkeypatch, case, gz):
+    """Review r3 #1-3: the indexed copy is built from serially parsed rows, so malformed,
+    blank, BOM and short rows give the serial table (gene sort and tiny chunks included)."""
+    import gzip
+
+    from variantcentrifuge.memory import ResourceManager
+
+    monkeypatch.setattr(ResourceManager, "auto_chunk_size", lambda self, *a, **k: 1)
+    tsv = tmp_path / ("in.tsv.gz" if gz else "in.tsv")
+    data = _MALFORMED[case].encode()
+    tsv.write_bytes(gzip.compress(data) if gz else data)
+
+    serial = _serial(tmp_path, tsv).current_dataframe
+    chunked = (
+        ChunkedAnalysisStage()
+        ._process(_context(tmp_path, tsv, use_chunked_processing=True))
+        .current_dataframe
+    )
+    assert list(chunked.columns) == list(serial.columns)
+    assert "CHROM" in chunked.columns
+    pd.testing.assert_frame_equal(
+        chunked.reset_index(drop=True).astype(str), serial.reset_index(drop=True).astype(str)
+    )
+
+
+def test_header_only_ann_input_has_serial_schema_fresh_and_restored(tmp_path):
+    """Review r3 #4: empty ANN[0].GENE input -> ANN_0__GENE + GENE in all three paths."""
+    tsv = tmp_path / "empty.tsv"
+    tsv.write_text("CHROM\tPOS\tANN[0].GENE\n")
+    serial = _serial(tmp_path, tsv)
+    fresh = ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+    restored = restore_completed_stage(
+        ChunkedAnalysisStage(), _context(tmp_path, tsv, use_chunked_processing=True)
+    )
+    expected = ["CHROM", "POS", "ANN_0__GENE", "GENE"]
+    for ctx in (serial, fresh, restored):
+        assert list(ctx.current_dataframe.columns) == expected
+        assert ctx.current_dataframe.empty
+        assert ctx.column_rename_map == {"ANN[0].GENE": "ANN_0__GENE"}

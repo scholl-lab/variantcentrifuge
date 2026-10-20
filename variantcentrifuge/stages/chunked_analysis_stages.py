@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import gzip
 import logging
 from collections.abc import Iterator
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -20,10 +19,13 @@ from ..dataframe_optimizer import (
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import apply_scoring
 from .chunk_helpers import (
+    TSV_READ_KWARGS,
     apply_chunk_annotations,
     apply_chunk_inheritance_analysis,
+    arrow_tsv_batches,
     ensure_sorted_by_gene,
     read_tsv_in_gene_chunks,
+    serial_tsv_header,
 )
 from .genotype_matrix_builder import _STANDARD_COLUMN_ALIASES, _create_standard_column_aliases
 
@@ -48,16 +50,51 @@ def _find_gene_column(header: list[str]) -> str | None:
     return None
 
 
-def _write_row_order_copy(input_file: Path, output_file: Path) -> None:
-    """Copy the TSV prefixing each row's original position, so gene sorting can be undone.
+def _write_row_order_copy(input_file: Path, output_file: Path, chunksize: int) -> None:
+    """Write the rows the serial loader parses, prefixed by their parsed position.
 
-    Prefixing (not appending) keeps short/long rows aligned exactly as the serial reader sees them.
+    Mirrors load_optimized_dataframe's two tiers in bounded batches: PyArrow first; on a
+    short row or duplicate header, the pandas C engine with the same settings. Blank lines,
+    a BOM, gzip and malformed rows are therefore handled exactly as in the serial path.
     """
-    open_fn: Any = gzip.open if str(input_file).endswith(".gz") else open
-    with open_fn(input_file, "rt") as src, open(output_file, "w") as dst:
-        dst.write(f"{_ROW_ORDER_COL}\t{src.readline()}")
-        for i, line in enumerate(src):
-            dst.write(f"{i}\t{line}")
+    header = serial_tsv_header(input_file)
+    if len(set(header)) == len(header):
+        try:
+            _write_indexed(arrow_tsv_batches(input_file, header), header, output_file)
+            return
+        except ValueError as e:  # pyarrow.ArrowInvalid, e.g. a short row
+            logger.debug(f"PyArrow parse failed ({e}); using the pandas C engine like serial")
+    # pandas mis-parses malformed rows in tiny chunks; the floor keeps it batch-invariant.
+    batches = pd.read_csv(input_file, chunksize=max(chunksize, 1000), **TSV_READ_KWARGS)
+    _write_indexed(batches, _read_header(input_file), output_file)
+
+
+def _write_indexed(batches: Iterator[pd.DataFrame], header: list[str], output_file: Path) -> None:
+    with open(output_file, "w") as dst:
+        pd.DataFrame(columns=[_ROW_ORDER_COL, *header]).to_csv(dst, sep="\t", index=False)
+        start = 0
+        for part in batches:
+            part.insert(0, _ROW_ORDER_COL, range(start, start + len(part)))
+            start += len(part)
+            part.to_csv(dst, sep="\t", index=False, header=False, quoting=csv.QUOTE_NONE)
+
+
+def _read_header(path: Path) -> list[str]:
+    """Column names as the serial reader parses them (BOM stripped, gzip handled)."""
+    return list(pd.read_csv(path, nrows=0, **TSV_READ_KWARGS).columns)
+
+
+def _load_chunk_artifact(path: Path) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Load a chunked-analysis artifact into the serial loader's schema and row order."""
+    df, rename_map = load_optimized_dataframe(
+        str(path),
+        sep="\t",
+        compression="gzip" if str(path).endswith(".gz") else None,
+        quoting=csv.QUOTE_MINIMAL,
+        on_bad_lines="warn",
+    )
+    _create_standard_column_aliases(df)
+    return _restore_input_order(df), rename_map
 
 
 def _restore_input_order(df: pd.DataFrame) -> pd.DataFrame:
@@ -138,7 +175,7 @@ class ChunkedAnalysisStage(Stage):
 
         if not chunked_tsv or not Path(chunked_tsv).exists():
             input_file = self._find_input_file(context)
-            if _find_gene_column(self._read_header(input_file)) is None:
+            if _find_gene_column(_read_header(input_file)) is None:
                 # The checkpointed run took the non-chunked fallback; replay it.
                 return self._load_unchunked(context, input_file)
             raise RuntimeError(
@@ -146,15 +183,8 @@ class ChunkedAnalysisStage(Stage):
                 f"chunked output missing: {chunked_tsv}"
             )
 
-        compression = "gzip" if str(chunked_tsv).endswith(".gz") else None
-        df, rename_map = load_optimized_dataframe(
-            str(chunked_tsv),
-            sep="\t",
-            compression=compression,
-            quoting=csv.QUOTE_MINIMAL,
-            on_bad_lines="warn",
-        )
-        context.current_dataframe = _restore_input_order(df)
+        df, rename_map = _load_chunk_artifact(Path(chunked_tsv))
+        context.current_dataframe = df
         context.column_rename_map = rename_map
         context.chunked_analysis_tsv = Path(chunked_tsv)
         context.config["dataframe_chunked_analysis_complete"] = True
@@ -249,13 +279,6 @@ class ChunkedAnalysisStage(Stage):
         raise RuntimeError("No TSV file available for chunked processing")
 
     @staticmethod
-    def _read_header(path: Path) -> list[str]:
-        open_fn: Any = gzip.open if str(path).endswith(".gz") else open
-        with open_fn(path, "rt") as f:
-            first_line = f.readline().rstrip("\r\n")
-        return first_line.split("\t") if first_line else []
-
-    @staticmethod
     def _load_unchunked(context: PipelineContext, input_file: Path) -> PipelineContext:
         """Load the whole TSV exactly like DataFrameLoadingStage and disable chunking."""
         df, rename_map = load_optimized_dataframe(
@@ -280,7 +303,7 @@ class ChunkedAnalysisStage(Stage):
             return context
 
         input_file = self._find_input_file(context)
-        gene_col_name = _find_gene_column(self._read_header(input_file))
+        gene_col_name = _find_gene_column(_read_header(input_file))
         if not gene_col_name:
             logger.warning("No GENE column found, falling back to non-chunked processing")
             return self._load_unchunked(context, input_file)
@@ -301,7 +324,7 @@ class ChunkedAnalysisStage(Stage):
         logger.info(f"Processing {input_file} in chunks of {chunk_size} variants")
 
         ordered_file = context.workspace.get_intermediate_path("chunked_analysis_input.tsv")
-        _write_row_order_copy(input_file, ordered_file)
+        _write_row_order_copy(input_file, ordered_file, chunk_size)
         # ensure_sorted_by_gene reuses an existing sorted file; never reuse a stale one.
         ordered_file.with_suffix(".sorted.tsv").unlink(missing_ok=True)
         sorted_file = self._ensure_sorted_by_gene(ordered_file, gene_col_name, context)
@@ -324,11 +347,6 @@ class ChunkedAnalysisStage(Stage):
             compression: str | None = "gzip"
         else:
             compression = None
-
-        open_func = gzip.open if str(sorted_file).endswith(".gz") else open
-        with open_func(sorted_file, "rt") as f:
-            first_line = f.readline().strip()
-            raw_header = first_line.split("\t") if first_line else []
 
         if parallel_chunks and max_workers > 1:
             logger.info(f"Processing chunks in parallel with {max_workers} workers")
@@ -354,21 +372,14 @@ class ChunkedAnalysisStage(Stage):
 
         if chunks_written == 0:
             logger.warning("No chunks with variants were processed - creating empty DataFrame")
-            empty_df = pd.DataFrame(columns=raw_header)
+            empty_df = pd.DataFrame(columns=_read_header(sorted_file))
             empty_df.to_csv(
                 chunked_output_path, sep="\t", index=False, compression=cast(Any, compression)
             )
-            context.current_dataframe = _restore_input_order(empty_df)
-        else:
-            df, rename_map = load_optimized_dataframe(
-                str(chunked_output_path),
-                sep="\t",
-                compression=compression,
-                quoting=csv.QUOTE_MINIMAL,
-                on_bad_lines="warn",
-            )
-            context.current_dataframe = _restore_input_order(df)
-            context.column_rename_map = rename_map
+        # Empty or not, the artifact is loaded exactly as a checkpoint restore loads it.
+        df, rename_map = _load_chunk_artifact(chunked_output_path)
+        context.current_dataframe = df
+        context.column_rename_map = rename_map
 
         context.config["dataframe_chunked_analysis_complete"] = True
         context.config.pop("chunked_processing_complete", None)
