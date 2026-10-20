@@ -54,12 +54,13 @@ def create_execution_plan(stages: list[Stage]) -> list[list[Stage]]:
             current_level.append(graph[stage_name])
             processed.add(stage_name)
 
-            for dependent in dependents[stage_name]:
+            for dependent in sorted(dependents[stage_name]):
                 in_degree[dependent] -= 1
                 if in_degree[dependent] == 0:
                     queue.append(dependent)
 
-        current_level.sort(key=lambda s: s.estimated_runtime, reverse=True)
+        # Name breaks runtime ties so the order never depends on PYTHONHASHSEED (#219).
+        current_level.sort(key=lambda s: (-s.estimated_runtime, s.name))
         parallel_count = sum(1 for s in current_level if s.parallel_safe)
         logger.debug(
             f"Level {len(execution_plan)}: {len(current_level)} stages "
@@ -68,7 +69,7 @@ def create_execution_plan(stages: list[Stage]) -> list[list[Stage]]:
         execution_plan.append(current_level)
 
     if len(processed) != len(stages):
-        unprocessed = set(graph.keys()) - processed
+        unprocessed = sorted(set(graph.keys()) - processed)
         raise ValueError(f"Circular dependency detected involving stages: {unprocessed}")
 
     return execution_plan
