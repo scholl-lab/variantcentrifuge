@@ -177,14 +177,16 @@ What changes: the intermediate TSV has fewer per-sample columns, and the output 
 (and anything derived from it, such as the phenotypes column or HTML/Excel carrier lists)
 names carriers among the analysed samples only. The SHA-256 of the sorted subset sample IDs
 is recorded as `sample_subset_sha256` in the run metadata and in the score-artifact
-provenance (`"none"` when every sample was kept), and edited sample/phenotype files
-invalidate `--resume` checkpoints.
+provenance (`"none"` when every sample was kept). Edited sample/phenotype files invalidate
+`--resume` checkpoints, and a resume whose flags change the extracted sample set re-runs
+extraction.
 
 All samples are kept, with one log line naming the reason, when a feature reads samples
 outside the analysed set: inheritance/pedigree analysis (`--ped`, `--sample-sheet`,
 `--inheritance-mode`, or a scoring model that needs inheritance),
-`--append-extra-sample-fields`, `--no-replacement`, `--igv`, statistics (use `--no-stats` to
-allow subsetting), `--late-filtering` or `--final-filter`. `--no-sample-subset` turns
+`--append-extra-sample-fields`, `--no-replacement`, `--igv`, `--pseudonymize`, a tumor/normal
+sample index, statistics (use `--no-stats` to allow subsetting), `--late-filtering` or
+`--final-filter`. `--no-sample-subset` turns
 subsetting off.
 
 ### Multi-Allelic Sites Must Be Split

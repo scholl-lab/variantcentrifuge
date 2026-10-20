@@ -17,7 +17,7 @@ from ..extractor import extract_fields_bcftools, get_expected_extraction_columns
 from ..filters import apply_snpsift_filter, extract_variants
 from ..memory.resource_manager import ResourceManager
 from ..pipeline_core import PipelineContext, Stage
-from ..sample_subset import resolve_sample_subset
+from ..sample_subset import effective_subset_id, resolve_sample_subset
 from ..transcript_filter import filter_vcf_to_transcripts, load_transcript_ids
 from ..utils import ensure_fields_in_extract, split_bed_file
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
@@ -139,6 +139,25 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
         get_cols = _ps_attr("get_expected_extraction_columns", get_expected_extraction_columns)
         return "\t".join(get_cols(eff_fields, getattr(context, "vcf_samples", None)))
 
+    @staticmethod
+    def _subset_record(merged_tsv: Path) -> Path:
+        return Path(f"{merged_tsv}.samples")
+
+    def _record_effective_subset(self, context: PipelineContext, merged_tsv: Path) -> None:
+        """Remember which samples the merged TSV holds (checked on resume)."""
+        self._subset_record(merged_tsv).write_text(effective_subset_id(context), encoding="utf-8")
+
+    def checkpoint_restorable(self, context: PipelineContext) -> bool:
+        """Restore only if this run extracts the same samples (#212); else recompute."""
+        ws = context.workspace
+        gz_tsv = ws.intermediate_dir / f"{ws.base_name}.extracted.tsv.gz"
+        rec = self._subset_record(gz_tsv)
+        if not rec.exists():
+            rec = self._subset_record(ws.intermediate_dir / f"{ws.base_name}.extracted.tsv")
+        # A checkpoint without the record predates subsetting: it holds all samples.
+        recorded = rec.read_text(encoding="utf-8").strip() if rec.exists() else "all"
+        return recorded == effective_subset_id(context)
+
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
         """Handle the case where this stage is skipped by checkpoint system."""
         resolve_sample_subset(context)  # the restored TSV holds only the subset's columns
@@ -193,6 +212,7 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
 
         merge_start = self._start_subtask("tsv_merging")
         merged_tsv = self._merge_tsv_outputs(context, chunk_tsvs)
+        self._record_effective_subset(context, merged_tsv)
         self._end_subtask("tsv_merging", merge_start)
 
         context.extracted_tsv = merged_tsv
@@ -460,7 +480,7 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                 "extract_fields_separator": cfg.get("extract_fields_separator", ","),
                 "gzip_intermediates": use_compression,
                 "vcf_samples": getattr(context, "vcf_samples", None),
-                "bcftools_samples": cfg.get("_bcftools_sample_subset"),
+                "bcftools_samples": resolve_sample_subset(context),
                 "transcript_ids": load_tx_fn(
                     cfg.get("transcript_list"), cfg.get("transcript_file")
                 ),

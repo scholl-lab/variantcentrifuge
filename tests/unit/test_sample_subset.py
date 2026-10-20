@@ -18,7 +18,11 @@ from variantcentrifuge.association.aggregation import _aggregate_gene_burden_fro
 from variantcentrifuge.association.genotype_matrix import build_genotype_matrix
 from variantcentrifuge.checkpoint_helpers import hash_configuration
 from variantcentrifuge.extractor import extract_fields_bcftools
-from variantcentrifuge.sample_subset import resolve_sample_subset, sample_set_sha256
+from variantcentrifuge.sample_subset import (
+    effective_subset_id,
+    resolve_sample_subset,
+    sample_set_sha256,
+)
 
 VCF_SAMPLES = ["S1", "S2", "S3", "S4", "S5", "S6"]
 
@@ -46,6 +50,12 @@ def test_subset_applied_in_vcf_order_and_recorded():
     assert ctx.config["case_samples"] == ["S2", "S5", "ABSENT"]
     # cached: later callers (chunks, checkpoint restore) get the same answer
     assert resolve_sample_subset(ctx) == ["S1", "S2", "S4", "S5"]
+    # the metadata TSV dumps the config: only the hash goes there, not the ID list
+    assert not [
+        k for k, v in ctx.config.items() if k.startswith("_") or v == ["S1", "S2", "S4", "S5"]
+    ]
+    assert effective_subset_id(ctx) == ctx.config["sample_subset_sha256"]
+    assert effective_subset_id(_ctx(no_sample_subset=True)) == "all"
 
 
 @pytest.mark.parametrize(
@@ -79,6 +89,9 @@ def test_no_subset_without_strict_analysed_set(cfg, caplog):
         ({"igv_enabled": True}, "--igv"),
         ({"no_stats": False}, "statistics"),
         ({"late_filtering": True}, "--late-filtering"),
+        ({"pseudonymize": True}, "--pseudonymize"),
+        ({"tumor_sample_index": 0}, "tumor/normal sample index"),
+        ({"normal_sample_index": 1}, "tumor/normal sample index"),
         ({"final_filter": "IMPACT == 'HIGH'"}, "--final-filter"),
     ],
 )
@@ -281,3 +294,72 @@ def test_threaded_extraction_runs_after_case_control_assignment():
         < names.index("parallel_complete_processing")
         < names.index("genotype_replacement")
     )
+
+
+class _State:
+    """Checkpoint state stub: every step completed."""
+
+    def __init__(self):
+        self.cleared: list[str] = []
+
+    def should_skip_step(self, name):
+        return name not in self.cleared
+
+    def clear_step_completion(self, name, save=True):
+        self.cleared.append(name)
+
+    def save(self):
+        pass
+
+
+def _resume_ctx(tmp_path, **cfg):
+    ctx = _ctx(**cfg)
+    ws = SimpleNamespace(intermediate_dir=tmp_path, base_name="run")
+    ctx.workspace = ws
+    ctx.checkpoint_state = _State()
+    ctx.completed = set()
+    ctx.mark_complete = ctx.completed.add
+    ctx.is_complete = lambda n: n in ctx.completed
+    return ctx
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "restored"),
+    [
+        ({}, {}, True),  # same effective subset
+        ({}, {"no_stats": False}, False),  # blocker now active: subset -> all
+        ({"no_stats": False}, {}, False),  # all -> subset
+        ({}, {"control_samples": ["S1"]}, False),  # other subset
+        ({"no_stats": False}, {"no_stats": False}, True),
+    ],
+)
+def test_resume_recomputes_extraction_when_effective_subset_changes(
+    tmp_path, first, second, restored
+):
+    from variantcentrifuge.pipeline_core.runner_planner import (
+        restore_or_recompute_completed_stages,
+    )
+    from variantcentrifuge.stages.parallel_processing_stage import (
+        ParallelCompleteProcessingStage,
+    )
+
+    stage = ParallelCompleteProcessingStage()
+    run1 = _resume_ctx(tmp_path, **first)
+    resolve_sample_subset(run1)
+    stage._record_effective_subset(run1, tmp_path / "run.extracted.tsv.gz")
+
+    run2 = _resume_ctx(tmp_path, **second)
+    with patch.object(stage, "_handle_checkpoint_skip", side_effect=lambda c: c) as skip:
+        restore_or_recompute_completed_stages([stage], run2)
+    assert skip.called is restored
+    assert (run2.checkpoint_state.cleared == []) is restored
+
+
+def test_resume_without_subset_record_restores_only_all_samples(tmp_path):
+    from variantcentrifuge.stages.parallel_processing_stage import (
+        ParallelCompleteProcessingStage,
+    )
+
+    stage = ParallelCompleteProcessingStage()
+    assert stage.checkpoint_restorable(_resume_ctx(tmp_path, no_stats=False))
+    assert not stage.checkpoint_restorable(_resume_ctx(tmp_path))

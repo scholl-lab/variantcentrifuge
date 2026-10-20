@@ -167,7 +167,9 @@ def restore_or_recompute_completed_stages(
             break
 
         policy = stage.checkpoint_resume_policy
-        if policy in {"restore", "skip"}:
+        # A stage may veto its restore when its outputs no longer match this run's inputs.
+        restorable = getattr(stage, "checkpoint_restorable", None)
+        if policy in {"restore", "skip"} and (restorable is None or restorable(context)):
             logger.info(f"Restoring completed stage from checkpoint: {stage.name}")
             context = restore_completed_stage(stage, context)
             continue

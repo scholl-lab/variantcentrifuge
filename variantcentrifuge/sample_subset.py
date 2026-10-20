@@ -17,7 +17,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_SUBSET_KEY = "_bcftools_sample_subset"  # resolved once per run: list of raw names or None
+# Resolved once per run (context attribute, not config: the metadata TSV dumps the config).
+_SUBSET_ATTR = "_bcftools_sample_subset"
 
 
 def sample_set_sha256(samples: list[str]) -> str:
@@ -40,6 +41,13 @@ def _blocking_reason(context: Any) -> str | None:
         (cfg.get("no_replacement"), "--no-replacement (raw per-sample output columns)"),
         (cfg.get("igv_enabled"), "--igv (per-sample IGV reports)"),
         (not cfg.get("no_stats"), "statistics (sample counts; use --no-stats)"),
+        (cfg.get("pseudonymize"), "--pseudonymize (pseudonyms numbered by sample position)"),
+        (
+            any(
+                cfg.get(k) not in (None, "") for k in ("tumor_sample_index", "normal_sample_index")
+            ),
+            "tumor/normal sample index (positional sample labels)",
+        ),
         (
             cfg.get("late_filtering") or cfg.get("final_filter"),
             "--late-filtering/--final-filter (expressions may read per-sample columns)",
@@ -74,13 +82,13 @@ def resolve_sample_subset(context: Any) -> list[str] | None:
 
     When a subset applies, ``context.vcf_samples`` and ``config["sample_list"]`` are narrowed
     to it and ``config["sample_subset_sha256"]`` records it. Idempotent: the first decision
-    is cached in the config, so extraction, chunks and checkpoint restores agree.
+    is cached on the context, so extraction, chunks and checkpoint restores agree.
     """
     cfg = context.config
-    if _SUBSET_KEY in cfg:
-        cached: list[str] | None = cfg[_SUBSET_KEY]
+    if _SUBSET_ATTR in vars(context):
+        cached: list[str] | None = vars(context)[_SUBSET_ATTR]
         return cached
-    cfg[_SUBSET_KEY] = None
+    setattr(context, _SUBSET_ATTR, None)
     vcf_samples = list(getattr(context, "vcf_samples", None) or [])
     if cfg.get("no_sample_subset") or not (cfg.get("perform_association") and vcf_samples):
         return None
@@ -109,7 +117,7 @@ def resolve_sample_subset(context: Any) -> list[str] | None:
     cfg["sample_list"] = ",".join(subset)
     cfg["sample_subset_sha256"] = sample_set_sha256(subset)
     raw_subset = [raw[i] for i in keep]
-    cfg[_SUBSET_KEY] = raw_subset
+    setattr(context, _SUBSET_ATTR, raw_subset)
     logger.info(
         "Sample subsetting at extraction: %d of %d VCF samples (cases/controls or phenotyped; "
         "sha256 %s)",
@@ -118,3 +126,9 @@ def resolve_sample_subset(context: Any) -> list[str] | None:
         cfg["sample_subset_sha256"][:12],
     )
     return raw_subset
+
+
+def effective_subset_id(context: Any) -> str:
+    """The extracted sample set for checkpoint keys: subset SHA-256, or "all"."""
+    resolve_sample_subset(context)
+    return str(context.config.get("sample_subset_sha256") or "all")
