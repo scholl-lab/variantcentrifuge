@@ -3,23 +3,21 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
 import pandas as pd
 
-from ..association.aggregation import (
-    _aggregate_gene_burden_from_columns,
-    _aggregate_gene_burden_from_gt,
-    _aggregate_gene_burden_legacy,
-)
+from ..association.aggregation import _aggregate_gene_burden_legacy
 from ..association.engine import AssociationEngine
 from ..association.gene_sets import add_gene_set_units, load_gene_sets, run_gene_and_set_units
+from ..association.gt_codes import aggregate_gene_counts, parse_genotype_codes
 from ..association.timing import substep
 from ..association.weights import resolve_score_weight_column
 from ..gene_burden import drop_transcript_duplicates
-from ..gt_reconstruction import _find_per_sample_gt_columns, reconstruct_gt_column
+from ..gt_reconstruction import _find_per_sample_gt_columns
 from ..pipeline_core import PipelineContext, Stage
 from .analysis_stage_helpers import (
     _build_assoc_config_from_context,
@@ -32,7 +30,6 @@ from .association_stage_helpers import (
     _emit_score_artifact,
     _load_covariates_and_pcs,
     _merge_carrier_warnings,
-    _per_sample_gt_frame,
     _report_missingness_qc,
 )
 from .genotype_matrix_builder import (
@@ -43,6 +40,7 @@ from .genotype_matrix_builder import (
 )
 
 logger = logging.getLogger(__name__)
+_PER_SAMPLE_COLUMN = re.compile(r"^GEN[_\[](\d+)[_\]\.]+([A-Za-z0-9_]+)$")
 
 
 class AssociationAnalysisStage(Stage):
@@ -255,19 +253,6 @@ class AssociationAnalysisStage(Stage):
         )
         needs_regression = regression_tests or bool(score_artifact)
 
-        df_with_per_sample_gt: pd.DataFrame | None = None
-        gt_cols = _find_per_sample_gt_columns(df)
-        if needs_regression and gt_cols:
-            df_with_per_sample_gt = df
-        elif needs_regression and "GT" in df.columns and context.vcf_samples:
-            with substep(timings, "gt_unpack"):
-                df_with_per_sample_gt = _per_sample_gt_frame(df, list(context.vcf_samples))
-
-        if "GT" not in df.columns and context.vcf_samples and gt_cols:
-            logger.info("Reconstructing GT column for association aggregation (local copy only)")
-            with substep(timings, "gt_reconstruct"):
-                df = reconstruct_gt_column(df.copy(), context.vcf_samples)
-
         with substep(timings, "sample_setup"):
             case_set = set(case_samples)
             control_set = set(control_samples)
@@ -326,39 +311,34 @@ class AssociationAnalysisStage(Stage):
                     f"{n_pv_cases} cases, {n_pv_controls} controls"
                 )
 
-        has_case_ctrl = True
-        gt_columns = _find_per_sample_gt_columns(df)
-        use_column_aggregation = bool(
-            has_case_ctrl
-            and gt_columns
-            and vcf_samples_list
-            and len(gt_columns) <= len(vcf_samples_list)
+        gt_cols = _find_per_sample_gt_columns(df)
+        # Samples whose genotypes are parsed: the assigned VCF samples, or (packed GT
+        # without VCF sample IDs) the case/control lists themselves.
+        samples = (
+            assigned_samples
+            if vcf_samples_list
+            else list(dict.fromkeys([*case_samples, *control_samples]))
         )
-        use_gt_aggregation = has_case_ctrl and not use_column_aggregation and "GT" in df.columns
+        genotypes = None
+        if "GT" in df.columns or (gt_cols and vcf_samples_list):
+            with substep(timings, "gt_parse"):  # once per run, assigned samples only (#219)
+                genotypes = parse_genotype_codes(df, samples, vcf_samples_list, gt_cols)
+            # Per-sample GEN[i].* columns are no longer needed: keep only annotations.
+            df = df.drop(columns=[c for c in df.columns if _PER_SAMPLE_COLUMN.match(c)])
 
         with substep(timings, "aggregation"):
-            if use_column_aggregation:
+            gene_rows = df.groupby("GENE", observed=True).indices
+            if genotypes is not None:
                 logger.info(
-                    f"Association analysis: using column-based aggregation "
-                    f"({len(gt_columns)} GT columns, "
-                    f"{len(case_set)} cases, {len(control_set)} controls)"
-                )
-                assert vcf_samples_list is not None
-                gene_burden_data = _aggregate_gene_burden_from_columns(
-                    df,
-                    case_set,
-                    control_set,
-                    vcf_samples_list,
-                    gt_columns,
-                    assoc_config.missing_as_ref,
-                )
-            elif use_gt_aggregation:
-                logger.info(
-                    "Association analysis: using packed GT string collapsing "
+                    f"Association analysis: genotype-code aggregation "
                     f"({len(case_set)} cases, {len(control_set)} controls)"
                 )
-                gene_burden_data = _aggregate_gene_burden_from_gt(
-                    df, case_set, control_set, assoc_config.missing_as_ref
+                gene_burden_data = aggregate_gene_counts(
+                    genotypes,
+                    gene_rows,
+                    np.array([s in case_set for s in samples], dtype=bool),
+                    np.array([s in control_set for s in samples], dtype=bool),
+                    assoc_config.missing_as_ref,
                 )
             else:
                 logger.info(
@@ -370,46 +350,23 @@ class AssociationAnalysisStage(Stage):
             logger.warning("No genes found with variant data for association analysis.")
             return context
 
-        gt_source_df = df_with_per_sample_gt if df_with_per_sample_gt is not None else df
-        gt_columns_for_matrix = _find_per_sample_gt_columns(gt_source_df)
-        if not gt_columns_for_matrix and assigned_samples:
-            gt_columns_for_matrix = [s for s in assigned_samples if s in gt_source_df.columns]
-        if needs_regression and gt_columns_for_matrix and assigned_samples:
+        if needs_regression and genotypes is not None and assigned_samples:
             is_binary = assoc_config.trait_type == "binary"
-            _gene_groups = gt_source_df.groupby("GENE")
-
-            if vcf_samples_list and len(gt_columns_for_matrix) == len(vcf_samples_list):
-                sample_to_gt = dict(zip(vcf_samples_list, gt_columns_for_matrix, strict=True))
-                assigned_gt_cols = [sample_to_gt[s] for s in assigned_samples if s in sample_to_gt]
-            else:
-                assigned_gt_cols = [c for c in assigned_samples if c in gt_source_df.columns]
-                if not assigned_gt_cols:
-                    assigned_gt_cols = gt_columns_for_matrix
-
+            cadd_column = _find_cadd_column(df) if needs_functional_annotations else None
+            revel_column = _find_revel_column(df) if needs_functional_annotations else None
+            effect_column = (
+                _find_effect_column(df)
+                if needs_functional_annotations or score_weight_column is not None
+                else None
+            )
             with substep(timings, "matrix_builders"):
                 for gene_data in gene_burden_data:
-                    gene_name = gene_data.get("GENE", "")
-                    try:
-                        gene_df = _gene_groups.get_group(gene_name)
-                    except KeyError:
-                        gene_df = gt_source_df.iloc[0:0]
-
-                    cadd_column = (
-                        _find_cadd_column(gene_df) if needs_functional_annotations else None
-                    )
-                    revel_column = (
-                        _find_revel_column(gene_df) if needs_functional_annotations else None
-                    )
-                    effect_column = (
-                        _find_effect_column(gene_df)
-                        if needs_functional_annotations or score_weight_column is not None
-                        else None
-                    )
-
-                    builder = _GenotypeMatrixBuilder(
+                    rows = gene_rows[gene_data["GENE"]]
+                    gene_df = df.iloc[rows]
+                    gene_data["_genotype_matrix_builder"] = _GenotypeMatrixBuilder(
                         gene_df=gene_df,
                         vcf_samples=assigned_samples,
-                        gt_columns=assigned_gt_cols,
+                        gt_columns=[],
                         is_binary=is_binary,
                         missing_site_threshold=assoc_config.missing_site_threshold,
                         missing_sample_threshold=assoc_config.missing_sample_threshold,
@@ -420,12 +377,11 @@ class AssociationAnalysisStage(Stage):
                         revel_column=revel_column,
                         effect_column=effect_column,
                         missing_as_ref=assoc_config.missing_as_ref,
+                        genotypes=genotypes,
+                        rows=rows,
                     )
-                    gene_data["_genotype_matrix_builder"] = builder
                     gene_data["vcf_samples"] = assigned_samples
                     gene_data["gene_df"] = gene_df.reset_index(drop=True)
-
-            del df_with_per_sample_gt, gt_source_df
 
         gene_data_by_gene = {d.get("GENE", d.get("gene", "")): d for d in gene_burden_data}
 

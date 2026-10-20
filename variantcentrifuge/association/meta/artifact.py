@@ -361,7 +361,6 @@ def emit_stratum_artifact(
     """
     from variantcentrifuge.association.genotype_matrix import (
         _infer_missing_ploidy,
-        _vectorized_parse_gt_columns,
         build_genotype_matrix,
     )
     from variantcentrifuge.association.meta.align import canonical_key
@@ -395,11 +394,10 @@ def emit_stratum_artifact(
             missing_sample_threshold=b.missing_sample_threshold,
             return_keep_mask=True,
             missing_as_ref=b.missing_as_ref,
+            parsed=b.gene_arrays(),
         )
         n_sites, n_kept = n_sites + len(keep), n_kept + int(keep.sum())
-        # ponytail: parses GT twice per gene (build_genotype_matrix hides raw/ploidy);
-        # fine for an opt-in export, expose them from the builder if it shows in profiles.
-        raw, plo, kind = _vectorized_parse_gt_columns(b.gene_df, list(b.gt_columns))
+        raw, plo, kind = b.gene_arrays()  # code-table lookups, no re-parse (#219)
         # Same retained population as build_genotype_matrix's frequencies/recoding/ploidy (#174).
         mask = np.asarray(sample_mask, dtype=bool)
         raw, plo = raw[keep], plo[keep]

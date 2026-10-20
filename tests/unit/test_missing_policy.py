@@ -302,13 +302,13 @@ def test_fisher_aggregators_honour_missing_as_ref():
     cols = pd.DataFrame(
         {
             "GENE": ["G", "G"],
-            "a": ["0/1", "./."],
-            "b": ["./.", "./1"],
-            "c": ["0/0", "."],
-            "d": ["0/0", "0/0"],
+            "GEN_0__GT": ["0/1", "./."],
+            "GEN_1__GT": ["./.", "./1"],
+            "GEN_2__GT": ["0/0", "."],
+            "GEN_3__GT": ["0/0", "0/0"],
         }
     )
-    order, gt_cols = ["A", "B", "C", "D"], ["a", "b", "c", "d"]
+    order, gt_cols = ["A", "B", "C", "D"], [f"GEN_{i}__GT" for i in range(4)]
     packed = pd.DataFrame({"GENE": ["G", "G"], "GT": ["A(0/1);B(./.)", "A(./.);B(./1);C(.)"]})
     for missing_as_ref, called, carriers in ((False, (0, 1), (0, 0)), (True, (2, 2), (1, 0))):
         for rec in (
@@ -429,19 +429,3 @@ def test_v2_artifact_without_valid_policy_refused(tmp_path, policy):
 def test_json_thresholds_range_checked(key, value):
     with pytest.raises(ValueError, match=f"'{key}' .*between 0 and 1"):
         _assoc_config({"association": {key: value}})
-
-
-def test_packed_gt_reconstruction_keeps_index_and_positional_missing():
-    from variantcentrifuge.stages.association_stage_helpers import _per_sample_gt_frame
-
-    # Transcript de-duplication leaves a non-contiguous index.
-    df = pd.DataFrame({"GENE": ["G", "G"], "GT": ["A(0/1);B(./.)", "A(1/1)"]}, index=[0, 2])
-    out = _per_sample_gt_frame(df, ["A", "B", "C"])
-    assert out.loc[[0, 2], ["A", "B", "C"]].values.tolist() == [
-        ["0/1", "./.", "0/0"],
-        ["1/1", "0/0", "0/0"],
-    ]
-    # Positional (comma-separated) GT lists every sample: an explicit ./. stays missing.
-    df = pd.DataFrame({"GENE": ["G"], "GT": ["0/1,./.,./1"]})
-    out = _per_sample_gt_frame(df, ["A", "B", "C"])
-    assert out[["A", "B", "C"]].values.tolist() == [["0/1", "./.", "./1"]]
