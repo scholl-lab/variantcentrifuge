@@ -150,9 +150,7 @@ def test_cumulative_mac_from_artifact_ac_an():
             a.stratum_id: np.minimum(a.genes[gene].ac, a.genes[gene].an - a.genes[gene].ac).sum()
             for a in arts
         }
-        ac = sum(a.genes[gene].ac for a in arts)
-        an = sum(a.genes[gene].an for a in arts)
-        assert df.loc[gene, "cmac_total"] == pytest.approx(np.minimum(ac, an - ac).sum())
+        assert df.loc[gene, "cmac_total"] == pytest.approx(sum(per.values()))
         assert {k: float(v[0]) for k, v in _parse(df.loc[gene, "cmac_by_stratum"]).items()} == (
             pytest.approx(per)
         )
@@ -303,3 +301,12 @@ def test_require_variants_in_all_strata(tmp_path):
         == 0
     )
     assert (pd.read_csv(out, sep="\t")["status"] == "not_in_all_strata").sum() == 2
+
+
+def test_cmac_total_is_sum_of_stratum_macs_with_fixed_alt_site():
+    arts = _three_strata()[:2]
+    gs = arts[0].genes["NULLG"]  # site 0 fixed ALT in A (no information there)
+    gs.u[0], gs.v[0, :], gs.v[:, 0], gs.ac[0] = 0.0, 0.0, 0.0, gs.an[0]
+    row = meta_analyze_artifacts(arts).set_index("gene").loc["NULLG"]
+    per = {k: float(v[0]) for k, v in _parse(row["cmac_by_stratum"]).items()}
+    assert row["cmac_total"] == sum(per.values())

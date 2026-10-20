@@ -161,8 +161,9 @@ def _gene_row(
         for (art, _gs), b in zip(kept, betas, strict=True)
     ]
 
-    cmac_total = _mac(ac_pooled, an_pooled, np.sum(v_list, axis=0))
     stratum_macs = [_mac(gs.ac, gs.an, gs.v) for gs in gene_scores]
+    # Sum of stratum MACs: a pooled min(AC, AN-AC) overcounts sites fixed ALT in a stratum
+    cmac_total = float(sum(stratum_macs))
     primary_p = skato_p if skato_p is not None else burden_p
     status = "ok" if n_strata >= 2 else "single_stratum"
     if primary_p is None:
