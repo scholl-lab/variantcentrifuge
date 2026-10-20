@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pandas as pd
 import pytest
 
 from variantcentrifuge.association.base import AssociationConfig, TestResult
@@ -249,3 +250,45 @@ def test_imbalance_warning_suggests_acat_v_exclusion():
 
     msg = imbalance_message(900, 30)
     assert msg is not None and "--acat-o-exclude acat_v" in msg
+
+
+FISHER_P = {"G1": 1.0, "G2": 1e-6, "G3": 0.3}
+
+
+def _fisher() -> _FakeTest:
+    return _FakeTest("fisher", FISHER_P)
+
+
+@pytest.mark.unit
+class TestFisherNotInAcatO:
+    """ACAT-O combines only burden, SKAT/SKAT-O and ACAT-V (Liu 2019; STAAR) (#216, #210)."""
+
+    def test_fisher_with_burden_is_pass_through_of_burden(self):
+        df = _run([_fisher(), _burden()])
+        assert set(df["primary_test"]) == {"acat_o"}  # schema as any multi-test run
+        assert df.loc["G1", "acat_o_pvalue"] == 0.08  # fisher p = 1 no longer vetoes
+        assert df.loc["G2", "primary_pvalue"] == 0.01  # fisher p = 1e-6 no longer drives
+        assert pd.isna(df.loc["G3", "acat_o_pvalue"])  # burden missing: no fallback to fisher
+        assert df.loc["G1", "fisher_pvalue"] == 1.0  # Fisher still reported on its own
+
+    def test_fisher_with_skat_combines_skat_and_acat_v(self):
+        df = _run([_fisher(), _skat()])
+        for g in GENES:
+            exp = cauchy({"skat": SKAT_P[g], "acat_v": ACAT_V_P[g]})
+            assert df.loc[g, "acat_o_pvalue"] == pytest.approx(exp, rel=1e-12)
+
+    def test_fisher_burden_skat_equals_run_without_fisher(self):
+        with_f = _run([_fisher(), _burden(), _skat()])
+        without = _run([_burden(), _skat()])
+        cols = ["acat_o_pvalue", "acat_o_qvalue", "primary_pvalue", "primary_qvalue"]
+        pd.testing.assert_frame_equal(with_f[cols], without[cols])
+
+    def test_fisher_only_has_no_acat_o(self):
+        df = _run([_fisher()])
+        assert set(df["primary_test"]) == {"fisher"}
+        assert "acat_o_pvalue" not in df.columns
+
+    def test_primary_burden_override_with_fisher(self):
+        df = _run([_fisher(), _burden()], primary_test="burden")
+        assert set(df["primary_test"]) == {"logistic_burden"}
+        assert df.loc["G1", "acat_o_pvalue"] == 0.08

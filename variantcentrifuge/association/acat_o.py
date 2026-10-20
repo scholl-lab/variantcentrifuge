@@ -12,6 +12,10 @@ logger = logging.getLogger("variantcentrifuge")
 
 PRIMARY_TESTS = ("acat_o", "skato", "burden")
 ACAT_O_EXCLUDABLE = ("acat_v",)
+# Discrete tests reported on their own but never combined: ACAT-O is defined over the
+# continuous burden / SKAT(-O) / ACAT-V tests (Liu 2019 AJHG; STAAR), and Fisher's p = 1
+# mass would veto the Cauchy combination (#216, #210).
+NOT_ACAT_O_COMPONENTS = ("fisher",)
 
 
 def resolve_primary_test(test_names: list[str], config: Any) -> str | None:
@@ -52,7 +56,8 @@ def compute_acat_o(
     exclude: str | None = None,
 ) -> dict[str, TestResult]:
     """
-    Compute ACAT-O omnibus p-value per gene by combining all primary test p-values.
+    Compute ACAT-O omnibus p-value per gene by combining the burden, SKAT/SKAT-O and
+    ACAT-V p-values (Fisher excluded, see ``NOT_ACAT_O_COMPONENTS``).
 
     This is a post-loop meta-test: it runs after all primary tests have completed
     for all genes and combines their p-values via Cauchy combination. ACAT-O is
@@ -91,6 +96,8 @@ def compute_acat_o(
         # Collect p-values from all primary tests for this gene
         test_pvals: dict[str, float | None] = {}
         for test_name in test_names:
+            if test_name in NOT_ACAT_O_COMPONENTS:
+                continue
             res = results_by_test[test_name].get(gene)
             test_pvals[test_name] = res.p_value if res is not None else None
 
