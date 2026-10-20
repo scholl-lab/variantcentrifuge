@@ -718,7 +718,8 @@ SKAT-only run ACAT-O would then be a pass-through, so SKAT itself becomes the pr
 (`skat_qvalue` or `skat_o_qvalue`) and no `acat_o_*` columns are written.
 
 Both options also apply to gene-set units, and can be set in the config file's `association`
-section as `"primary_test"` and `"acat_o_exclude"` (the CLI wins). They do not affect
+section as `"primary_test"` and `"acat_o_exclude"` (the CLI wins). A config-file
+`"acat_o_exclude"` can only be removed in the config file; there is no CLI value that unsets it. They do not affect
 `--score-artifact` files or meta-analysis, which has its own primary (SKAT-O, else burden).
 Defaults reproduce earlier output exactly.
 

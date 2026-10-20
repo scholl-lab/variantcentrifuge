@@ -100,15 +100,14 @@ def compute_acat_o(
         # improves power for sparse signals.
         # --acat-o-exclude acat_v: ACAT-V is anti-conservative for ultra-rare variants
         # under case:control imbalance without SPA (#210).
-        for test_name in test_names:
-            if exclude == "acat_v":
-                break
-            res = results_by_test[test_name].get(gene)
-            if res is not None and "acat_v_p" in res.extra:
-                acat_v_p = res.extra["acat_v_p"]
-                if acat_v_p is not None:
-                    test_pvals["acat_v"] = acat_v_p
-                break  # only one SKAT test can produce ACAT-V
+        if exclude != "acat_v":
+            for test_name in test_names:
+                res = results_by_test[test_name].get(gene)
+                if res is not None and "acat_v_p" in res.extra:
+                    acat_v_p = res.extra["acat_v_p"]
+                    if acat_v_p is not None:
+                        test_pvals["acat_v"] = acat_v_p
+                    break  # only one SKAT test can produce ACAT-V
 
         # Combine p-values via Cauchy formula
         acat_p = _cauchy_combine(test_pvals)

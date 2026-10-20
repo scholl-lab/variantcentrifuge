@@ -260,13 +260,23 @@ def validate_association_args(
                 "given). Use linear_burden and/or skat for quantitative traits."
             )
 
-    # --primary-test must name a test that this run executes (#210); fail before extraction.
-    if getattr(args, "primary_test", None) and args.perform_association:
+    # The primary test (CLI, else config-file "association" section) must name a test
+    # this run executes (#210); fail before extraction. The engine re-checks.
+    file_assoc = cfg.get("association") or {}
+    merged = argparse.Namespace(
+        primary_test=getattr(args, "primary_test", None) or file_assoc.get("primary_test"),
+        acat_o_exclude=getattr(args, "acat_o_exclude", None) or file_assoc.get("acat_o_exclude"),
+        skat_method=getattr(args, "skat_method", "SKAT"),
+        trait_type=trait_type,
+    )
+    if (merged.primary_test or merged.acat_o_exclude) and args.perform_association:
         from .association.acat_o import resolve_primary_test
 
-        if isinstance(raw_tests, str):
-            raw_tests = [t.strip() for t in raw_tests.split(",")]
+        tests = raw_tests or file_assoc.get("association_tests") or ["fisher"]
+        if isinstance(tests, str):
+            tests = [t.strip() for t in tests.split(",")]
+        merged.primary_test = merged.primary_test or "acat_o"
         try:
-            resolve_primary_test(list(raw_tests or ["fisher"]), args)
+            resolve_primary_test(list(tests), merged)
         except ValueError as e:
             _fail(str(e))

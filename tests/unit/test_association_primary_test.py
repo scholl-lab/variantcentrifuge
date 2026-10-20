@@ -168,7 +168,7 @@ def _parse(argv: list[str]):
     return parser.parse_args(argv)
 
 
-def _validate(argv: list[str], tests: list[str]):
+def _validate(argv: list[str], tests: list[str] | str, file_assoc: dict | None = None):
     from unittest.mock import Mock
 
     from variantcentrifuge.cli_association_config import validate_association_args
@@ -178,7 +178,8 @@ def _validate(argv: list[str], tests: list[str]):
     args.association_tests = tests
     fail = Mock(side_effect=SystemExit)
     try:
-        validate_association_args(args, {"association_tests": tests}, fail)
+        cfg = {"association_tests": tests, "association": file_assoc or {}}
+        validate_association_args(args, cfg, fail)
     except SystemExit:
         return fail.call_args[0][0]
     return None
@@ -202,6 +203,16 @@ class TestCliAndConfig:
         assert _validate(["--primary-test", "skato"], ["skat"]) is not None
         assert _validate(["--primary-test", "skato", "--skat-method", "SKATO"], ["skat"]) is None
         assert _validate([], ["skat"]) is None
+
+    def test_config_file_primary_fails_before_extraction(self):
+        msg = _validate([], ["skat"], {"primary_test": "burden"})
+        assert msg and "logistic_burden" in msg
+        assert _validate([], ["skat"], {"primary_test": "skato", "skat_method": "SKATO"})
+        assert _validate(["--skat-method", "SKATO"], ["skat"], {"primary_test": "skato"}) is None
+        # The CLI value wins over the config file.
+        assert _validate(["--primary-test", "acat_o"], ["skat"], {"primary_test": "burden"}) is None
+        msg = _validate([], ["skat"], {"acat_o_exclude": "skat"})
+        assert msg and "acat_o_exclude" in msg
 
     def test_cli_rejects_unknown_choice(self):
         with pytest.raises(SystemExit):
