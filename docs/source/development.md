@@ -287,8 +287,8 @@ Pytest is configured in `pyproject.toml` under `[tool.pytest.ini_options]`.
 `scripts/bench_association.py` runs `AssociationAnalysisStage` in-process on seeded
 synthetic data (no real cohorts) and prints one machine-readable `RESULT` line plus a
 table of the stage's sub-step timings, which the stage records in
-`context.stage_results["association_analysis"]["substep_seconds"]` (`gt_unpack`,
-`gt_reconstruct`, `sample_setup`, `covariates_phenotype`, `aggregation`,
+`context.stage_results["association_analysis"]["substep_seconds"]` (`sample_setup`,
+`covariates_phenotype`, `gt_parse` (the one genotype parse per run), `aggregation`,
 `matrix_builders`, `score_artifact`, `engine`, `write_output`). `matrix_builders` times only
 the creation of the per-gene builder objects; the genotype matrices are built lazily inside
 `engine` (and `score_artifact`, when enabled), so those sub-steps include matrix construction.

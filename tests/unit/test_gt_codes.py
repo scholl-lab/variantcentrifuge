@@ -232,3 +232,49 @@ def test_absent_case_sample_counts_are_deterministic_and_layout_independent(tmp_
     header, *rows = outputs[0].strip("|").split("|")
     n_cases = header.split("\t").index("n_cases")
     assert {r.split("\t")[n_cases] for r in rows} == {"15"}
+
+
+def test_packed_parse_categorical_gt_and_unknown_samples_only():
+    gt = pd.Series(pd.Categorical(["X(0/1)", None, "A(1/1)"]))
+    gc = parse_genotype_codes(pd.DataFrame({"GT": gt}), ["A"], ["A", "X"], [])
+    assert _cells(gc) == [["0/0"], ["0/0"], ["1/1"]]
+    only_unknown = pd.DataFrame({"GT": ["X(0/1)"]})
+    assert _cells(parse_genotype_codes(only_unknown, ["A"], ["A", "X"], [])) == [["0/0"]]
+
+
+def test_stage_without_genotypes_uses_legacy_counts(tmp_path, caplog):
+    """No packed GT and no per-sample columns: pre-computed per-variant counts (legacy)."""
+    from argparse import Namespace
+    from unittest.mock import Mock
+
+    from variantcentrifuge.pipeline_core.context import PipelineContext
+    from variantcentrifuge.pipeline_core.workspace import Workspace
+    from variantcentrifuge.stages.association_analysis_stages import AssociationAnalysisStage
+
+    df = pd.DataFrame(
+        {
+            "GENE": ["G1", "G1"],
+            "proband_count": [20, 20],
+            "control_count": [40, 40],
+            "proband_variant_count": [3, 1],
+            "control_variant_count": [1, 0],
+            "proband_allele_count": [3, 1],
+            "control_allele_count": [1, 0],
+        }
+    )
+    ws = Mock(spec=Workspace)
+    ws.output_dir = ws.intermediate_dir = tmp_path
+    cfg = {
+        "perform_association": True,
+        "case_samples": [f"c{i}" for i in range(20)],
+        "control_samples": [f"n{i}" for i in range(40)],
+        "association_tests": ["fisher"],
+        "output_dir": str(tmp_path),
+        "gzip_intermediates": False,
+    }
+    ctx = PipelineContext(args=Namespace(), config=cfg, workspace=ws)
+    ctx.current_dataframe = df
+    with caplog.at_level("INFO"):
+        out = AssociationAnalysisStage()._process(ctx)
+    assert "pre-computed per-variant counts (legacy mode)" in caplog.text
+    assert "gt_parse" not in out.stage_results["association_analysis"]["substep_seconds"]

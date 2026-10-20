@@ -31,6 +31,10 @@ GENE2 312      488         3           0.41            1.0            1.23      
 ...
 ```
 
+`n_cases` and `n_controls` count only case/control samples that are present in the VCF
+(listed samples without genotypes are ignored); for Fisher they are the samples with a call
+for the gene.
+
 **Primary significance measure:** `primary_qvalue`. For Fisher-only runs this is the same
 value as `fisher_qvalue`; for multi-test runs it is usually the same value as
 `acat_o_qvalue`.
