@@ -70,6 +70,10 @@ def read_study_manifest(path: str) -> list[StratumRef]:
             # Relative paths are relative to the manifest, not the working directory.
             apath = os.path.join(os.path.dirname(os.path.abspath(path)), apath)
             refs.append(StratumRef(stratum_id=sid, artifact_path=apath, mask_id=mask))
+    if not refs:
+        raise MetaCompatibilityError(
+            f"Manifest '{path}' lists no strata; meta-analysis needs at least 2."
+        )
     for mask, group in group_by_mask(refs).items():
         what = f"mask '{mask}'" if mask is not None else "it"
         if len(group) < 2:
