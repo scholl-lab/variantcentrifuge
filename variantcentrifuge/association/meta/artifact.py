@@ -288,6 +288,10 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
     )
 
 
+def _has_cases_and_controls(phenotype: np.ndarray) -> bool:
+    return bool((phenotype == 1).any() and (phenotype == 0).any())
+
+
 def hash_sample_id(sample_id: str) -> str:
     """SHA-256 of a sample ID: lets strata detect shared samples without sharing IDs."""
     return hashlib.sha256(sample_id.encode("utf-8")).hexdigest()
@@ -308,8 +312,13 @@ def emit_stratum_artifact(
     Uses the same site/sample missingness QC as the single-cohort tests but skips the
     per-gene MAC<5 filter: a gene too rare to test in one stratum still adds
     information to the meta. Dosages are kept ALT-coded so ``U`` matches the keys.
+
+    A gene whose retained samples (after its missingness QC) are all cases or all
+    controls has no estimable null model; it is omitted with a warning. A phenotype
+    that is not a usable 0/1 case/control vector for the whole cohort raises.
     """
     from variantcentrifuge.association.genotype_matrix import (
+        _infer_missing_ploidy,
         _vectorized_parse_gt_columns,
         build_genotype_matrix,
     )
@@ -319,6 +328,13 @@ def emit_stratum_artifact(
     if first is None or first.phenotype_vector is None:
         raise ValueError("Score artifact needs at least one gene and a case/control phenotype")
     pheno_all = np.asarray(first.phenotype_vector, dtype=np.float64)
+    if not np.isin(pheno_all, (0.0, 1.0)).all() or not _has_cases_and_controls(pheno_all):
+        raise ValueError(
+            "Score artifact needs a 0/1 case/control phenotype with at least one case and "
+            f"one control (got {int((pheno_all == 1).sum())} cases, "
+            f"{int((pheno_all == 0).sum())} controls, {pheno_all.size} samples)"
+        )
+    omitted: list[str] = []
     nulls: dict[bytes, NullModelResult] = {}
     gene_scores: dict[str, GeneScore] = {}
     for gene, b in builders.items():
@@ -338,10 +354,12 @@ def emit_stratum_artifact(
         )
         # ponytail: parses GT twice per gene (build_genotype_matrix hides raw/ploidy);
         # fine for an opt-in export, expose them from the builder if it shows in profiles.
-        raw, plo = _vectorized_parse_gt_columns(b.gene_df, list(b.gt_columns))
-        # Same retained population as build_genotype_matrix's frequencies/recoding (#174).
+        raw, plo, kind = _vectorized_parse_gt_columns(b.gene_df, list(b.gt_columns))
+        # Same retained population as build_genotype_matrix's frequencies/recoding/ploidy (#174).
         mask = np.asarray(sample_mask, dtype=bool)
-        geno, raw, plo = geno[mask], raw[keep].T[mask], plo[keep].T[mask]
+        raw, plo = raw[keep], plo[keep]
+        _infer_missing_ploidy(plo, kind[keep], mask)
+        geno, raw, plo = geno[mask], raw.T[mask], plo.T[mask]
         observed = ~np.isnan(raw)
         ac = np.where(observed, raw, 0.0).sum(axis=0)
         an = np.where(observed, plo, 0.0).sum(axis=0)
@@ -355,12 +373,25 @@ def emit_stratum_artifact(
         ]
         if not keys:
             continue
+        if not _has_cases_and_controls(pheno_all[mask]):
+            logger.warning(
+                "Score artifact: omitting gene %s: its %d retained samples (after "
+                "missingness QC) are not both cases and controls, so no null model fits",
+                gene,
+                int(mask.sum()),
+            )
+            omitted.append(gene)
+            continue
         null_key = mask.tobytes()
         if null_key not in nulls:
             cov = b.covariate_matrix[mask] if b.covariate_matrix is not None else None
             nulls[null_key] = fit_stratum_null(pheno_all[mask], cov, "binary")
         gene_scores[gene] = compute_gene_score(geno, raw, nulls[null_key], keys, ploidy=plo)
 
+    if omitted and not gene_scores:
+        raise ValueError(
+            f"Score artifact: no gene has retained cases and controls ({len(omitted)} omitted)"
+        )
     artifact = ScoreCovarianceArtifact(
         stratum_id=stratum_id,
         genome_build=genome_build,

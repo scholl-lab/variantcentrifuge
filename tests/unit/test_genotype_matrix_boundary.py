@@ -8,11 +8,15 @@ import pytest
 
 from variantcentrifuge.association.base import AssociationConfig
 from variantcentrifuge.association.engine_workers import run_sequential_genes
-from variantcentrifuge.association.genotype_matrix import build_genotype_matrix
+from variantcentrifuge.association.genotype_matrix import (
+    _vectorized_parse_gt_columns,
+    build_genotype_matrix,
+    parse_gt_to_dosage,
+)
 from variantcentrifuge.association.meta.artifact import emit_stratum_artifact
 from variantcentrifuge.stages.genotype_matrix_builder import _GenotypeMatrixBuilder
 
-UNSPLIT = ["0/2", "1/2", "2/2", "2|1", "1|2", "2", "0/3"]
+UNSPLIT = ["0/2", "1/2", "2/2", "2|1", "1|2", "2", "0/3", "./2", "2/.", ".|2", "0/1/2"]
 
 
 def _site_df(gt: str) -> pd.DataFrame:
@@ -56,6 +60,24 @@ def test_unsplit_multiallelic_rejected_with_site_and_hint(gt: str) -> None:
     assert "chr1:200:C:T" in msg
     assert "'s1'" in msg
     assert "bcftools norm -m-" in msg
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("gt", ["./2", "2/.", ".|2", "0/1/2", "2|1"])
+def test_scalar_parser_rejects_partially_missing_multiallelic(gt: str) -> None:
+    """A missing allele does not hide an observed second-ALT allele."""
+    with pytest.raises(ValueError, match="bcftools norm -m-"):
+        parse_gt_to_dosage(gt)
+
+
+@pytest.mark.unit
+def test_partial_biallelic_and_polyploid_without_second_alt_keep_semantics() -> None:
+    """'./1' stays missing; a polyploid call without index >1 stays unparsed (NaN)."""
+    assert parse_gt_to_dosage("./1") == (None, False)
+    assert parse_gt_to_dosage("1/1/1") == (None, False)
+    df = pd.DataFrame({"a": ["./1", "1/1/1", "0/1"], "b": ["0/0", "0/0", "0/0"]})
+    raw = _vectorized_parse_gt_columns(df, ["a", "b"])[0]
+    np.testing.assert_array_equal(raw[:, 0], [np.nan, np.nan, 1.0])
 
 
 @pytest.mark.unit

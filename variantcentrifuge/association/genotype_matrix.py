@@ -28,6 +28,7 @@ Design notes
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Sequence
 
 import numpy as np
@@ -53,6 +54,8 @@ def _multiallelic_error(gene_df: pd.DataFrame, row: int, column: str) -> ValueEr
 
 
 _MISSING_TOKENS = {"", "na", "nan", "none", "null"}
+# Per-cell call kinds returned by the parser (row ploidy inference for missing calls).
+_HAPLOID, _DIPLOID, _GENERIC_MISSING = 1, 2, 3
 _GT_DOSAGE = {"0/0": 0.0, "0/1": 1.0, "1/0": 1.0, "1/1": 2.0, "0": 0.0, "1": 1.0}
 
 
@@ -64,11 +67,26 @@ def _classify_gt_vocabulary(vocab: pd.Series) -> tuple[np.ndarray, ...]:
     diploid = ~gen_miss & gt.str.contains("/", regex=False).to_numpy()
     dosage = gt.map(_GT_DOSAGE).to_numpy(dtype=np.float64)
     haploid = gt.isin({"0", "1", "."}).to_numpy()
-    # #175: allele indices >1 (0/2, 1/2, 2/2, 2, ...) cannot be encoded as additive
-    # ALT dosage; flag them so the caller rejects instead of silently recoding.
-    alleles = gt.str.extract(r"^([0-9]+)(?:/([0-9]+))?$").astype(float)
-    multi = (alleles > 1).any(axis=1).to_numpy()
-    return dosage, np.where(haploid, 1.0, 2.0), gen_miss, diploid, haploid, multi
+    kind = np.select([haploid, diploid, gen_miss], [_HAPLOID, _DIPLOID, _GENERIC_MISSING], 0)
+    # #175: any observed allele index >1 (0/2, 2, ./2, 0/1/2, ...) cannot be encoded as
+    # additive ALT dosage; flag it so the caller rejects instead of recoding/missing it.
+    multi = np.array([_has_allele_above_one(g.split("/")) for g in gt], dtype=bool)
+    return dosage, np.where(haploid, 1.0, 2.0), kind.astype(np.int8), multi
+
+
+def _has_allele_above_one(tokens: list[str]) -> bool:
+    return any(t.isascii() and t.isdigit() and int(t) > 1 for t in tokens)
+
+
+def _infer_missing_ploidy(ploidy: np.ndarray, kind: np.ndarray, retained: np.ndarray) -> None:
+    """Give generic missing calls ploidy 1 on rows whose *retained* calls are all haploid.
+
+    In place. Explicit calls keep their encoded ploidy; only retained samples decide the
+    row ploidy, so excluded samples cannot change retained imputation (#174).
+    """
+    kept = kind[:, retained]
+    haploid_rows = (kept == _HAPLOID).any(axis=1) & ~(kept == _DIPLOID).any(axis=1)
+    ploidy[haploid_rows[:, None] & (kind == _GENERIC_MISSING)] = 1.0
 
 
 def _column_strings(column: pd.Series) -> np.ndarray:
@@ -81,8 +99,8 @@ def _column_strings(column: pd.Series) -> np.ndarray:
 def _vectorized_parse_gt_columns(
     gene_df: pd.DataFrame,
     gt_columns_list: list[str],
-) -> tuple[np.ndarray, np.ndarray]:
-    """Parse all GT columns to a dosage matrix and ploidy matrix.
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Parse all GT columns to dosage, explicit ploidy and per-call kind matrices.
 
     Every cell is normalised like ``Series.fillna("").astype(str)`` per column
     (categoricals via their object values); the distinct strings are factorised
@@ -101,7 +119,11 @@ def _vectorized_parse_gt_columns(
     raw : np.ndarray, shape (n_variants, n_samples), float64
         Dosage matrix. NaN for missing genotypes.
     ploidy : np.ndarray, shape (n_variants, n_samples), float64
-        Ploidy matrix (1.0 for haploid, 2.0 for diploid).
+        Explicit ploidy (1.0 for haploid calls, else 2.0). Generic missing calls
+        (None/NA/empty) stay 2.0 until :func:`_infer_missing_ploidy` resolves them
+        from the retained samples.
+    kind : np.ndarray, shape (n_variants, n_samples), int8
+        Call kind for that inference (haploid / diploid / generic missing / other).
 
     Raises
     ------
@@ -111,8 +133,12 @@ def _vectorized_parse_gt_columns(
     n_variants = len(gene_df)
     n_samples = len(gt_columns_list)
     block = gene_df[gt_columns_list]
-    codes, vocab = pd.factorize(block.to_numpy(dtype=object).ravel(order="F"))
-    if all(isinstance(v, str) for v in vocab):
+    try:
+        codes, vocab = pd.factorize(block.to_numpy(dtype=object).ravel(order="F"))
+        all_strings = all(isinstance(v, str) for v in vocab)
+    except TypeError:  # unhashable cells (list, dict, ndarray): stringify per column
+        all_strings = False
+    if all_strings:
         codes[codes < 0] = len(vocab)  # NA cells normalise to ""
         vocab = [*vocab, ""]
     else:
@@ -121,9 +147,7 @@ def _vectorized_parse_gt_columns(
         codes, vocab = pd.factorize(
             np.concatenate([_column_strings(block.iloc[:, j]) for j in range(n_samples)])
         )
-    dosage, plo, gen_miss, diploid, haploid, multi = _classify_gt_vocabulary(
-        pd.Series(vocab, dtype=object)
-    )
+    dosage, plo, kind, multi = _classify_gt_vocabulary(pd.Series(vocab, dtype=object))
 
     if multi.any():
         first = int(np.flatnonzero(multi[codes])[0])  # column-major: first sample, then row
@@ -132,15 +156,7 @@ def _vectorized_parse_gt_columns(
     shape = (n_variants, n_samples)
     raw = dosage[codes].reshape(shape, order="F")
     ploidy = plo[codes].reshape(shape, order="F")
-    generic_missing = gen_miss[codes].reshape(shape, order="F")
-    row_has_haploid = haploid[codes].reshape(shape, order="F").any(axis=1)
-    row_has_diploid = diploid[codes].reshape(shape, order="F").any(axis=1)
-
-    haploid_rows = row_has_haploid & ~row_has_diploid
-    if haploid_rows.any():
-        ploidy[haploid_rows[:, None] & generic_missing] = 1.0
-
-    return raw, ploidy
+    return raw, ploidy, kind[codes].reshape(shape, order="F")
 
 
 def parse_gt_to_dosage(gt: str | None) -> tuple[int | None, bool]:
@@ -174,7 +190,7 @@ def parse_gt_to_dosage(gt: str | None) -> tuple[int | None, bool]:
     - ``'1/1'``, ``'1|1'``           -> ``(2, False)``
     - ``'./.'``, ``'.|.'``, ``'.'``, None, '' -> ``(None, False)``
     - ``'./1'``, ``'1/.'``           -> ``(None, False)``  (partial missing)
-    - ``'1/2'``, ``'0/2'``, ``'2/2'``, ``'2'`` -> ``ValueError`` (split with bcftools norm -m-)
+    - ``'1/2'``, ``'2'``, ``'./2'``, ``'0/1/2'`` (any allele >1) -> ``ValueError``
 
     Notes
     -----
@@ -183,6 +199,8 @@ def parse_gt_to_dosage(gt: str | None) -> tuple[int | None, bool]:
     """
     if not gt:
         return None, False
+    if _has_allele_above_one(re.split(r"[/|]", gt)):
+        raise ValueError(f"Unsplit multi-allelic genotype {gt!r}: {_SPLIT_HINT}")
 
     # Normalise separator so we only need to handle '/'
     sep = "|" if "|" in gt else "/"
@@ -305,7 +323,7 @@ def build_genotype_matrix(
     # Vectorized: processes one GT column at a time using pandas string    #
     # ops instead of per-cell Python function calls.                       #
     # ------------------------------------------------------------------ #
-    raw, ploidy = _vectorized_parse_gt_columns(gene_df, gt_columns_list)
+    raw, ploidy, kind = _vectorized_parse_gt_columns(gene_df, gt_columns_list)
 
     # ------------------------------------------------------------------ #
     # Step 2 — Layer 1a: Remove variants with >missing_site_threshold     #
@@ -315,6 +333,7 @@ def build_genotype_matrix(
     keep_variants_mask = missing_per_variant <= missing_site_threshold
     raw = raw[keep_variants_mask]  # shape (n_kept_variants, n_samples)
     ploidy = ploidy[keep_variants_mask]
+    kind = kind[keep_variants_mask]
 
     # ------------------------------------------------------------------ #
     # Step 3 — Layer 1b: Flag samples with >missing_sample_threshold      #
@@ -355,6 +374,7 @@ def build_genotype_matrix(
     # MAF from all RETAINED samples combined (never stratified; #174)     #
     # ------------------------------------------------------------------ #
     retained = np.asarray(sample_mask, dtype=bool)
+    _infer_missing_ploidy(ploidy, kind, retained)
     geno = raw.copy()
     n_kept_variants = geno.shape[0]
     mafs = np.zeros(n_kept_variants, dtype=np.float64)

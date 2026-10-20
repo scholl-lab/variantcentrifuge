@@ -7,13 +7,17 @@ import pandas as pd
 import pytest
 
 from variantcentrifuge.association.genotype_matrix import (
+    _infer_missing_ploidy,
     _multiallelic_error,
     _vectorized_parse_gt_columns,
 )
 
 
 def _reference_parse(gene_df: pd.DataFrame, cols: list[str]) -> tuple[np.ndarray, np.ndarray]:
-    """Frozen per-column implementation (v0.19.0 semantics plus #175 rejection)."""
+    """Frozen per-column implementation (v0.19.0 semantics plus #175 rejection).
+
+    The #175 rule (any observed allele token >1) is the only deviation from v0.19.0.
+    """
     n_variants, n_samples = len(gene_df), len(cols)
     raw = np.full((n_variants, n_samples), np.nan, dtype=np.float64)
     ploidy = np.full((n_variants, n_samples), 2.0, dtype=np.float64)
@@ -39,8 +43,13 @@ def _reference_parse(gene_df: pd.DataFrame, cols: list[str]) -> tuple[np.ndarray
         m_hap_1 = gt_series == "1"
         m_hap_miss = gt_series == "."
         row_has_haploid |= (m_hap_0 | m_hap_1 | m_hap_miss).to_numpy()
-        alleles = gt_series.str.extract(r"^([0-9]+)(?:/([0-9]+))?$").astype(float)
-        multi = (alleles > 1).any(axis=1).to_numpy()
+        multi = np.array(
+            [
+                any(t.isascii() and t.isdigit() and int(t) > 1 for t in g.split("/"))
+                for g in gt_series
+            ],
+            dtype=bool,
+        )
         if multi.any():
             raise _multiallelic_error(gene_df, int(np.flatnonzero(multi)[0]), col)
         col_dosage = np.full(n_variants, np.nan, dtype=np.float64)
@@ -69,7 +78,7 @@ EDGE_STRINGS = [
 ]  # fmt: skip
 NA_OBJECTS = [None, np.nan, pd.NA, pd.NaT, np.str_("0/1"), np.str_(" 1 ")]
 NON_STR_OBJECTS = [0, 1, 0.0, 1.0, True, False, b"0/1", np.int64(1), np.float32(0.0)]
-MULTI_STRINGS = ["0/2", "1/2", "2/2", "2|1", "2", " 3 ", "0/10", "10"]
+MULTI_STRINGS = ["0/2", "1/2", "2/2", "2|1", "2", " 3 ", "0/10", "10", "./2", "2|.", "0/1/2"]
 
 
 def _assert_same(df: pd.DataFrame, cols: list[str]) -> None:
@@ -80,7 +89,9 @@ def _assert_same(df: pd.DataFrame, cols: list[str]) -> None:
             _vectorized_parse_gt_columns(df, cols)
         assert str(got.value) == str(exc)
         return
-    raw, ploidy = _vectorized_parse_gt_columns(df, cols)
+    raw, ploidy, kind = _vectorized_parse_gt_columns(df, cols)
+    # All samples retained: the row inference must reproduce the per-column parser.
+    _infer_missing_ploidy(ploidy, kind, np.ones(len(cols), dtype=bool))
     for new, ref in zip((raw, ploidy), expected, strict=True):
         assert new.dtype == ref.dtype and new.shape == ref.shape
         np.testing.assert_array_equal(np.isnan(new), np.isnan(ref))
@@ -155,7 +166,16 @@ def test_multiallelic_first_offender_matches_reference(gt: str) -> None:
 @pytest.mark.unit
 def test_empty_inputs() -> None:
     df = pd.DataFrame({"a": pd.Series([], dtype=object)})
-    raw, ploidy = _vectorized_parse_gt_columns(df, ["a"])
-    assert raw.shape == ploidy.shape == (0, 1)
-    raw, ploidy = _vectorized_parse_gt_columns(pd.DataFrame({"a": ["0/1"]}), [])
-    assert raw.shape == ploidy.shape == (1, 0)
+    raw, ploidy, kind = _vectorized_parse_gt_columns(df, ["a"])
+    assert raw.shape == ploidy.shape == kind.shape == (0, 1)
+    raw, ploidy, kind = _vectorized_parse_gt_columns(pd.DataFrame({"a": ["0/1"]}), [])
+    assert raw.shape == ploidy.shape == kind.shape == (1, 0)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("cell", [[0, 1], {"a": 1}, np.array([0, 1])])
+def test_unhashable_cells_use_per_column_normalisation(cell) -> None:
+    """Unhashable objects stringify per column (as before #176) instead of TypeError."""
+    df = pd.DataFrame({"s": pd.Series([cell, "0/1"], dtype=object), "t": ["1/1", "0/0"]})
+    _assert_same(df, ["s", "t"])
+    np.testing.assert_array_equal(_vectorized_parse_gt_columns(df, ["s"])[0].ravel(), [np.nan, 1])

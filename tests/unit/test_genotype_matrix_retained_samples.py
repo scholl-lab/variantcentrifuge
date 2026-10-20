@@ -149,3 +149,121 @@ def test_score_artifact_matches_explicit_retained_input(tmp_path) -> None:
     np.testing.assert_array_equal(a.an, b.an)
     # Independent v0 values: retained observed AC=15, AN=76.
     assert (a.ac[0], a.an[0]) == (15.0, 76.0)
+
+
+def _haploid_cohort() -> tuple[pd.DataFrame, list[str]]:
+    """chrX-like site: retained calls 6x '1', 13x '0', one generic-missing None.
+
+    An extra high-missingness sample carries a diploid '0/0' at site 0 only.
+    """
+    ret = {f"r{i}": (["1"] if i < 6 else ["0"]) + ["0"] * 9 for i in range(19)}
+    ret["r19"] = [None] + ["0"] * 9
+    df = pd.DataFrame(
+        {"CHROM": ["chrX"] * 10, "POS": range(1, 11), "REF": ["A"] * 10, "ALT": ["G"] * 10, **ret}
+    )
+    df["x"] = ["0/0"] + [None] * 9
+    return df, list(ret)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(("is_binary", "expected"), [(True, 0.0), (False, 6 / 19)])
+def test_excluded_diploid_call_does_not_change_missing_ploidy(is_binary, expected) -> None:
+    """Missing-call ploidy is inferred from retained samples only (haploid: 1 * 6/19)."""
+    df, ret = _haploid_cohort()
+    geno, mafs, mask, _ = build_genotype_matrix(df, [*ret, "x"], [*ret, "x"], is_binary=is_binary)
+    assert mask == [True] * 20 + [False]
+    ref_geno, ref_mafs, _, _ = build_genotype_matrix(df, ret, ret, is_binary=is_binary)
+    assert mafs[0] == pytest.approx(6 / 19)
+    assert geno[19, 0] == pytest.approx(expected)
+    np.testing.assert_array_equal(geno[:20], ref_geno)
+    np.testing.assert_array_equal(mafs, ref_mafs)
+
+
+@pytest.mark.unit
+def test_score_artifact_missing_ploidy_uses_retained_samples(tmp_path) -> None:
+    df, ret = _haploid_cohort()
+    pheno = (np.arange(21) % 2).astype(float)
+    kwargs = {"stratum_id": "s", "genome_build": "b", "annotation_version": "v"}
+    kwargs |= {"mask_id": "m", "mask_hash": "h"}
+    full = emit_stratum_artifact(
+        str(tmp_path / "f"), {"G": _builder(df, [*ret, "x"], pheno, 0.1)}, **kwargs
+    ).genes["G"]
+    ref = emit_stratum_artifact(
+        str(tmp_path / "r"), {"G": _builder(df, ret, pheno[:20], 0.1)}, **kwargs
+    ).genes["G"]
+    np.testing.assert_allclose(full.u, ref.u, rtol=0, atol=1e-10)
+    np.testing.assert_allclose(full.v, ref.v, rtol=0, atol=1e-10)
+    np.testing.assert_array_equal(full.an, ref.an)
+
+
+def _one_case_cohort(case_missing_in_g2: bool = True):
+    n = 60
+    samples = [f"S{i}" for i in range(n)]
+    pheno = np.zeros(n)
+    pheno[0] = 1.0
+    rng = np.random.default_rng(11)
+
+    def gene(case_missing: bool) -> pd.DataFrame:
+        rows = {s: [GT[int(d)] for d in rng.binomial(1, 0.1, 3)] for s in samples}
+        if case_missing:
+            rows["S0"] = ["./."] * 3
+        return pd.DataFrame(
+            {"CHROM": ["1"] * 3, "POS": [1, 2, 3], "REF": ["A"] * 3, "ALT": ["G"] * 3, **rows}
+        )
+
+    return gene(False), gene(case_missing_in_g2), samples, pheno
+
+
+_KW = {"stratum_id": "s", "genome_build": "b", "annotation_version": "v", "mask_id": "m"}
+
+
+@pytest.mark.unit
+def test_score_artifact_omits_gene_without_retained_cases(tmp_path, caplog) -> None:
+    """The only case is excluded for G2 by missingness QC: G2 is omitted, G1 kept."""
+    g1, g2, samples, pheno = _one_case_cohort()
+    builders = {"G1": _builder(g1, samples, pheno, 0.1), "G2": _builder(g2, samples, pheno, 0.1)}
+    with caplog.at_level("WARNING", logger="variantcentrifuge"):
+        art = emit_stratum_artifact(str(tmp_path / "s"), builders, mask_hash="h", **_KW)
+    assert sorted(art.genes) == ["G1"]
+    assert "omitting gene G2" in caplog.text
+
+
+@pytest.mark.unit
+def test_score_artifact_fails_when_no_gene_is_testable(tmp_path) -> None:
+    _g1, g2, samples, pheno = _one_case_cohort()
+    with pytest.raises(ValueError, match="no gene has retained cases and controls"):
+        emit_stratum_artifact(
+            str(tmp_path / "s"), {"G2": _builder(g2, samples, pheno, 0.1)}, mask_hash="h", **_KW
+        )
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("pheno_value", [0.0, 1.0, np.nan])
+def test_score_artifact_rejects_unusable_cohort_phenotype(tmp_path, pheno_value) -> None:
+    g1, _g2, samples, _ = _one_case_cohort()
+    pheno = np.full(len(samples), pheno_value)
+    with pytest.raises(ValueError, match="0/1 case/control phenotype"):
+        emit_stratum_artifact(
+            str(tmp_path / "s"), {"G1": _builder(g1, samples, pheno, 0.1)}, mask_hash="h", **_KW
+        )
+    assert not (tmp_path / "s.npz").exists()
+
+
+@pytest.mark.unit
+def test_score_artifact_input_guards_and_skipped_genes(tmp_path) -> None:
+    """No builders / missing site columns raise; empty and fully site-filtered genes skip."""
+    g1, _g2, samples, pheno = _one_case_cohort()
+    with pytest.raises(ValueError, match="at least one gene"):
+        emit_stratum_artifact(str(tmp_path / "a"), {}, mask_hash="h", **_KW)
+    with pytest.raises(ValueError, match=r"needs columns \['CHROM'\]"):
+        bad = _builder(g1.drop(columns="CHROM"), samples, pheno, 0.1)
+        emit_stratum_artifact(str(tmp_path / "b"), {"G": bad}, mask_hash="h", **_KW)
+    all_missing = g1.copy()
+    all_missing[samples] = "./."
+    builders = {
+        "G1": _builder(g1, samples, pheno, 0.1),
+        "EMPTY": _builder(g1.iloc[:0], samples, pheno, 0.1),
+        "SITE_QC": _builder(all_missing, samples, pheno, 0.1),
+    }
+    art = emit_stratum_artifact(str(tmp_path / "c"), builders, mask_hash="h", **_KW)
+    assert sorted(art.genes) == ["G1"]
