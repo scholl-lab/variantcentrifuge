@@ -179,3 +179,38 @@ def test_unhashable_cells_use_per_column_normalisation(cell) -> None:
     df = pd.DataFrame({"s": pd.Series([cell, "0/1"], dtype=object), "t": ["1/1", "0/0"]})
     _assert_same(df, ["s", "t"])
     np.testing.assert_array_equal(_vectorized_parse_gt_columns(df, ["s"])[0].ravel(), [np.nan, 1])
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("block_cells", [1, 7, 40])
+def test_multi_block_parsing_is_identical(monkeypatch, block_cells: int) -> None:
+    """Blocked parsing (incl. a non-string block) equals single-block parsing and the
+    reference; the haploid-row rule for missing calls spans blocks."""
+    import variantcentrifuge.association.genotype_matrix as gm
+
+    rng = np.random.default_rng(5)
+    df = _random_frame(rng, 9, 23, EDGE_STRINGS + NA_OBJECTS)
+    df["c3"] = pd.Series([0, 1, None, 1, 0, 1, 1, 0, 1], dtype=object)  # fallback block
+    # Row 0: haploid calls only in early columns, generic missing only in late ones.
+    df.iloc[0, :] = ["1"] * 3 + ["0"] * 10 + [None] * 10
+    cols = list(df.columns)
+    single = gm._vectorized_parse_gt_columns(df, cols)
+    monkeypatch.setattr(gm, "_BLOCK_CELLS", block_cells)
+    blocked = gm._vectorized_parse_gt_columns(df, cols)
+    for one, many in zip(single, blocked, strict=True):
+        np.testing.assert_array_equal(one, many)
+    _assert_same(df, cols)
+    _raw, ploidy, kind = blocked
+    _infer_missing_ploidy(ploidy, kind, np.ones(len(cols), dtype=bool))
+    assert (ploidy[0] == 1.0).all()
+
+
+@pytest.mark.unit
+def test_multi_block_reports_first_offender(monkeypatch) -> None:
+    import variantcentrifuge.association.genotype_matrix as gm
+
+    monkeypatch.setattr(gm, "_BLOCK_CELLS", 2)
+    df = pd.DataFrame({c: ["0/0", "0/1"] for c in "abcde"})
+    df.loc[1, "d"], df.loc[0, "e"] = "./2", "1/2"
+    with pytest.raises(ValueError, match=r"'\./2' \(variant row 1, column 'd'\)"):
+        gm._vectorized_parse_gt_columns(df, list(df))

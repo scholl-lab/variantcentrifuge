@@ -54,6 +54,7 @@ def _multiallelic_error(gene_df: pd.DataFrame, row: int, column: str) -> ValueEr
 
 
 _MISSING_TOKENS = {"", "na", "nan", "none", "null"}
+_BLOCK_CELLS = 1_000_000
 # Per-cell call kinds returned by the parser (row ploidy inference for missing calls).
 _HAPLOID, _DIPLOID, _GENERIC_MISSING = 1, 2, 3
 _GT_DOSAGE = {"0/0": 0.0, "0/1": 1.0, "1/0": 1.0, "1/1": 2.0, "0": 0.0, "1": 1.0}
@@ -103,8 +104,9 @@ def _vectorized_parse_gt_columns(
     """Parse all GT columns to dosage, explicit ploidy and per-call kind matrices.
 
     Every cell is normalised like ``Series.fillna("").astype(str)`` per column
-    (categoricals via their object values); the distinct strings are factorised
-    and classified once, and the per-string results are mapped back by code
+    (categoricals via their object values); per sample-column block of about
+    ``_BLOCK_CELLS`` cells (bounded memory), the distinct strings are factorised
+    and classified once and the per-string results are mapped back by code
     instead of running ~15 pandas string operations per sample column (#176).
 
     Parameters
@@ -132,7 +134,30 @@ def _vectorized_parse_gt_columns(
     """
     n_variants = len(gene_df)
     n_samples = len(gt_columns_list)
-    block = gene_df[gt_columns_list]
+    raw = np.full((n_variants, n_samples), np.nan, dtype=np.float64)
+    ploidy = np.full((n_variants, n_samples), 2.0, dtype=np.float64)
+    kind = np.zeros((n_variants, n_samples), dtype=np.int8)
+    # Sample-column blocks of ~_BLOCK_CELLS cells bound the transient object/code arrays.
+    cols_per_block = max(1, _BLOCK_CELLS // max(1, n_variants))
+    for c0 in range(0, n_samples, cols_per_block):
+        c1 = min(c0 + cols_per_block, n_samples)
+        codes, vocab = _factorize_gt_block(gene_df[gt_columns_list[c0:c1]])
+        dosage, plo, cell_kind, multi = _classify_gt_vocabulary(pd.Series(vocab, dtype=object))
+        if multi.any():
+            # Column-major within ordered blocks: first offending sample, then row.
+            first = int(np.flatnonzero(multi[codes])[0])
+            raise _multiallelic_error(
+                gene_df, first % n_variants, gt_columns_list[c0 + first // n_variants]
+            )
+        shape = (n_variants, c1 - c0)
+        raw[:, c0:c1] = dosage[codes].reshape(shape, order="F")
+        ploidy[:, c0:c1] = plo[codes].reshape(shape, order="F")
+        kind[:, c0:c1] = cell_kind[codes].reshape(shape, order="F")
+    return raw, ploidy, kind
+
+
+def _factorize_gt_block(block: pd.DataFrame) -> tuple[np.ndarray, list[str]]:
+    """Codes (column-major) and distinct normalised GT strings for one column block."""
     try:
         codes, vocab = pd.factorize(block.to_numpy(dtype=object).ravel(order="F"))
         all_strings = all(isinstance(v, str) for v in vocab)
@@ -140,23 +165,13 @@ def _vectorized_parse_gt_columns(
         all_strings = False
     if all_strings:
         codes[codes < 0] = len(vocab)  # NA cells normalise to ""
-        vocab = [*vocab, ""]
-    else:
-        # Non-string values (numbers, bytes): factorize equates 1, 1.0 and True, and the
-        # column-wise fillna may downcast numeric objects, so normalise per column.
-        codes, vocab = pd.factorize(
-            np.concatenate([_column_strings(block.iloc[:, j]) for j in range(n_samples)])
-        )
-    dosage, plo, kind, multi = _classify_gt_vocabulary(pd.Series(vocab, dtype=object))
-
-    if multi.any():
-        first = int(np.flatnonzero(multi[codes])[0])  # column-major: first sample, then row
-        raise _multiallelic_error(gene_df, first % n_variants, gt_columns_list[first // n_variants])
-
-    shape = (n_variants, n_samples)
-    raw = dosage[codes].reshape(shape, order="F")
-    ploidy = plo[codes].reshape(shape, order="F")
-    return raw, ploidy, kind[codes].reshape(shape, order="F")
+        return codes, [*vocab, ""]
+    # Non-string values (numbers, bytes): factorize equates 1, 1.0 and True, and the
+    # column-wise fillna may downcast numeric objects, so normalise per column.
+    codes, uniques = pd.factorize(
+        np.concatenate([_column_strings(block.iloc[:, j]) for j in range(block.shape[1])])
+    )
+    return codes, list(uniques)
 
 
 def parse_gt_to_dosage(gt: str | None) -> tuple[int | None, bool]:
