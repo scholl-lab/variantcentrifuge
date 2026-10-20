@@ -143,6 +143,7 @@ class InheritanceAnalysisStage(Stage):
                     use_vectorized_comp_het=not context.config.get("no_vectorized_comp_het", False),
                     n_workers=threads,
                     min_variants_for_parallel=min_variants_for_parallel,
+                    reference=context.config.get("reference"),
                 )
 
                 comp_het_time = time.time() - comp_het_start
@@ -154,6 +155,7 @@ class InheritanceAnalysisStage(Stage):
                     sample_list=vcf_samples,
                     pedigree_data=pedigree_data or {},
                     use_vectorized_comp_het=not context.config.get("no_vectorized_comp_het", False),
+                    reference=context.config.get("reference"),
                 )
 
         except Exception as e:

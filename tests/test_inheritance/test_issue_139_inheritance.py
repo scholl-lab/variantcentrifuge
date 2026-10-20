@@ -585,6 +585,42 @@ def test_par_variants_get_autosomal_labels(chrom, pos, expect_ad):
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "reference,pos,expect_ad",
+    [
+        ("GRCh37", 2_750_000, False),  # GRCh38-only PAR1 tail
+        ("GRCh38", 2_750_000, True),
+        ("hg19", 155_000_000, True),  # GRCh37 PAR2
+        ("GRCh38", 155_000_000, False),
+        ("GRCh37.75", 65_000, True),  # GRCh37 PAR1 start, version suffix
+    ],
+)
+def test_par_regions_follow_reference_build(reference, pos, expect_ad):
+    """PAR coordinates come from the configured build, end to end through analyze_inheritance."""
+    import json
+
+    from variantcentrifuge.inheritance import analyze_inheritance
+
+    ped = {
+        "son": {"sample_id": "son", "father_id": "dad", "mother_id": "mom", "sex": "1",
+                "affected_status": "2"},
+        "dad": {"sample_id": "dad", "father_id": "0", "mother_id": "0", "sex": "1",
+                "affected_status": "2"},
+        "mom": {"sample_id": "mom", "father_id": "0", "mother_id": "0", "sex": "2",
+                "affected_status": "1"},
+    }  # fmt: skip
+    samples = ["son", "dad", "mom"]
+    row = {"CHROM": "chrX", "POS": pos, "REF": "A", "ALT": "G", "GENE": "SHOX",
+           "son": "0/1", "dad": "0/1", "mom": "0/0"}  # fmt: skip
+
+    vec = vectorized_deduce_patterns(pd.DataFrame([row]), ped, samples, reference=reference)[0]
+    assert ("autosomal_dominant" in vec) is expect_ad
+    res = analyze_inheritance(pd.DataFrame([row]), ped, samples, reference=reference)
+    details = json.loads(res.iloc[0]["Inheritance_Details"])
+    assert ("autosomal_dominant" in details["all_patterns"]) is expect_ad
+
+
+@pytest.mark.unit
 def test_chrom_25_is_not_mitochondrial(trio_pedigree):
     """PLINK 25 is the XY PAR, 26 is MT."""
     samples = ["proband", "father", "mother"]

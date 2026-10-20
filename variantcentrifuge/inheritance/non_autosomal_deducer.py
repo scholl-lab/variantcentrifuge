@@ -13,11 +13,11 @@ import pandas as pd
 
 from ..ped_reader import is_affected
 
-# GRCh38 PAR1/PAR2 (1-based, inclusive); PAR variants are inherited like autosomes.
-# ponytail: the genome build is not passed into inheritance analysis, so GRCh38 PARs are used
-# for every build. On GRCh37, PAR2 stays X-linked (old behaviour) and chrX:2,699,521-2,781,479
-# counts as PAR; thread links.normalize_reference(config["reference"]) here to make it exact.
-_PAR_GRCH38 = ((10_001, 2_781_479), (155_701_383, 156_030_895))
+# X PAR1/PAR2 per build (1-based, inclusive); PAR variants are inherited like autosomes.
+_PAR_BY_BUILD = {
+    "GRCh37": ((60_001, 2_699_520), (154_931_044, 155_260_560)),
+    "GRCh38": ((10_001, 2_781_479), (155_701_383, 156_030_895)),
+}
 # PLINK numbering: 23=X, 24=Y, 25=XY (PAR, autosome-like), 26=MT
 _NON_AUTOSOMAL = ["X", "Y", "M", "MT", "23", "24", "26"]
 
@@ -32,14 +32,20 @@ __all__ = [
 ]
 
 
-def autosomal_mask(chrom: Any, pos: Any) -> np.ndarray:
-    """Return True for autosomal and X pseudoautosomal (PAR) variants."""
+def autosomal_mask(chrom: Any, pos: Any, reference: str | None = None) -> np.ndarray:
+    """Return True for autosomal and X pseudoautosomal (PAR) variants.
+
+    ``reference`` (e.g. "GRCh37", "hg19") selects the PAR coordinates; unknown builds use GRCh38.
+    """
+    from ..links import normalize_reference
+
+    par_regions = _PAR_BY_BUILD[normalize_reference(reference) or "GRCh38"]
     chrom_norm = (
         pd.Series(chrom, dtype=str).str.strip().str.upper().str.replace("^CHR", "", regex=True)
     )
     pos_num = pd.to_numeric(pd.Series(pos), errors="coerce").to_numpy(dtype=float)
     in_par = np.zeros(len(pos_num), dtype=bool)
-    for start, end in _PAR_GRCH38:
+    for start, end in par_regions:
         in_par |= (pos_num >= start) & (pos_num <= end)
     is_x = chrom_norm.isin(["X", "23"]).to_numpy()
     return np.asarray(~chrom_norm.isin(_NON_AUTOSOMAL).to_numpy() | (is_x & in_par), dtype=bool)

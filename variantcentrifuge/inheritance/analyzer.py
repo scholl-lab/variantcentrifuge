@@ -30,6 +30,7 @@ def analyze_inheritance(
     pedigree_data: dict[str, dict[str, Any]],
     sample_list: list[str],
     use_vectorized_comp_het: bool = True,
+    reference: str | None = None,
 ) -> pd.DataFrame:
     """
     Orchestrates inheritance analysis and adds results to the DataFrame.
@@ -50,6 +51,8 @@ def analyze_inheritance(
     use_vectorized_comp_het : bool, optional
         Deprecated parameter (kept for backward compatibility).
         Vectorized implementation is now always used.
+    reference : str, optional
+        Genome build (e.g. "GRCh37", "hg38") used to place the X PAR regions.
 
     Returns
     -------
@@ -95,7 +98,7 @@ def analyze_inheritance(
     logger.info("Pass 1: Deducing inheritance patterns per variant (vectorized)")
     t_pass1_start = time.monotonic()
     pass1_result = vectorized_deduce_patterns(
-        df, pedigree_data, sample_list, return_genotype_matrix=True
+        df, pedigree_data, sample_list, return_genotype_matrix=True, reference=reference
     )
     if isinstance(pass1_result, tuple):
         patterns_list_all, gt_matrix, sample_to_idx = pass1_result

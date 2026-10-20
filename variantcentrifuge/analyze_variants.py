@@ -251,7 +251,11 @@ def analyze_variants(lines: Iterator[str], cfg: dict[str, Any]) -> Iterator[str]
         from .inheritance import analyze_inheritance
 
         df = analyze_inheritance(
-            df, cfg["pedigree_data"], sample_list, use_vectorized_comp_het=use_vectorized
+            df,
+            cfg["pedigree_data"],
+            sample_list,
+            use_vectorized_comp_het=use_vectorized,
+            reference=cfg.get("reference"),
         )
         logger.info("Inheritance analysis complete.")
     elif inheritance_already_done:

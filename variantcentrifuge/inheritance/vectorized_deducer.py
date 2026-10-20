@@ -49,6 +49,7 @@ def vectorized_deduce_patterns(
     pedigree_data: dict[str, dict[str, Any]],
     sample_list: list[str],
     return_genotype_matrix: bool = False,
+    reference: str | None = None,
 ) -> list[list[str]] | tuple[list[list[str]], np.ndarray, dict[str, int]]:
     """
     Vectorized inheritance pattern deduction for ALL variants at once.
@@ -67,6 +68,8 @@ def vectorized_deduce_patterns(
     return_genotype_matrix : bool, optional
         If True, also return the genotype matrix and sample-to-index mapping
         built during Pass 1 so they can be reused by Pass 2 (compound het).
+    reference : str, optional
+        Genome build (e.g. "GRCh37", "hg38") used to place the X PAR regions.
 
     Returns
     -------
@@ -105,7 +108,7 @@ def vectorized_deduce_patterns(
     chrom_clean_series = df["CHROM"].astype(str).str.strip().str.upper()
     chrom_array = chrom_clean_series.to_numpy()
     pos = df["POS"] if "POS" in df else [np.nan] * n_variants
-    autosome_mask = autosomal_mask(df["CHROM"], pos)
+    autosome_mask = autosomal_mask(df["CHROM"], pos, reference)
     # PAR rows are autosomal: hide them from the X-linked checks
     x_chrom_array = np.where(autosome_mask, "", chrom_array)
 
