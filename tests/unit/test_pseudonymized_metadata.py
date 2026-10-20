@@ -267,8 +267,8 @@ def test_generate_html_report_sanitizes_metadata_when_pseudonymized(tmp_path: Pa
     assert summary_path.read_text(encoding="utf-8") == summary_before
 
 
+def test_pseudonymizer_replaces_sample_id_in_inheritance_details():
     """pseudonymize_dataframe replaces sample_id inside Inheritance_Details JSON."""
-    """SamplePseudonymizer.pseudonymize_dataframe replaces sample_id inside Inheritance_Details JSON."""
     from variantcentrifuge.pseudonymizer import SamplePseudonymizer, SequentialSchema
 
     pseudonymizer = SamplePseudonymizer(SequentialSchema(prefix="STUDY"))

@@ -264,9 +264,7 @@ class AssociationAnalysisStage(Stage):
                     df_with_per_sample_gt[s_col] = gt_series_str.str.extract(
                         rf"(?:^|;)\s*{re.escape(s_col)}\(([^:)]+)", expand=False
                     ).fillna("./.")
-                listed = gt_series_str.str.contains(
-                    rf"(?:^|;)\s*{re.escape(s_col)}\(", regex=True
-                )
+                listed = gt_series_str.str.contains(rf"(?:^|;)\s*{re.escape(s_col)}\(", regex=True)
                 fill_ref = (df_with_per_sample_gt[s_col] == "./.") & ~listed
                 df_with_per_sample_gt.loc[fill_ref, s_col] = "0/0"
 
