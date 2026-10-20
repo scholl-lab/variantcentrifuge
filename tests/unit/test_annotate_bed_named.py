@@ -143,3 +143,9 @@ def test_invalid_pos_matches_legacy(bed):
     out = _run([bed, f"Rep={bed}"], rows)
     assert list(out["Rep"]) == ["no", "no", "yes"]
     assert list(out["Custom_Annotation"]) == ["", "", "Region=A_t"]
+
+
+def test_named_bed_equal_to_sample_id_rejected(bed):
+    with pytest.raises(ValueError, match="S0"):
+        load_custom_features({"annotate_bed_files": [f"S0={bed}"], "vcf_samples": ["S0", "S1"]})
+    load_custom_features({"annotate_bed_files": [f"S9={bed}"], "vcf_samples": ["S0"]})
