@@ -10,6 +10,7 @@ from typing import Any, cast
 import pandas as pd
 
 from ..checkpoint_models import AtomicFileOperation
+from ..gene_burden import warn_legacy_gene_burden
 from ..gt_reconstruction import _find_per_sample_gt_columns, reconstruct_gt_column
 from ..pipeline_core import PipelineContext, Stage
 
@@ -132,6 +133,8 @@ class GeneBurdenAnalysisStage(Stage):
         ):
             logger.info("Gene burden analysis will be performed after chunked processing completes")
             return context
+
+        warn_legacy_gene_burden(bool(context.config.get("missing_as_ref")))
 
         case_samples = context.config.get("case_samples", [])
         control_samples = context.config.get("control_samples", [])

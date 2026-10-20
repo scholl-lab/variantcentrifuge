@@ -41,7 +41,7 @@ Create a rare disease-specific configuration:
   "filters": "",
   "fields_to_extract": "CHROM POS REF ALT ANN[0].GENE ANN[0].FEATUREID ANN[0].IMPACT ANN[0].HGVS_C ANN[0].HGVS_P dbNSFP_CADD_phred dbNSFP_REVEL_score gnomAD_exomes_AF gnomAD_genomes_AF ClinVar_CLNSIG ClinVar_CLNDN HGMD_CLASS GEN[*].GT GEN[*].DP",
   "interval_expand": 20,
-  "perform_gene_burden": true,
+  "perform_association": true,
   "presets": {
     "rare_pathogenic": "(((gnomAD_exomes_AF < 0.001) | (na gnomAD_exomes_AF)) & ((gnomAD_genomes_AF < 0.001) | (na gnomAD_genomes_AF))) & ((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE') | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting')))",
     "ultra_rare": "(((gnomAD_exomes_AC <= 2) | (na gnomAD_exomes_AC)) & ((gnomAD_genomes_AC <= 2) | (na gnomAD_genomes_AC)))",
@@ -82,7 +82,7 @@ variantcentrifuge \
     --phenotype-sample-column "sample_id" \
     --phenotype-value-column "affected_status" \
     --output-file trio_analysis.tsv \
-    --perform-gene-burden \
+    --perform-association --association-tests fisher \
     --html-report
 ```
 
