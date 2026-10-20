@@ -16,8 +16,10 @@ Design notes
 - ``parse_gt_to_dosage`` is a NEW implementation. It must NOT delegate to
   ``gene_burden._gt_to_dosage()`` which returns 0 for '1/2' (wrong for
   regression — het-equivalent dosage 1 is correct).
-- MAF for imputation is computed from ALL samples combined (never stratified
-  by phenotype) to match SKAT R convention and avoid label leakage.
+- MAF for imputation is computed from all *retained* samples combined (never
+  stratified by phenotype) to match SKAT R convention and avoid label leakage.
+  Samples flagged by the missingness filter never influence frequencies,
+  imputation or minor-allele recoding (#174).
 - Genotype matrices are never stored across genes; callers should build per
   gene and allow the matrix to be garbage-collected after the test result
   is captured.
@@ -276,8 +278,9 @@ def build_genotype_matrix(
         (``sample_mask`` reports the problematic ones — callers may choose
         to exclude them).
     mafs : np.ndarray, shape (n_kept_variants,), float64
-        Per-variant minor allele frequency computed from **all** samples
-        combined (never stratified by phenotype — SKAT R convention).
+        Per-variant minor allele frequency computed from the retained samples
+        (``sample_mask``) combined, never stratified by phenotype (SKAT R
+        convention). Imputation and minor-allele recoding use the same frequency.
     sample_mask : list[bool], length len(vcf_samples)
         ``True`` for each sample that survived the ``missing_sample_threshold``
         filter. ``False`` samples have high missingness and should be
@@ -291,7 +294,7 @@ def build_genotype_matrix(
     Notes
     -----
     MAF is computed before imputation (from observed values only) to avoid
-    circular dependency.  Variants where every sample is missing receive
+    circular dependency.  Variants where every retained sample is missing receive
     MAF=0 and are imputed to 0 (ref/ref).
     """
     vcf_samples_list = list(vcf_samples)
@@ -351,18 +354,19 @@ def build_genotype_matrix(
 
     # ------------------------------------------------------------------ #
     # Step 5 — Layer 2: Compute MAFs and impute missing values            #
-    # MAF from ALL samples combined (never stratified) — SKAT R / Pitfall5#
+    # MAF from all RETAINED samples combined (never stratified; #174)     #
     # ------------------------------------------------------------------ #
+    retained = np.asarray(sample_mask, dtype=bool)
     geno = raw.copy()
     n_kept_variants = geno.shape[0]
     mafs = np.zeros(n_kept_variants, dtype=np.float64)
 
     for v_idx in range(n_kept_variants):
-        obs_mask = ~np.isnan(geno[v_idx])
+        obs_mask = ~np.isnan(geno[v_idx]) & retained
         observed_dosages = geno[v_idx, obs_mask]
         observed_ploidies = ploidy[v_idx, obs_mask]
         if len(observed_dosages) == 0:
-            # Every sample missing: MAF=0, impute 0
+            # Every retained sample missing: MAF=0, impute 0
             mafs[v_idx] = 0.0
             geno[v_idx] = 0.0
             continue

@@ -339,7 +339,9 @@ def emit_stratum_artifact(
         # ponytail: parses GT twice per gene (build_genotype_matrix hides raw/ploidy);
         # fine for an opt-in export, expose them from the builder if it shows in profiles.
         raw, plo = _vectorized_parse_gt_columns(b.gene_df, list(b.gt_columns))
-        raw, plo = raw[keep].T, plo[keep].T
+        # Same retained population as build_genotype_matrix's frequencies/recoding (#174).
+        mask = np.asarray(sample_mask, dtype=bool)
+        geno, raw, plo = geno[mask], raw[keep].T[mask], plo[keep].T[mask]
         observed = ~np.isnan(raw)
         ac = np.where(observed, raw, 0.0).sum(axis=0)
         an = np.where(observed, plo, 0.0).sum(axis=0)
@@ -353,18 +355,11 @@ def emit_stratum_artifact(
         ]
         if not keys:
             continue
-        mask = np.asarray(sample_mask, dtype=bool)
         null_key = mask.tobytes()
         if null_key not in nulls:
             cov = b.covariate_matrix[mask] if b.covariate_matrix is not None else None
             nulls[null_key] = fit_stratum_null(pheno_all[mask], cov, "binary")
-        gene_scores[gene] = compute_gene_score(
-            geno[mask],
-            raw[mask],
-            nulls[null_key],
-            keys,
-            ploidy=plo[mask],
-        )
+        gene_scores[gene] = compute_gene_score(geno, raw, nulls[null_key], keys, ploidy=plo)
 
     artifact = ScoreCovarianceArtifact(
         stratum_id=stratum_id,
