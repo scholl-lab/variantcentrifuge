@@ -95,3 +95,11 @@ def test_meta_recovers_planted_gene_only(study: Path) -> None:
     assert (others["primary_q"] > 0.05).all(), others[["primary_p", "primary_q"]]
     # Every gene got a result: one-variant genes fall back to burden instead of crashing.
     assert meta["primary_p"].notna().all()
+
+
+def test_runs_shipped_package_with_davies() -> None:
+    """e2e must exercise the installed image package, compiled Davies extension included."""
+    import variantcentrifuge
+    import variantcentrifuge._qfc  # ImportError = SKAT silently on the Liu fallback
+
+    assert "site-packages" in Path(variantcentrifuge.__file__).parts

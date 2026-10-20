@@ -35,4 +35,4 @@ cd tests/fixtures/1000g_cohort && sha256sum -c SHA256SUMS
 ```
 
 The build writes no timestamps or temp paths, so a rebuild with the same image is
-byte-identical. Run the test with `make test-e2e` (about 2 minutes).
+byte-identical. Run the test with `make test-e2e` (under a minute). It tests the package installed in `E2E_IMAGE`, so rebuild the image to test local changes.

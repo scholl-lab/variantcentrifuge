@@ -836,3 +836,30 @@ def test_pseudonymization_and_variant_level_output_tracking_columns():
     assert "GENE1" in variant_line
     for col in tracking_columns:
         assert col not in variant_line
+
+
+def test_assign_case_control_counts_exact_called_denominators():
+    """Absent samples count as called 0/0; listed missing calls are not called (bulk path)."""
+    from variantcentrifuge.phenotype_helpers import assign_case_control_counts
+
+    # E is in both sets and counts as a case; X is not in the VCF and is ignored.
+    df = pd.DataFrame({"GT": ["A(./.);B(1/1);C(1);X(0/1)", ""]})
+    out = assign_case_control_counts(
+        df, {"A", "B", "E"}, {"C", "D", "E"}, {"A", "B", "C", "D", "E"}
+    )
+    cols = [
+        "proband_called_count",
+        "proband_called_chromosomes",
+        "proband_variant_count",
+        "proband_allele_count",
+        "proband_homozygous_count",
+        "control_called_count",
+        "control_called_chromosomes",
+        "control_variant_count",
+        "control_allele_count",
+        "control_homozygous_count",
+    ]
+    # Row 0: cases B (1/1) + E (implicit 0/0), A missing; controls C (haploid 1) + D (0/0).
+    assert out.loc[0, cols].tolist() == [2, 4, 1, 2, 1, 2, 3, 1, 1, 0]
+    # Row 1: nobody listed, so every sample is a called 0/0.
+    assert out.loc[1, cols].tolist() == [3, 6, 0, 0, 0, 2, 4, 0, 0, 0]

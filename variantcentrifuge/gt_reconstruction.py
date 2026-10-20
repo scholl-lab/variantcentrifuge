@@ -106,39 +106,48 @@ def reconstruct_gt_column(
         sample_mapping.get(s, s) if sample_mapping else s for s in vcf_samples[:n_samples]
     ]
 
-    # Normalise every cell at once; Python only touches the cells that are kept.
-    flat = pd.Series(df[sample_cols].to_numpy(dtype=object).ravel(), dtype=object)
-    gt_flat = flat.astype(str).str.strip()
-    gt_flat = gt_flat.where(~(flat.isna() | gt_flat.isin(missing_sentinels)), "./.")
-    gt_vals = gt_flat.to_numpy(dtype=object)
-    kept = np.flatnonzero(~gt_flat.isin(skip_values).to_numpy())
+    # Per extra field: (column names present, sample index -> position in that list)
+    extra_layout: dict[str, tuple[list[str], dict[int, int]]] = {}
+    for ef in extra_fields:
+        present = [i for i in range(n_samples) if (i, ef) in s_cols]
+        extra_layout[ef] = (
+            [s_cols[(i, ef)] for i in present],
+            {i: p for p, i in enumerate(present)},
+        )
 
-    extra_values = {
-        ef: [
-            df[s_cols[(col_idx, ef)]].to_numpy(dtype=object) if (col_idx, ef) in s_cols else None
-            for col_idx in range(n_samples)
-        ]
-        for ef in extra_fields
-    }
-
-    def _extra(ef: str, r_idx: int, col_idx: int) -> str:
-        col = extra_values[ef][col_idx]
-        if col is None:
-            return ""
-        rv = col[r_idx]
+    def _clean(rv: object) -> str:
         return "" if rv is None or (not isinstance(rv, str) and pd.isna(rv)) else str(rv).strip()
 
-    entries_by_row: list[list[str]] = [[] for _ in range(n_rows)]
-    for flat_idx in kept:
-        r_idx, col_idx = divmod(int(flat_idx), n_samples)
-        gt_str = gt_vals[flat_idx]
-        if extra_fields:
-            vals = [_extra(ef, r_idx, col_idx) for ef in extra_fields]
-            entry = f"{sample_ids[col_idx]}({delimiter.join([gt_str, *vals])})"
-        else:
-            entry = f"{sample_ids[col_idx]}({gt_str})"
-        entries_by_row[r_idx].append(entry)
-    gt_strings = [";".join(entries) for entries in entries_by_row]
+    # ~1M cells per batch bounds peak memory (~100 bytes per cell in flight). Within a batch
+    # every cell is normalised at once and Python only touches the cells that are kept.
+    batch_size = max(1, 1_000_000 // max(1, n_samples))
+    gt_strings: list[str] = []
+    for start in range(0, n_rows, batch_size):
+        batch = df.iloc[start : start + batch_size]
+        flat = pd.Series(batch[sample_cols].to_numpy(dtype=object).ravel(), dtype=object)
+        gt_flat = flat.astype(str).str.strip()
+        gt_flat = gt_flat.where(~(flat.isna() | gt_flat.isin(missing_sentinels)), "./.")
+        gt_vals = gt_flat.to_numpy(dtype=object)
+        kept = np.flatnonzero(~gt_flat.isin(skip_values).to_numpy())
+        extra_vals = {
+            ef: (batch[cols].to_numpy(dtype=object), pos)
+            for ef, (cols, pos) in extra_layout.items()
+        }
+
+        entries_by_row: list[list[str]] = [[] for _ in range(len(batch))]
+        for flat_idx in kept:
+            r_idx, col_idx = divmod(int(flat_idx), n_samples)
+            gt_str = gt_vals[flat_idx]
+            if extra_fields:
+                vals = []
+                for ef in extra_fields:  # keeps requested order, duplicates included
+                    arr, pos = extra_vals[ef]
+                    vals.append(_clean(arr[r_idx, pos[col_idx]]) if col_idx in pos else "")
+                entry = f"{sample_ids[col_idx]}({delimiter.join([gt_str, *vals])})"
+            else:
+                entry = f"{sample_ids[col_idx]}({gt_str})"
+            entries_by_row[r_idx].append(entry)
+        gt_strings.extend(";".join(entries) for entries in entries_by_row)
 
     df["GT"] = gt_strings
 
