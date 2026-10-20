@@ -28,7 +28,33 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import Mock
 
-PRESETS = {"S": (50, 1000), "M": (500, 3000), "L": (2000, 6000)}  # (genes, samples)
+PRESETS = {
+    "S": (50, 1000),
+    "M": (500, 3000),
+    "L": (2000, 6000),
+    "A": (2000, 6000),  # target workload, 1/10 of an exome
+    "B": (2000, 6000),
+}  # (genes, samples)
+# Target workloads: argument defaults on top of PRESETS (explicit flags still win).
+WORKLOADS = {
+    "A": {
+        "tests": "logistic_burden,skat",
+        "cases": 520,
+        "controls": 4480,
+        "covariates": 13,
+        "missing_as_ref": True,
+        "artifact": True,
+    },
+    "B": {
+        "tests": "logistic_burden,skat",
+        "cases": 790,
+        "controls": 100,
+        "covariates": 14,
+        "missing_as_ref": True,
+        "artifact": True,
+    },
+}
+COVARIATES = ["age", "sex"] + [f"PC{i}" for i in range(1, 11)] + ["bin1", "batch"]
 BLAS_VARS = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
 GT_CODES = ["0/0", "0/1", "1/1", "./."]
 CHUNK_CELLS = 4_000_000  # bounds the transient float64 draw to ~32 MB per chunk
@@ -83,6 +109,24 @@ def make_df(n_genes, n_samples, layout, seed=42, vmin=5, vmax=45, miss=0.005):
     return df, samples
 
 
+def write_covariates(path, samples, n_cov, seed):
+    """Write a seeded covariate TSV (first ``n_cov`` of COVARIATES) for all samples."""
+    import numpy as np
+    import pandas as pd
+
+    rng = np.random.default_rng(seed + 2)
+    n = len(samples)
+    cols = {}
+    for name in COVARIATES[:n_cov]:
+        if name == "age":
+            cols[name] = np.round(rng.normal(50, 15, n), 1)
+        elif name.startswith("PC"):
+            cols[name] = rng.normal(0, 1, n)
+        else:  # sex, bin1, batch: binary 0/1
+            cols[name] = rng.integers(0, 2, n)
+    pd.DataFrame({"sample": samples, **cols}).to_csv(path, sep="\t", index=False)
+
+
 def run_stage(df, samples, args, tmp):
     """Run the association stage once; return (results, wall seconds, sub-step seconds)."""
     import numpy as np
@@ -93,8 +137,12 @@ def run_stage(df, samples, args, tmp):
 
     rng = np.random.default_rng(args.seed + 1)
     perm = list(rng.permutation(samples))
-    n_cases = int(len(samples) * args.case_frac)
-    n_assigned = int(len(samples) * (1 - args.unassigned))
+    n_cases = args.cases if args.cases is not None else int(len(samples) * args.case_frac)
+    n_assigned = (
+        n_cases + args.controls
+        if args.controls is not None
+        else int(len(samples) * (1 - args.unassigned))
+    )
     ws = Mock(spec=Workspace)
     ws.output_dir = ws.intermediate_dir = tmp
     cfg = {
@@ -109,6 +157,11 @@ def run_stage(df, samples, args, tmp):
         "threads": args.workers,
         "skat_method": args.skat_method,
     }
+    if args.missing_as_ref:
+        cfg["missing_as_ref"] = True
+    if args.covariates:
+        cfg["covariate_file"] = str(tmp / "covariates.tsv")
+        write_covariates(cfg["covariate_file"], samples, args.covariates, args.seed)
     if args.artifact:
         cfg["score_artifact"] = str(tmp / "bench.scores.npz")
     ctx = PipelineContext(args=Namespace(), config=cfg, workspace=ws)
@@ -178,13 +231,21 @@ def parse_args(argv=None):
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--case-frac", type=float, default=0.1)
     p.add_argument("--unassigned", type=float, default=0.0, help="fraction of samples unassigned")
+    p.add_argument("--cases", type=int, help="number of cases (overrides --case-frac)")
+    p.add_argument("--controls", type=int, help="number of controls (overrides --unassigned)")
+    p.add_argument("--covariates", type=int, default=0, help=f"first N of {COVARIATES}")
+    p.add_argument("--missing-as-ref", action="store_true")
     p.add_argument("--artifact", action="store_true", help="also write a score artifact")
     p.add_argument("--repeat", type=int, default=1, help="run N times; report the fastest")
     p.add_argument("--out", help="write the association result table (TSV)")
     p.add_argument("--write-baseline", metavar="JSON", help="store this run as a baseline")
     p.add_argument("--tmp", help="scratch directory (default: system temp)")
     p.add_argument("--compare", nargs=2, metavar=("A", "B"), help="compare two result tables")
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.size in WORKLOADS:
+        p.set_defaults(**WORKLOADS[args.size])
+        args = p.parse_args(argv)
+    return args
 
 
 def main(argv=None) -> int:
@@ -232,6 +293,11 @@ def main(argv=None) -> int:
         "gen_peak_rss_mb": round(gen_rss),
         "peak_rss_mb": round(rss_self),
         "children_peak_rss_mb": round(rss_children),
+        "cases": args.cases,
+        "controls": args.controls,
+        "covariates": args.covariates,
+        "missing_as_ref": args.missing_as_ref,
+        "artifact": args.artifact,
         "rows": 0 if res is None else len(res),
         "substeps": {k: round(v, 3) for k, v in timings.items()},
     }

@@ -1,11 +1,10 @@
 """Tests for association sub-step timing hooks and the benchmark harness's --compare gate."""
 
 import logging
-from argparse import Namespace
 
 import pytest
 
-from scripts.bench_association import compare, main, make_df, run_stage
+from scripts.bench_association import compare, main, make_df, parse_args, run_stage
 from variantcentrifuge.association.timing import substep
 
 
@@ -32,21 +31,27 @@ def test_substep_records_time_when_body_raises():
 @pytest.mark.parametrize("layout", ["packed", "columns"])
 def test_stage_exposes_substep_seconds(tmp_path, layout):
     df, samples = make_df(3, 40, layout, seed=1)
-    args = Namespace(
-        seed=1,
-        case_frac=0.3,
-        unassigned=0.1,
-        tests="fisher,logistic_burden",
-        workers=1,
-        skat_method="SKAT",
-        artifact=False,
-    )
+    argv = "--seed 1 --case-frac 0.3 --unassigned 0.1 --tests fisher,logistic_burden"
+    args = parse_args(argv.split())
     res, wall, timings = run_stage(df, samples, args, tmp_path)
     assert len(res) == 3
     expected = {"aggregation", "matrix_builders", "engine", "write_output"}
     assert expected <= set(timings)
     assert ("gt_unpack" in timings) == (layout == "packed")
     assert sum(timings.values()) <= wall
+
+
+def test_target_workload_presets_and_covariates(tmp_path):
+    args = parse_args(["--size", "B", "--genes", "3", "--samples", "60"])
+    assert (args.cases, args.controls, args.covariates) == (790, 100, 14)
+    assert args.missing_as_ref and args.artifact and args.tests == "logistic_burden,skat"
+    assert parse_args(["--size", "A", "--cases", "7"]).cases == 7  # explicit flag wins
+    df, samples = make_df(3, 60, "packed", seed=2)
+    args.cases, args.controls, args.covariates, args.artifact = 20, 30, 4, False
+    res, _, timings = run_stage(df, samples, args, tmp_path)
+    assert len(res) == 3 and res["n_cases"].max() <= 20
+    assert (tmp_path / "covariates.tsv").read_text().startswith("sample\tage\tsex\tPC1\tPC2\n")
+    assert "covariates_phenotype" in timings
 
 
 def _write(path, rows):
