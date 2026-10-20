@@ -167,8 +167,8 @@ def _report_missingness_qc(
 ) -> None:
     """Add ``n_variants_qc`` and log one WARNING if site-missingness QC dropped variants (#200).
 
-    ``n_variants`` stays the pre-QC qualifying count (Fisher uses it); ``n_variants_qc`` is
-    the count the matrix-based tests used, before their per-gene MAC check.
+    ``n_variants_qc`` counts the variants that passed site-missingness QC, before the per-gene
+    MAC check and per-test exclusions. ``n_variants`` is whatever the first test reports.
     """
     kept = {g: d["n_variants_qc"] for g, d in gene_data_by_gene.items() if "n_variants_qc" in d}
     if not kept:

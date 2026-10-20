@@ -256,7 +256,8 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
             "Treat missing genotypes (./.) as reference (0/0) in every association test "
             "(Fisher, matrix-based tests, --score-artifact) instead of excluding or imputing "
             "them. Use for merged single-sample VCFs where ./. means 'no variant "
-            "called'; biases toward the null where ./. is a genuine no-call."
+            "called'. Where ./. is a genuine no-call, carriers are miscounted as reference, which "
+            "can bias results either way if missingness differs between cases and controls."
         ),
     )
     # Phase 32: Unified PCA argument (replaces --pca-file and --pca-tool)

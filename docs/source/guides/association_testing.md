@@ -129,9 +129,11 @@ checked against SKAT 2.2.5 on a synthetic matrix with missing calls
 (`tests/unit/test_missing_policy_parity.py`).
 
 Dropped variants are reported. When site-missingness QC removes variants, the run logs one
-WARNING with the totals, and the results gain an `n_variants_qc` column: the number of variants
-the matrix-based tests used per gene (after site QC, before the MAC check). `n_variants` stays
-the number of qualifying variants before QC, which is what Fisher uses.
+WARNING with the totals (`--score-artifact` logs its own). When matrix-based tests run, the
+results also gain an `n_variants_qc` column. It counts the variants that passed site-missingness
+QC, before the per-gene MAC check and any per-test exclusions. Per-test columns such as
+`skat_n_marker_test` give the number each test actually used. `n_variants` is the count that the
+first test of the run reports.
 
 #### Merged VCFs and `--missing-as-ref`
 
@@ -144,10 +146,11 @@ sites, and raising the threshold to keep them makes things worse: at an observed
 
 For these inputs, use `--missing-as-ref`. It gives the same result as
 `bcftools +setGT -- -t . -n 0` before the run. Partial calls such as `./1` also become `0/0`, and
-in `--score-artifact` the allele number counts every sample. It biases results toward the
-null when `./.` is a genuine no-call (low coverage), because true carriers among the no-calls are
-counted as reference. Prefer genotypes merged with `-0` or gVCF-based joint calling when you have
-them.
+in `--score-artifact` the allele number counts every sample. Where `./.` is a genuine no-call
+(low coverage), carriers among the no-calls are counted as reference. That biases carrier
+counts toward reference. If missingness differs between cases and controls, it can also make
+p-values too small, not only too large. Prefer genotypes merged with `-0` or gVCF-based joint
+calling when you have them.
 
 The packed `GT` column interacts with this as follows. When per-sample genotype columns are
 rebuilt from the packed column, a sample that is not listed for a variant is filled as `0/0`. A
