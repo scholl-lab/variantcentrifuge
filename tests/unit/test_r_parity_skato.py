@@ -102,8 +102,8 @@ def test_meta_matches_metaskat(name: str) -> None:
 # thirds [0, n//3), [n//3, 2n//3), [2n//3, n); covariate (i mod 5) - 2; dropping
 # stratum d = MetaSKAT_wZ on the other two cohorts (Meta_Null_Model(split(y, coh),
 # split(x, coh), out_type="D"), combined.weight=TRUE, weights.beta=c(1, 25)) with
-# r.corr=1 (burden) and method="optimal" (SKAT-O). R script and output:
-# vc-wt/_ledger/evidence/B.md (outside the repo; not needed by CI).
+# r.corr=1 (burden) and method="optimal" (SKAT-O). R script:
+# scripts/generate_meta_loo_parity.R (not needed by CI).
 # R SKAT 2.2.5 / MetaSKAT 0.90, values printed with %.10e. Full meta of all three
 # strata in R: burden 1.4694995906e-01, SKAT-O 2.5123531457e-01 (g1).
 R_META_LOO = {  # drop -> (burden, SKAT-O)
