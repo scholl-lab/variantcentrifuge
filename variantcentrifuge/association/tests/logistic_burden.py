@@ -54,6 +54,8 @@ logger = logging.getLogger("variantcentrifuge")
 
 # BSE threshold above which separation is assumed (Pitfall 2 from RESEARCH.md)
 _SEPARATION_BSE_THRESHOLD = 100.0
+# Newton decrement below which a rejected step means "at the optimum" (gain < 5e-9)
+_FIRTH_DECREMENT_TOL = 1e-8
 
 
 def _firth_loglik(beta: np.ndarray, y: np.ndarray, x: np.ndarray) -> float:
@@ -171,6 +173,11 @@ def _firth_logistic(
             beta_new = beta + step
 
         if not step_accepted:
+            # No step beats log-lik rounding noise: converged iff the Newton decrement
+            # u'I^-1u (2x the attainable gain; bounds |beta error| by 1e-4 SE) is ~0.
+            if float(u_pen @ var_cov @ u_pen) < _FIRTH_DECREMENT_TOL:
+                converged = True
+                break
             return None
 
         converged = bool(np.max(np.abs(beta_new - beta)) < tol)

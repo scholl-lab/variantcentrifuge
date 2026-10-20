@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `--annotate-bed` treated 1-based VCF POS as 0-based, so hits at BED interval edges were wrong (first base missed ... last base excluded); overlap now uses the REF span [POS-1, POS-1+len(REF)), so deletions reaching into a region are hit. Legacy `Region=` output changes at interval edges (#94).
 - An unreadable or missing `--annotate-bed` file now raises instead of silently annotating nothing (#94).
 - Association diagnostics: `IMBALANCED_COHORT` is now two-sided (max/min of cases and controls) and the warning names the direction, e.g. "cases outnumber controls 100.0:1" (#199).
+- Firth logistic regression (the `logistic_burden` separation fallback and the new Firth meta fit) no longer fails with `FIRTH_CONVERGE_FAIL` when it is already at the optimum but no step can change the penalised log-likelihood beyond rounding noise (common with uncentred covariates such as birth year); such fits are now accepted when the Newton decrement is below 1e-8 (#198).
 
 ## [0.21.0] - 2026-10-20
 
