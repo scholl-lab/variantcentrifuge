@@ -14,6 +14,7 @@ import scipy.stats
 from numpy.polynomial.legendre import leggauss
 
 from variantcentrifuge.association.backends.davies import (
+    _DAVIES_RETRY_LIM,
     _liu_params,
     compute_pvalue,
     davies_pvalue,
@@ -32,28 +33,52 @@ _SKATO_RHO_GRID = [0.0, 0.01, 0.04, 0.09, 0.25, 0.5, 1.0]
 # fixed rule over x was 5-8% off R on null genes and up to 2x off near p=1e-2.
 _GL_NODES_RAW, _GL_WEIGHTS_RAW = leggauss(16)
 _GL_A, _GL_B = 0.0, 40.0  # integration bounds (matches R: upper=40)
+# Conditional-statistic levels (in units of E[Q]) at which the SKAT-O integral is split
+_SKATO_Z_LEVELS = np.array([0.0, 1.0, 8.0, 64.0])
 
 
-def _skato_quadrature_nodes(
-    pmin_q: np.ndarray, tau: np.ndarray, rho: np.ndarray
-) -> tuple[np.ndarray, np.ndarray]:
-    """Nodes/weights for the SKAT-O integral, exact up to Davies accuracy.
+def _skato_breakpoints(a: np.ndarray, b: np.ndarray, levels: np.ndarray) -> np.ndarray:
+    """Points in (0, 40) where the SKAT-O integrand needs a quadrature split.
 
-    The integrand min_rho((pmin_q - tau*x) / (1 - rho)) has kinks where the minimising
-    rho changes, and chi2(1) has an x^-1/2 singularity at 0. Splitting at the kinks and
-    substituting x = t^2 leaves smooth pieces that 16-node Gauss-Legendre integrates.
+    m(x) = min_i(a_i - b_i*x) has kinks where the minimising line changes. b >= 0, so m is
+    non-increasing and crosses each of ``levels`` at most once, at min_i((a_i - level)/b_i);
+    levels mark the support edge of the conditional distribution (its CDF is not smooth
+    there) and the scale over which that CDF rises, which can be far narrower than a piece.
     """
-    a, b = pmin_q / (1.0 - rho), tau / (1.0 - rho)
     with np.errstate(divide="ignore", invalid="ignore"):
         cross = (a[:, None] - a[None, :]) / (b[:, None] - b[None, :])
+        roots = np.min((a[:, None] - np.asarray(levels)[None, :]) / b[:, None], axis=0)
     cand = np.unique(cross[np.isfinite(cross) & (cross > _GL_A) & (cross < _GL_B)])
     kinks = [
         x for x in cand if np.argmin(a - b * x * (1 - 1e-9)) != np.argmin(a - b * x * (1 + 1e-9))
     ]
-    cuts = np.sqrt(np.r_[_GL_A, kinks, _GL_B])
+    return np.unique(np.r_[kinks, roots[(roots > _GL_A) & (roots < _GL_B)]])
+
+
+def _skato_quadrature_nodes(
+    pmin_q: np.ndarray, tau: np.ndarray, rho: np.ndarray, levels: np.ndarray | None = None
+) -> tuple[np.ndarray, np.ndarray]:
+    """Nodes/weights for the SKAT-O integral, exact up to Davies accuracy.
+
+    The integrand min_rho((pmin_q - tau*x) / (1 - rho)) has kinks where the minimising
+    rho changes, the conditional CDF is non-smooth at its support edge, and chi2(1) has
+    an x^-1/2 singularity at 0. Splitting at these (see ``_skato_breakpoints``) and
+    substituting x = t^2 leaves smooth pieces that 16-node Gauss-Legendre integrates.
+    """
+    a, b = pmin_q / (1.0 - rho), tau / (1.0 - rho)
+    lv = np.empty(0) if levels is None else levels
+    cuts = np.sqrt(np.r_[_GL_A, _skato_breakpoints(a, b, lv), _GL_B])
     lo, hi = cuts[:-1, None], cuts[1:, None]
-    t = (hi - lo) / 2.0 * (_GL_NODES_RAW + 1.0) + lo
-    w = (hi - lo) / 2.0 * _GL_WEIGHTS_RAW * 2.0 * t  # dx = 2t dt
+    u, du = (_GL_NODES_RAW + 1.0) / 2.0, _GL_WEIGHTS_RAW / 2.0
+    # The CDF of k chi2 terms grows like z^(k/2) from the support edge; grade the piece
+    # ending there as hi - (hi - lo)*v^2 so a sqrt (k = 1) edge stays smooth in v.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        edge = np.sqrt(np.min((a - lv[0]) / b)) if lv.size else np.nan
+    graded = np.isclose(hi, edge, rtol=1e-12, atol=0.0)
+    s = np.where(graded, 1.0 - (1.0 - u) ** 2, u)
+    ds = np.where(graded, 2.0 * (1.0 - u), 1.0) * du
+    t = lo + (hi - lo) * s
+    w = (hi - lo) * ds * 2.0 * t  # dx = 2t dt
     return (t**2).ravel(), w.ravel()
 
 
@@ -241,7 +266,10 @@ def _skato_integrate_davies(
     tau_valid = tau[valid]
     lambda_sum = float(np.sum(lambdas))
 
-    gl_x, gl_w = _skato_quadrature_nodes(pmin_q_valid, tau_valid, rho_arr[valid])
+    # min_q_std = (min_q - mu_q)*sd1 + mu_q is compared with Q = sum(lambdas * chi2_1):
+    # split where it hits 0 (support edge) and multiples of E[Q] (where the CDF rises)
+    levels = mu_q + mu_q * (_SKATO_Z_LEVELS - 1.0) / sd1 if sd1 > 0 else None
+    gl_x, gl_w = _skato_quadrature_nodes(pmin_q_valid, tau_valid, rho_arr[valid], levels)
     integrand_vals = np.zeros(gl_x.size, dtype=np.float64)
     for k, x in enumerate(gl_x):
         cond_q = (pmin_q_valid - tau_valid * x) / (1.0 - rho_arr[valid])
@@ -250,14 +278,19 @@ def _skato_integrate_davies(
         if min_q > lambda_sum * 1e4:
             cdf_val = 0.0
         else:
-            min_q_centered = min_q - mu_q
-            min_q_std = min_q_centered * sd1 + mu_q
+            min_q_std = (min_q - mu_q) * sd1 + mu_q
 
-            p_dav, ifault = davies_pvalue(min_q_std, lambdas, acc=1e-6, lim=10_000)
-            if p_dav is not None and ifault == 0:
-                cdf_val = float(p_dav)
+            if len(lambdas) == 1:
+                # Rank one: exact scaled chi2(1); Davies' series fails near the support edge
+                cdf_val = float(scipy.stats.chi2.sf(min_q_std / lambdas[0], df=1))
             else:
-                return _skato_integrate_liu(pmin_q, param, rho_grid, pmin)
+                # R's lim=10_000 hits ifault=1 near the support edge and R then discards
+                # the whole integral for Liu; the larger cap is identical where R converges.
+                p_dav, ifault = davies_pvalue(min_q_std, lambdas, acc=1e-6, lim=_DAVIES_RETRY_LIM)
+                if p_dav is None or ifault != 0:
+                    logger.debug("SKAT-O Davies ifault=%s at q=%.6g; using Liu", ifault, min_q_std)
+                    return _skato_integrate_liu(pmin_q, param, rho_grid, pmin)
+                cdf_val = float(p_dav)
 
             if cdf_val > 1.0:
                 cdf_val = 1.0
@@ -293,18 +326,23 @@ def _skato_integrate_liu(
     var_q = param["var_q"]
     df = param["df"]
     rho_arr = np.array(rho_grid)
+    # R integrates over every (capped, < 1) rho; dropping rho=0.999 lost the burden term
+    valid = rho_arr < 1.0
+    if not np.any(valid):
+        return min(1.0, pmin * len(rho_grid))
+    a, b = pmin_q[valid] / (1.0 - rho_arr[valid]), tau[valid] / (1.0 - rho_arr[valid])
+    scale = np.sqrt(var_q) / np.sqrt(2.0 * df)
 
     def integrand(x: float) -> float:
-        valid = rho_arr < 0.999
-        if not np.any(valid):
-            return 0.0
-        cond_q = (pmin_q[valid] - tau[valid] * x) / (1.0 - rho_arr[valid])
-        min_q = float(np.min(cond_q))
-
-        q_std = (min_q - mu_q) / np.sqrt(var_q) * np.sqrt(2.0 * df) + df
+        min_q = float(np.min(a - b * x))
+        q_std = (min_q - mu_q) / scale + df
         return float(scipy.stats.chi2.cdf(q_std, df=df)) * float(scipy.stats.chi2.pdf(x, df=1))
 
-    integral, _err = scipy.integrate.quad(integrand, 0, 40, limit=2000, epsabs=1e-25)
+    # Split where q_std hits 0 (support edge) and multiples of its mean df
+    points = _skato_breakpoints(a, b, mu_q + (df * _SKATO_Z_LEVELS - df) * scale)
+    integral, _err = scipy.integrate.quad(
+        integrand, 0, 40, points=points if points.size else None, limit=2000, epsabs=1e-25
+    )
 
     pvalue: float = 1.0 - float(integral)
 

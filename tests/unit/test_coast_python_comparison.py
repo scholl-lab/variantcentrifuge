@@ -895,15 +895,16 @@ def _run_gckd_coast(
 # Golden values from R AllelicSeries v0.1.1.5 and Python COAST on identical
 # fixture data (tests/fixtures/coast_golden/).  python_omnibus_p is the
 # regression target; r_omnibus_p documents the R reference.  Regenerated after the
-# SKAT-O integration fix (allelic SKAT-O component now matches R SKAT to ~1e-4).
+# SKAT-O integration fixes; after #181 (support-edge splits, Davies term-limit retry)
+# the allelic SKAT-O component matches R SKAT 2.2.5 to <1e-5 (test_r_parity_skato).
 _GCKD_GOLDEN_SCENARIOS: dict[str, dict] = {
     "gckd_g1_all_categories": {
-        "python_omnibus_p": 9.256842647669195e-02,
+        "python_omnibus_p": 9.256406843004164e-02,
         "r_omnibus_p": 1.022380203777098e-01,
         "description": "All 3 categories (7 BMV + 2 DMV + 1 PTV), PKD1-like gene.",
     },
     "gckd_g2_partial_bmv_ptv": {
-        "python_omnibus_p": 8.332592317453978e-01,
+        "python_omnibus_p": 8.332054601103089e-01,
         "r_omnibus_p": 7.047427129147510e-01,
         "description": "Partial categories (5 BMV + 0 DMV + 2 PTV), missing DMV.",
     },
@@ -913,12 +914,12 @@ _GCKD_GOLDEN_SCENARIOS: dict[str, dict] = {
         "description": "Single variant (PTV only), rank-1 genotype matrix edge case.",
     },
     "gckd_g4_all_bmv": {
-        "python_omnibus_p": 6.676287933895042e-01,
+        "python_omnibus_p": 6.675824314882107e-01,
         "r_omnibus_p": 5.003489094113375e-01,
         "description": "All 8 variants BMV only (COL4A5-like), no PTV.",
     },
     "gckd_g5_tied_scores": {
-        "python_omnibus_p": 4.947035681097139e-01,
+        "python_omnibus_p": 4.946559819158149e-01,
         "r_omnibus_p": 4.202313350300252e-01,
         "description": "Equal MAF across all categories, tied SIFT/PolyPhen scores.",
     },
