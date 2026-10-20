@@ -12,6 +12,40 @@ import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
+_GT_COLUMN = re.compile(r"^GEN[_\[](\d+)[_\]\.]+(GT)$")
+
+
+def _gt_column_index(col: str) -> int:
+    """GEN index of a per-sample GT column name (``GEN_3__GT`` -> 3), else -1."""
+    m = _GT_COLUMN.match(col)
+    return int(m.group(1)) if m else -1
+
+
+def gt_columns_match_samples(gt_columns: list[str], vcf_samples: list[str] | None) -> bool:
+    """True when *gt_columns* are exactly ``GEN[0..n-1].GT``, in order, for n *vcf_samples*.
+
+    Per-sample columns carry the VCF sample index, not the ID; only a 1:1 set can be
+    paired with the sample list by position (#219).
+    """
+    return bool(vcf_samples) and [_gt_column_index(c) for c in gt_columns] == list(
+        range(len(vcf_samples or []))
+    )
+
+
+def _copy_gt_columns_to_samples(
+    df: pd.DataFrame, gt_cols: list[str], vcf_samples: list[str]
+) -> int:
+    """Copy each ``GEN[i].GT`` column to a column named ``vcf_samples[i]``, in place.
+
+    Columns whose index has no VCF sample are skipped. Returns the number copied.
+    """
+    n = 0
+    for col in gt_cols:
+        i = _gt_column_index(col)
+        if 0 <= i < len(vcf_samples):
+            df[vcf_samples[i]] = df[col]
+            n += 1
+    return n
 
 
 def _find_per_sample_gt_columns(df: pd.DataFrame) -> list[str]:
@@ -74,12 +108,14 @@ def reconstruct_gt_column(
         logger.warning("No per-sample GT columns found for reconstruction")
         return df
 
-    n_samples = min(len(gt_cols), len(vcf_samples))
-    if len(gt_cols) != len(vcf_samples):
+    # Pair columns with samples by their GEN index (a subset must not shift samples).
+    indexed = [(i, c) for c in gt_cols if 0 <= (i := _gt_column_index(c)) < len(vcf_samples)]
+    if len(indexed) != len(gt_cols) or len(gt_cols) != len(vcf_samples):
         logger.warning(
-            f"GT column count ({len(gt_cols)}) != sample count ({len(vcf_samples)}), "
-            f"using first {n_samples}"
+            f"GT column count ({len(gt_cols)}) != sample count ({len(vcf_samples)}); "
+            f"{len(gt_cols) - len(indexed)} column(s) have no VCF sample and are skipped"
         )
+    n_samples = len(indexed)
 
     s_cols: dict[tuple[int, str], str] = {}
     for col in df.columns:
@@ -90,7 +126,7 @@ def reconstruct_gt_column(
     if extra_sample_fields:
         norm = [re.sub(r"^GEN[\[_][^\].]+[\]_.]+", "", str(f)).strip() for f in extra_sample_fields]
         extra_fields = [
-            f for f in norm if f and f != "GT" and any((i, f) in s_cols for i in range(n_samples))
+            f for f in norm if f and f != "GT" and any((i, f) in s_cols for i, _ in indexed)
         ]
     else:
         extra_fields = []
@@ -101,18 +137,19 @@ def reconstruct_gt_column(
     missing_sentinels = {"NA", "", "nan", "None"}
 
     n_rows = len(df)
-    sample_cols = gt_cols[:n_samples]
+    sample_cols = [c for _, c in indexed]
     sample_ids = [
-        sample_mapping.get(s, s) if sample_mapping else s for s in vcf_samples[:n_samples]
+        sample_mapping.get(vcf_samples[i], vcf_samples[i]) if sample_mapping else vcf_samples[i]
+        for i, _ in indexed
     ]
 
     # Per extra field: (column names present, sample index -> position in that list)
     extra_layout: dict[str, tuple[list[str], dict[int, int]]] = {}
     for ef in extra_fields:
-        present = [i for i in range(n_samples) if (i, ef) in s_cols]
+        present = [k for k, (i, _) in enumerate(indexed) if (i, ef) in s_cols]
         extra_layout[ef] = (
-            [s_cols[(i, ef)] for i in present],
-            {i: p for p, i in enumerate(present)},
+            [s_cols[(indexed[k][0], ef)] for k in present],
+            {k: p for p, k in enumerate(present)},
         )
 
     def _clean(rv: object) -> str:
@@ -189,7 +226,7 @@ def _collapse_per_sample_gt_columns_for_output(
     if ("GT" not in df.columns or extra_sample_fields) and vcf_samples:
         eff_mapping = dict(sample_mapping) if sample_mapping else {}
         if not eff_mapping and "GT" in df.columns:
-            n_s = min(len(gt_cols), len(vcf_samples))
+            idx = [_gt_column_index(c) for c in gt_cols]
             std_skip = {"0/0", "0|0"}
             for r_idx in range(len(df)):
                 raw_gt = df["GT"].iat[r_idx]
@@ -198,8 +235,9 @@ def _collapse_per_sample_gt_columns_for_output(
                 names = [m.group(1) for m in re.finditer(r"([^;()\s]+)\([^)]*\)", raw_gt)]
                 active = [
                     i
-                    for i in range(n_s)
-                    if (v := df[gt_cols[i]].iat[r_idx]) is not None
+                    for c, i in zip(gt_cols, idx, strict=True)
+                    if 0 <= i < len(vcf_samples)
+                    and (v := df[c].iat[r_idx]) is not None
                     and str(v).strip() not in std_skip
                 ]
                 if len(names) == len(active):

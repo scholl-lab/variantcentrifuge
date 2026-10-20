@@ -16,7 +16,6 @@ Packed rows list only non-reference samples; unlisted samples are ``0/0``.
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Sequence
 
 import numpy as np
@@ -25,6 +24,7 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.compute as pc  # type: ignore[import-untyped]
 
 from ..genotype_utils import is_missing
+from ..gt_reconstruction import gt_columns_match_samples
 from .aggregation import _gt_to_dosage
 from .genotype_matrix import _classify_gt_vocabulary, _factorize_gt_block, _multiallelic_error
 
@@ -34,7 +34,6 @@ logger = logging.getLogger("variantcentrifuge")
 # phenotype_helpers.extract_sample_and_genotype (strip, split on [:,;\s]).
 _ENTRY = r"^\s*(?P<name>[^(]*?)\s*\(\s*(?P<gt>[^:,;\s)]*)[^)]*\)"
 _EMPTY_ROWS = {"", "NA", "nan"}
-_GT_INDEX = re.compile(r"^GEN[_\[](\d+)[_\]\.]+GT$")  # as gt_reconstruction finds them
 _BATCH_CHARS = 64_000_000  # GT text per Arrow batch: transient arrays are ~7x the text
 
 
@@ -114,10 +113,7 @@ def parse_genotype_codes(
     """
     vocab = _Vocab()
     codes = np.zeros((len(df), len(samples)), dtype=np.int8)
-    indices = [_GT_INDEX.match(c) for c in gt_columns]
-    columns_ok = bool(gt_columns and vcf_samples) and [
-        int(m.group(1)) if m else -1 for m in indices
-    ] == list(range(len(vcf_samples or [])))
+    columns_ok = gt_columns_match_samples(gt_columns, vcf_samples)
     if not columns_ok and "GT" not in df.columns:
         raise ValueError(
             f"{len(gt_columns)} per-sample GT columns do not map 1:1 (GEN[0..n-1].GT, in "

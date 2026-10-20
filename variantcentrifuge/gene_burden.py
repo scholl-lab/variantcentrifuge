@@ -40,6 +40,7 @@ from .association.aggregation import (  # noqa: F401 - re-exported for existing 
     _gt_to_dosage,
     _legacy_counts,
 )
+from .gt_reconstruction import gt_columns_match_samples
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -139,9 +140,8 @@ def perform_gene_burden_analysis(
     # Determine aggregation strategy (priority: columns > packed GT > legacy)
     has_case_ctrl = case_samples is not None and control_samples is not None
     gt_columns = _find_gt_columns(df) if has_case_ctrl else []
-    use_column_aggregation = bool(
-        has_case_ctrl and gt_columns and vcf_samples and len(gt_columns) <= len(vcf_samples)
-    )
+    # Columns only when they are GEN[0..n-1].GT for the n VCF samples (#219).
+    use_column_aggregation = has_case_ctrl and gt_columns_match_samples(gt_columns, vcf_samples)
     use_gt_aggregation = has_case_ctrl and not use_column_aggregation and "GT" in df.columns
 
     if use_column_aggregation and case_samples and control_samples and vcf_samples:

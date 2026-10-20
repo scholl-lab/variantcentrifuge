@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 
-from .gt_reconstruction import _find_per_sample_gt_columns
+from .gt_reconstruction import _find_per_sample_gt_columns, gt_columns_match_samples
 from .links import resolve_links
 from .ped_reader import read_pedigree
 from .phenotype import load_phenotypes
@@ -139,6 +139,11 @@ def infer_and_validate_from_tsv_samples(df: pd.DataFrame, cfg: dict[str, Any]) -
 
     if anon_gt_cols:
         n_gen = len(anon_gt_cols)
+        if not gt_columns_match_samples(anon_gt_cols, [""] * n_gen):
+            raise ValueError(
+                "Invalid --from-tsv file: per-sample GT columns must be GEN[0..n-1].GT without "
+                f"gaps, got {anon_gt_cols[:5]}; the GEN index is the sample's position."
+            )
         if meta_samples:
             if len(meta_samples) != n_gen:
                 raise ValueError(

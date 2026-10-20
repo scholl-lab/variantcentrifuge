@@ -29,8 +29,16 @@ def _aggregate_gene_burden_from_columns(
 
     Complete-case by default: a sample with any missing call in the gene is not counted.
     ``missing_as_ref`` counts missing calls as reference instead (#200).
+    ``gt_columns`` must be ``GEN[0..n-1].GT`` for the n ``vcf_samples`` (#219).
     """
-    n_cols = min(len(gt_columns), len(vcf_samples))
+    from ..gt_reconstruction import gt_columns_match_samples
+
+    if not gt_columns_match_samples(gt_columns, vcf_samples):
+        raise ValueError(
+            f"{len(gt_columns)} per-sample GT columns do not map 1:1 (GEN[0..n-1].GT, in "
+            f"order) to the {len(vcf_samples)} VCF samples"
+        )
+    n_cols = len(gt_columns)
     case_col_names = [gt_columns[i] for i in range(n_cols) if vcf_samples[i] in case_samples]
     ctrl_col_names = [gt_columns[i] for i in range(n_cols) if vcf_samples[i] in control_samples]
     gene_burden_data = []
