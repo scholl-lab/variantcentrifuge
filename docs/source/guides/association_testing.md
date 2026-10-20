@@ -744,6 +744,7 @@ variantcentrifuge \
 |------|--------|-------------|
 | `lambda_gc.tsv` | TSV: `test_name`, `lambda_gc`, `n_tests` | Genomic inflation factor per test |
 | `qq_data.tsv` | TSV: `test`, `expected_neg_log10_p`, `observed_neg_log10_p` | QQ plot data (sorted ascending by expected) |
+| `covariate_case_control.tsv` | TSV: `covariate`, `level`, `n_cases`, `n_controls` | Cases/controls per level of each categorical covariate (raw labels, pre-encoding); written when `--categorical-covariates` is used, to expose batch confounding |
 | `summary.txt` | Plain text | Human-readable summary: sample sizes, per-gene warnings, lambda_GC values |
 | `qq_plot.png` | PNG (optional) | QQ plot — written only if `matplotlib` is installed |
 

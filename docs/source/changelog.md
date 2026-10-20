@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Association diagnostics: `IMBALANCED_COHORT` is now two-sided (max/min of cases and controls) and the warning names the direction, e.g. "cases outnumber controls 100.0:1" (#199).
+- Association diagnostics: with `--diagnostics-output` and categorical covariates, `covariate_case_control.tsv` lists cases/controls per level of each categorical covariate (raw labels); levels with no cases or no controls are warned (#202).
+- New AF presets `popmax_1percent` and `popmax_rare` filter on the dbNSFP gnomAD popmax allele frequency (`gnomAD_exomes/genomes_POPMAX_AF` for dbnsfp4, `gnomAD4.1_joint_POPMAX_AF` for dbnsfp5) (#202).
 
 ## [0.21.0] - 2026-10-20
 

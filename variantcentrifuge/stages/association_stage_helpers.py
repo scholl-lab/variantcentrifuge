@@ -68,7 +68,10 @@ def _cohort_size_ok(n_cases_total: int, n_controls_total: int) -> bool:
 
 
 def _load_covariates_and_pcs(
-    assoc_config: Any, assigned_samples: list[str], remove_sample_substring: str | None
+    assoc_config: Any,
+    assigned_samples: list[str],
+    remove_sample_substring: str | None,
+    raw_categorical_out: dict[str, Any] | None = None,
 ) -> tuple[Any, list[str]]:
     """Load covariates and merge PCA components; (None, []) when nothing is configured."""
     covariate_matrix = None
@@ -81,6 +84,7 @@ def _load_covariates_and_pcs(
             assigned_samples,
             assoc_config.covariate_columns,
             assoc_config.categorical_covariates,
+            raw_categorical_out,
         )
         logger.info(
             f"Association analysis: loaded {covariate_matrix.shape[1]} "

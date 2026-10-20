@@ -619,3 +619,34 @@ class TestStageDiagnosticsIntegration:
         diag_dir = tmp_path / "diag2"
         summary_text = (diag_dir / "summary.txt").read_text()
         assert "Genes with per-gene warnings: 2" in summary_text
+
+
+class TestCovariateBalance:
+    """#202 part 2: case/control x categorical-covariate table with raw labels."""
+
+    def test_load_covariates_exposes_raw_labels(self, tmp_path):
+        from variantcentrifuge.association.covariates import load_covariates
+
+        f = tmp_path / "cov.tsv"
+        f.write_text("sample\tbatch\nS1\tA\nS2\tA\nS3\tB\nS4\tB\n")
+        raw: dict = {}
+        _x, names = load_covariates(str(f), ["S1", "S2", "S3", "S4"], None, ["batch"], raw)
+        assert names == ["batch_B"]
+        assert list(raw["batch"]) == ["A", "A", "B", "B"]
+
+    def test_table_counts_and_confounding_warning(self, tmp_path, caplog):
+        import pandas as pd
+
+        from variantcentrifuge.association.diagnostics import write_covariate_balance
+
+        labels = pd.Series(["A", "A", "B", "B", "B"], index=["c1", "c2", "c3", "k1", "k2"])
+        with caplog.at_level("WARNING", logger="variantcentrifuge"):
+            path = write_covariate_balance(
+                {"batch": labels}, {"c1", "c2", "c3"}, {"k1", "k2"}, tmp_path / "d"
+            )
+        df = pd.read_csv(path, sep="\t")
+        assert df.to_dict("records") == [
+            {"covariate": "batch", "level": "A", "n_cases": 2, "n_controls": 0},
+            {"covariate": "batch", "level": "B", "n_cases": 1, "n_controls": 2},
+        ]
+        assert "level 'A' has 2 cases and 0 controls" in caplog.text

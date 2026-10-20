@@ -30,6 +30,7 @@ def load_covariates(
     vcf_samples: Sequence[str],
     covariate_columns: list[str] | None = None,
     categorical_columns: list[str] | None = None,
+    raw_categorical_out: dict[str, pd.Series] | None = None,
 ) -> tuple[np.ndarray, list[str]]:
     """
     Load, align, and encode a covariate file for association analysis.
@@ -49,6 +50,9 @@ def load_covariates(
     categorical_columns : list[str] | None
         Columns to one-hot encode with ``pd.get_dummies(drop_first=True)``.
         None means auto-detect: non-numeric columns with ``nunique() <= 5``.
+    raw_categorical_out : dict[str, pd.Series] | None
+        If given, filled with the raw (pre-encoding) labels of each categorical
+        column, indexed by sample ID, for case/control balance diagnostics.
 
     Returns
     -------
@@ -133,6 +137,8 @@ def load_covariates(
         ]
 
     if categorical_columns:
+        if raw_categorical_out is not None:
+            raw_categorical_out.update({c: df_aligned[c] for c in categorical_columns})
         df_aligned = pd.get_dummies(
             df_aligned,
             columns=categorical_columns,

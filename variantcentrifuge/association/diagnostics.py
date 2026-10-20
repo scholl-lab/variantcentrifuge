@@ -60,7 +60,7 @@ def emit_sample_size_warnings(
     list[str]
         Warning flag strings for any triggered conditions:
         - "LOW_CASE_COUNT" if n_cases < config.min_cases
-        - "IMBALANCED_COHORT" if max(n_cases, n_controls)/min(n_cases, n_controls) > config.max_case_control_ratio
+        - "IMBALANCED_COHORT" if max/min of (n_cases, n_controls) > config.max_case_control_ratio
     """
     warnings: list[str] = []
 
@@ -86,6 +86,36 @@ def emit_sample_size_warnings(
             warnings.append("IMBALANCED_COHORT")
 
     return warnings
+
+
+def write_covariate_balance(
+    raw_categorical: dict[str, pd.Series],
+    case_samples: set[str],
+    control_samples: set[str],
+    diagnostics_dir: str | Path,
+) -> Path:
+    """Write covariate_case_control.tsv: cases/controls per level of each categorical covariate.
+
+    Makes batch confounding visible (a level with only cases or only controls is warned).
+    """
+    rows = []
+    for name, labels in raw_categorical.items():
+        for level, ids in labels.groupby(labels).groups.items():
+            n_cases = sum(i in case_samples for i in ids)
+            n_controls = sum(i in control_samples for i in ids)
+            rows.append((name, level, n_cases, n_controls))
+            if n_cases == 0 or n_controls == 0:
+                logger.warning(
+                    f"Covariate '{name}' level '{level}' has {n_cases} cases and "
+                    f"{n_controls} controls; possible confounding with case/control status."
+                )
+    out = Path(diagnostics_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / "covariate_case_control.tsv"
+    pd.DataFrame(rows, columns=["covariate", "level", "n_cases", "n_controls"]).to_csv(
+        path, sep="\t", index=False
+    )
+    return path
 
 
 def compute_per_gene_warnings(
