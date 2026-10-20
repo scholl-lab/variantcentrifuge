@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-10-20
+
+- Re-release of 0.19.1 with version metadata synchronised across `version.py`, `CITATION.cff` and `.zenodo.json`. The v0.19.1 tag failed release validation because only `version.py` had been bumped.
+
 ## [0.19.1] - 2026-10-20
 
 ### Fixed
