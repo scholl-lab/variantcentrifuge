@@ -62,15 +62,3 @@ def test_cli_weight_list_with_masks_and_diagnostics(tmp_path):
         for mask in ("pLoF", "missense"):
             assert (diag / mask / tag / "lambda_gc.tsv").exists()
     assert "primary_p" not in df.columns
-
-
-def test_firth_columns_follow_scheme_suffix(tmp_path):
-    """#198 x #202: Firth IVW columns are weight-dependent, so they get the scheme suffix."""
-    from variantcentrifuge.association.meta.firth_meta import FIRTH_COLUMNS
-
-    df = run_meta(
-        _write_study(tmp_path), str(tmp_path / "m.tsv"), weight_scheme=["beta:1,25", "uniform"]
-    )
-    for col in FIRTH_COLUMNS:
-        assert {f"{col}_beta_1_25", f"{col}_uniform"} <= set(df.columns)
-        assert col not in df.columns

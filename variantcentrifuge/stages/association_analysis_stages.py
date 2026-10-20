@@ -409,9 +409,7 @@ class AssociationAnalysisStage(Stage):
         gene_data_by_gene = {d.get("GENE", d.get("gene", "")): d for d in gene_burden_data}
 
         if score_artifact:  # before run_all, which consumes the matrix builders
-            _emit_score_artifact(
-                context.config, score_artifact, gene_burden_data, assoc_config.variant_weights
-            )
+            _emit_score_artifact(context.config, score_artifact, gene_burden_data)
             if not regression_tests:  # don't make the engine build matrices nobody tests
                 for d in gene_burden_data:
                     d.pop("_genotype_matrix_builder", None)
