@@ -40,8 +40,10 @@ from .feature_loaders import (
     _load_bed_files,
     _load_gene_lists,
     _load_json_gene_data,
+    _load_named_bed_files,
     _parse_bed_line,
     _sanitize_name,
+    split_bed_spec,
 )
 
 __all__ = [
@@ -87,6 +89,7 @@ def load_custom_features(cfg: dict[str, Any]) -> dict[str, Any]:
     if bed_files:
         logger.info(f"Loading {len(bed_files)} BED file(s) for region annotation...")
         features["regions_by_chrom"] = _load_bed_files(bed_files)
+        features["named_regions"] = _load_named_bed_files(bed_files)
 
     # Load gene lists
     gene_list_files = cfg.get("annotate_gene_lists", [])
@@ -151,6 +154,11 @@ def _extract_genes_from_row(row: pd.Series) -> set[str]:
     return genes
 
 
+def _overlapping(tree: Any, pos: int, ref: Any) -> Any:
+    """Intervals hit by the REF span; BED is 0-based half-open, VCF POS is 1-based."""
+    return tree.overlap(pos - 1, pos - 1 + max(len(str(ref)) if ref is not None else 1, 1))
+
+
 def _find_region_overlaps(row: pd.Series, regions_by_chrom: dict[str, Any]) -> list[str]:
     """
     Find overlapping regions for a variant.
@@ -182,10 +190,8 @@ def _find_region_overlaps(row: pd.Series, regions_by_chrom: dict[str, Any]) -> l
     except (ValueError, TypeError):
         return annotations
 
-    # Find overlapping intervals
     if chrom in regions_by_chrom:
-        overlaps = regions_by_chrom[chrom][pos]
-        for interval in overlaps:
+        for interval in _overlapping(regions_by_chrom[chrom], pos, row.get("REF")):
             annotations.append(f"Region={interval.data}")
 
     return annotations
@@ -310,10 +316,22 @@ def annotate_dataframe_with_features(df: pd.DataFrame, features: dict[str, Any])
     if df.empty:
         logger.warning("Empty DataFrame provided for annotation")
         df["Custom_Annotation"] = ""
+        for name in features.get("named_regions", {}):
+            df[name] = ""
         return df
 
     # Make a copy to work on
     df = df.copy()
+
+    for name, trees in features.get("named_regions", {}).items():
+        if name in df.columns:
+            raise ValueError(f"--annotate-bed name '{name}' clashes with an existing column")
+        refs = df["REF"] if "REF" in df.columns else ["N"] * len(df)
+        chroms = df["CHROM"].astype(str).str.removeprefix("chr")
+        df[name] = [
+            "yes" if c in trees and _overlapping(trees[c], int(p), r) else "no"
+            for c, p, r in zip(chroms, df["POS"], refs, strict=True)
+        ]
 
     # Handle JSON as columns if flag is set
     if features.get("json_genes_as_columns") and features.get("json_gene_data"):
@@ -399,7 +417,8 @@ def validate_annotation_config(cfg: dict[str, Any]) -> list[str]:
     errors = []
 
     # Check BED files
-    for bed_file in cfg.get("annotate_bed_files", []):
+    for bed_spec in cfg.get("annotate_bed_files", []):
+        bed_file = split_bed_spec(bed_spec)[1]
         if not os.path.exists(bed_file):
             errors.append(f"BED file not found: {bed_file}")
         elif not os.path.isfile(bed_file):

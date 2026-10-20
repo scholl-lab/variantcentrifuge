@@ -489,6 +489,22 @@ variantcentrifuge \
   --output-file output.tsv
 ```
 
+Prefix a path with `NAME=` to get a dedicated yes/no column instead of a
+`Region=` entry in `Custom_Annotation`; `.bed.gz` files are read directly:
+
+```bash
+  --annotate-bed LowComplexity=GRCh38_AllTandemRepeatsandHomopolymers_slop5.bed.gz \
+  --annotate-bed SegDup=GRCh38_segdups.bed.gz
+```
+
+`NAME` must be a valid, unique column name and must not clash with an existing
+column. A variant is "yes" when its REF span (BED is 0-based half-open, VCF POS
+1-based) overlaps any interval, so deletions reaching into a region count. This
+is an annotation, not a filter. The GIAB genome stratification BEDs
+(low-complexity, segmental duplications, low mappability, GC extremes, ...) are
+a good source: <https://github.com/genome-in-a-bottle/genome-stratifications>
+(download them yourself; none are bundled).
+
 ### Gene List Annotations
 
 Check if variants affect genes in custom lists:

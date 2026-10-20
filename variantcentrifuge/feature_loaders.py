@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+from collections.abc import Iterator
 from typing import Any
 
 logger = logging.getLogger("variantcentrifuge")
@@ -14,8 +15,10 @@ __all__ = [
     "_load_bed_files",
     "_load_gene_lists",
     "_load_json_gene_data",
+    "_load_named_bed_files",
     "_parse_bed_line",
     "_sanitize_name",
+    "split_bed_spec",
 ]
 
 
@@ -69,66 +72,84 @@ def _parse_bed_line(line: str) -> tuple[str, int, int, str] | None:
         return None
 
 
-def _load_bed_files(bed_files: list[str]) -> dict[str, Any]:
-    """Load BED files into interval trees for efficient overlap detection.
+_BED_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
-    Parameters
-    ----------
-    bed_files : list[str]
-        List of BED file paths
 
-    Returns
-    -------
-    dict[str, Any]
-        Dictionary with chromosome-keyed interval trees
-    """
+def split_bed_spec(spec: str) -> tuple[str | None, str]:
+    """Split ``NAME=path`` into (NAME, path); plain paths (even with '=') give (None, path)."""
+    name, sep, path = spec.partition("=")
+    if sep and _BED_NAME_RE.match(name) and not os.path.exists(spec):
+        return name, path
+    return None, spec
+
+
+def _iter_bed_intervals(file_path: str) -> Iterator[tuple[str, int, int, str]]:
+    """Yield valid (chrom, start, end, name) from a plain or gzip BED; raise if unreadable."""
+    import gzip
+
+    opener = gzip.open if file_path.endswith(".gz") else open
+    with opener(file_path, "rt", encoding="utf-8") as f:  # type: ignore[operator]
+        for line_num, line in enumerate(f, 1):
+            parsed = _parse_bed_line(line)
+            if parsed is None:
+                continue
+            if parsed[1] >= parsed[2]:
+                logger.debug(f"Invalid interval in {file_path}:{line_num}: {parsed[1]}-{parsed[2]}")
+                continue
+            yield parsed
+
+
+def _interval_tree_cls() -> Any:
     import variantcentrifuge.annotator as ann_mod
 
     if not getattr(ann_mod, "INTERVALTREE_AVAILABLE", False):
         logger.warning("intervaltree not available. BED annotation disabled.")
-        return {}
-
-    interval_tree_cls = getattr(ann_mod, "IntervalTree", None)
-    if interval_tree_cls is None:
+        return None
+    cls = getattr(ann_mod, "IntervalTree", None)
+    if cls is None:
         logger.warning("IntervalTree class not available.")
+    return cls
+
+
+def _load_bed_files(bed_files: list[str]) -> dict[str, Any]:
+    """Load plain (unnamed) BED files into per-chromosome interval trees.
+
+    ``NAME=path`` entries are handled by :func:`_load_named_bed_files` and skipped here.
+    Unreadable files raise.
+    """
+    tree_cls = _interval_tree_cls()
+    if tree_cls is None:
         return {}
 
     regions_by_chrom: dict[str, Any] = {}
-
-    for file_path in bed_files:
-        if not os.path.exists(file_path):
-            logger.warning(f"BED file not found: {file_path}")
+    for spec in bed_files:
+        name, file_path = split_bed_spec(spec)
+        if name is not None:
             continue
-
         file_name = _sanitize_name(file_path)
-        regions_loaded = 0
-
-        try:
-            with open(file_path, encoding="utf-8") as f:
-                for line_num, line in enumerate(f, 1):
-                    parsed = _parse_bed_line(line)
-                    if parsed is None:
-                        continue
-
-                    chrom, start, end, name = parsed
-
-                    if start >= end:
-                        logger.debug(f"Invalid interval in {file_path}:{line_num}: {start}-{end}")
-                        continue
-
-                    if chrom not in regions_by_chrom:
-                        regions_by_chrom[chrom] = interval_tree_cls()
-
-                    annotation_name = f"{name}_{file_name}"
-                    regions_by_chrom[chrom][start:end] = annotation_name
-                    regions_loaded += 1
-
-            logger.info(f"Loaded {regions_loaded} regions from BED file: {file_path}")
-
-        except Exception as e:
-            logger.error(f"Failed to load BED file {file_path}: {e}")
-
+        n = 0
+        for chrom, start, end, label in _iter_bed_intervals(file_path):
+            regions_by_chrom.setdefault(chrom, tree_cls())[start:end] = f"{label}_{file_name}"
+            n += 1
+        logger.info(f"Loaded {n} regions from BED file: {file_path}")
     return regions_by_chrom
+
+
+def _load_named_bed_files(bed_files: list[str]) -> dict[str, dict[str, Any]]:
+    """Load ``NAME=path`` BED entries into {NAME: {chrom: IntervalTree}}. Unreadable files raise."""
+    tree_cls = _interval_tree_cls()
+    named: dict[str, dict[str, Any]] = {}
+    if tree_cls is None:
+        return named
+    for spec in bed_files:
+        name, file_path = split_bed_spec(spec)
+        if name is None:
+            continue
+        trees = named.setdefault(name, {})
+        for chrom, start, end, _ in _iter_bed_intervals(file_path):
+            trees.setdefault(chrom, tree_cls())[start:end] = True
+        logger.info(f"Loaded named BED {name} from {file_path}")
+    return named
 
 
 def _load_gene_lists(gene_list_files: list[str]) -> dict[str, set[str]]:

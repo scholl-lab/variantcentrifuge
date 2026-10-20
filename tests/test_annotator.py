@@ -128,8 +128,8 @@ chrX\t7000\t8000\tregion_X
 
     def test_load_bed_files_missing_file(self):
         """Test handling of missing BED files."""
-        regions = _load_bed_files(["/nonexistent/file.bed"])
-        assert regions == {}
+        with pytest.raises(FileNotFoundError):
+            _load_bed_files(["/nonexistent/file.bed"])
 
     @patch("variantcentrifuge.annotator.INTERVALTREE_AVAILABLE", False)
     def test_load_bed_files_no_intervaltree(self):

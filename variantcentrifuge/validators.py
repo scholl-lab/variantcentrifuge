@@ -390,6 +390,24 @@ def validate_igv_files(
             raise ValueError(msg)
 
 
+_RESERVED_COLUMNS = {"CHROM", "POS", "ID", "REF", "ALT", "GT", "GENE", "Custom_Annotation"}
+
+
+def validate_annotate_bed_specs(specs: list[str]) -> None:
+    """Validate ``--annotate-bed`` entries: NAME unique, not reserved, BED readable."""
+    from .feature_loaders import split_bed_spec
+
+    seen: set[str] = set()
+    for spec in specs or []:
+        name, path = split_bed_spec(spec)
+        if name is not None:
+            if name in seen or name in _RESERVED_COLUMNS:
+                raise ValueError(f"--annotate-bed name '{name}' is duplicated or reserved")
+            seen.add(name)
+        if not Path(path).is_file():
+            raise FileNotFoundError(f"BED file not found: {path}")
+
+
 def validate_cli_args(
     args: argparse.Namespace,
     cfg: dict[str, Any],
@@ -409,6 +427,14 @@ def validate_cli_args(
         if parser is not None:
             parser.error(msg)
         raise FileNotFoundError(msg)
+
+    bed_specs = getattr(args, "annotate_bed", None) or cfg.get("annotate_bed_files") or []
+    try:
+        validate_annotate_bed_specs(bed_specs)
+    except (ValueError, FileNotFoundError) as exc:
+        if parser is not None:
+            parser.error(str(exc))
+        raise
 
     phenotype_file = getattr(args, "phenotype_file", None) or cfg.get("phenotype_file")
     sample_col = getattr(args, "phenotype_sample_column", None) or cfg.get(
