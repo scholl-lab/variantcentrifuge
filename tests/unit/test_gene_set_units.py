@@ -177,3 +177,18 @@ def test_cli_flag_requires_perform_association(tmp_path):
     with pytest.raises(SystemExit):
         validate_association_args(args, {}, fail)
     assert "--gene-set-file requires --perform-association" in fail.call_args[0][0]
+
+
+def test_gene_set_file_and_mask_label_change_checkpoint_hash(tmp_path):
+    """Resume must rerun association when sets or the mask label are added or edited."""
+    from variantcentrifuge.checkpoint_helpers import hash_configuration
+
+    base = {"vcf_file": "in.vcf.gz", "gene_set_file": None, "mask_label": None}
+    h_base = hash_configuration(base)
+    assert h_base == hash_configuration({"vcf_file": "in.vcf.gz"})  # unset: hash unchanged
+    path = _set_file(tmp_path, "set_id\tgene\nS\tA\n")
+    h_sets = hash_configuration({**base, "gene_set_file": path})
+    assert h_sets != h_base
+    (tmp_path / "sets.tsv").write_text("set_id\tgene\nS\tA\nS\tB\n")
+    assert hash_configuration({**base, "gene_set_file": path}) != h_sets  # same path, new content
+    assert hash_configuration({**base, "mask_label": "lof"}) != h_base
