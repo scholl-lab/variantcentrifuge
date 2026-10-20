@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-10-20
+
+### Fixed
+
+- Snakemake workflow environment pins `smart-open<8` like `pyproject.toml`; 8.x removed `smart_open.smart_open` (#189).
+
 ## [0.19.0] - 2026-10-20
 
 Cohort-stratified meta-analysis (#112, #114).
