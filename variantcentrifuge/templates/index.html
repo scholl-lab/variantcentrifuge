@@ -823,7 +823,8 @@
         min-width: 90px;
     }
     .filter-control.filter-type-categorical {
-        flex: 0 0 auto;
+        flex: 0 1 auto;
+        max-width: 100%; /* long category values must not widen the page (#185) */
     }
     .filter-control.filter-type-text {
         flex: 0 0 auto;
@@ -867,6 +868,7 @@
         background-color: white;
         cursor: pointer;
         width: auto;
+        max-width: 100%;
     }
     .category-dropdown:hover {
         border-color: #adb5bd;

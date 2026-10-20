@@ -85,6 +85,13 @@ def _render_report(tmp_path: Path) -> str:
             "DP": 30 + i,
             "GQ": 60 + i,
             "nomen_long_annotation_column": "x" * 40,
+            # Long categorical values must not widen the filter panel (#185 review).
+            "ClinVar_CLNSIG": (
+                "Conflicting_classifications_of_pathogenicity|Pathogenic|"
+                "Likely_pathogenic|Uncertain_significance"
+                if i % 2
+                else "Benign"
+            ),
         }
         for i in range(12)
     ]
