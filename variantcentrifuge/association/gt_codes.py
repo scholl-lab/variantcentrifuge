@@ -120,6 +120,12 @@ def parse_genotype_codes(
             f"order) to the {len(vcf_samples or [])} VCF samples and there is no packed GT "
             "column; cannot assign genotypes to samples"
         )
+    if not columns_ok and gt_columns:
+        logger.warning(
+            "%d per-sample GT columns do not map 1:1 to the %d VCF samples; using packed GT",
+            len(gt_columns),
+            len(vcf_samples or []),
+        )
     if not columns_ok:
         ids = vcf_samples or samples
         bad = sum(1 for s in ids if "(" in s or ";" in s or s != s.strip())

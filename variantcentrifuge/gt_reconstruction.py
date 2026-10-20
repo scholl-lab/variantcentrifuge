@@ -108,13 +108,16 @@ def reconstruct_gt_column(
         logger.warning("No per-sample GT columns found for reconstruction")
         return df
 
-    # Pair columns with samples by their GEN index (a subset must not shift samples).
-    indexed = [(i, c) for c in gt_cols if 0 <= (i := _gt_column_index(c)) < len(vcf_samples)]
-    if len(indexed) != len(gt_cols) or len(gt_cols) != len(vcf_samples):
-        logger.warning(
-            f"GT column count ({len(gt_cols)}) != sample count ({len(vcf_samples)}); "
-            f"{len(gt_cols) - len(indexed)} column(s) have no VCF sample and are skipped"
+    if not gt_columns_match_samples(gt_cols, vcf_samples):
+        # A missing GEN index would read that sample as reference in the packed GT (#219).
+        seen = {_gt_column_index(c) for c in gt_cols}
+        missing = [i for i in range(len(vcf_samples)) if i not in seen]
+        raise ValueError(
+            f"Cannot reconstruct GT: {len(gt_cols)} per-sample GT columns for "
+            f"{len(vcf_samples)} VCF samples; GEN[0..n-1].GT are required, missing indices "
+            f"{missing[:10]}"
         )
+    indexed = [(i, c) for i, c in enumerate(gt_cols)]
     n_samples = len(indexed)
 
     s_cols: dict[tuple[int, str], str] = {}

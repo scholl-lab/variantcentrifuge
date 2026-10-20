@@ -62,33 +62,35 @@ def test_gene_burden_falls_back_to_packed_gt_for_unmatched_columns():
     assert a[["proband_carrier_count", "control_carrier_count"]].values.tolist() == [[0, 2]]
 
 
-def test_reconstruct_gt_column_maps_by_index():
-    out = reconstruct_gt_column(_subset_df(), SAMPLES)
-    assert out["GT"].tolist() == ["s0(0/1);s2(1/1)"]
+def test_reconstruct_gt_column_rejects_unmatched_columns():
+    """A missing GEN index would silently read that sample as reference: refuse."""
+    with pytest.raises(ValueError, match=r"2 per-sample GT columns for 3 VCF samples.*\[1\]"):
+        reconstruct_gt_column(_subset_df(), SAMPLES)
+    with pytest.raises(ValueError, match=r"2 per-sample GT columns for 2 VCF samples"):
+        reconstruct_gt_column(_subset_df(), ["s0", "s1"])
+    with pytest.raises(ValueError, match="per-sample GT columns"):
+        _collapse_per_sample_gt_columns_for_output(_subset_df(), SAMPLES)
 
 
 def test_reconstruct_gt_column_extra_fields_follow_the_index():
-    df = _subset_df(GEN_0__DP=["10"], GEN_2__DP=["30"])
+    df = pd.DataFrame(
+        {"GEN_0__GT": ["0/1"], "GEN_1__GT": ["0/0"], "GEN_2__GT": ["1/1"], "GEN_2__DP": ["30"]}
+    )
     out = reconstruct_gt_column(df, SAMPLES, extra_sample_fields=["GEN[*].DP"])
-    assert out["GT"].tolist() == ["s0(0/1:10);s2(1/1:30)"]
+    assert out["GT"].tolist() == ["s0(0/1:);s1(0/0:);s2(1/1:30)"]
 
 
-def test_reconstruct_gt_column_skips_columns_beyond_the_sample_list(caplog):
-    out = reconstruct_gt_column(_subset_df(), ["s0", "s1"])
-    assert out["GT"].tolist() == ["s0(0/1)"]
-    assert "no VCF sample" in caplog.text
+def test_unmatched_columns_with_packed_gt_warn_once(caplog):
+    from variantcentrifuge.association.gt_codes import parse_genotype_codes
 
-
-def test_collapse_for_output_maps_by_index():
-    out = _collapse_per_sample_gt_columns_for_output(_subset_df(), SAMPLES)
-    assert out["GT"].tolist() == ["s0(0/1);s2(1/1)"]
-    assert not [c for c in out.columns if c.startswith("GEN_")]
-
-
-def test_collapse_for_output_learns_pseudonyms_by_index():
-    df = _subset_df(GT=["p0(0/1);p2(1/1)"], GEN_2__DP=["30"])
-    out = _collapse_per_sample_gt_columns_for_output(df, SAMPLES, extra_sample_fields=["DP"])
-    assert out["GT"].tolist() == ["p0(0/1:);p2(1/1:30)"]
+    df = _subset_df(GT=["s0(0/1);s2(1/1)"])
+    with caplog.at_level("WARNING"):
+        parse_genotype_codes(df, SAMPLES, SAMPLES, ["GEN_0__GT", "GEN_2__GT"])
+        perform_gene_burden_analysis(
+            df, {"gene_burden_mode": "samples"}, {"s1"}, {"s0", "s2"}, SAMPLES
+        )
+    msgs = [r.getMessage() for r in caplog.records if "do not map 1:1" in r.getMessage()]
+    assert len(msgs) == 2 and all("2 per-sample GT columns" in m and "3 VCF" in m for m in msgs)
 
 
 def test_copy_gt_columns_to_samples_by_index():

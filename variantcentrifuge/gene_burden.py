@@ -143,6 +143,12 @@ def perform_gene_burden_analysis(
     # Columns only when they are GEN[0..n-1].GT for the n VCF samples (#219).
     use_column_aggregation = has_case_ctrl and gt_columns_match_samples(gt_columns, vcf_samples)
     use_gt_aggregation = has_case_ctrl and not use_column_aggregation and "GT" in df.columns
+    if gt_columns and use_gt_aggregation:
+        logger.warning(
+            "%d per-sample GT columns do not map 1:1 to the %d VCF samples; using packed GT",
+            len(gt_columns),
+            len(vcf_samples or []),
+        )
 
     if use_column_aggregation and case_samples and control_samples and vcf_samples:
         logger.info(
