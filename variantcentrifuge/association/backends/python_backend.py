@@ -358,6 +358,9 @@ class PythonSKATBackend(SKATBackend):
         lambdas = self._compute_eigenvalues_filtered(geno_weighted, null_model)
 
         if len(lambdas) == 0:
+            if null_model.trait_type == "binary":
+                # R SKAT stops ("No Eigenvalue is bigger than 0!!"): no p-value exists
+                return self._skip_result(n_variants, n_variants, "no_positive_eigenvalues")
             logger.debug(f"Gene {gene}: no eigenvalues above threshold; returning p=1.0")
             return {
                 "p_value": 1.0,

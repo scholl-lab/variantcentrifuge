@@ -436,9 +436,6 @@ def compute_pvalue(
     if len(lambdas) == 1:
         return float(_liu_pvalue(q, lambdas)), "liu", False
 
-    # Always compute Liu as fallback (matches R SKAT Get_PValue.Lambda)
-    p_liu = float(_liu_pvalue(q, lambdas))
-
     # --- Tier 1: Davies (requires compiled _qfc extension) ---
     if _try_load_davies():
 
@@ -462,6 +459,7 @@ def compute_pvalue(
                 p_val = float(p2) if f2 == 0 and p2 is not None and 0.0 < p2 < 1.0 else p_val
         if ok:
             return p_val, "davies", True
+        p_liu = float(_liu_pvalue(q, lambdas))  # fallback (R SKAT Get_PValue.Lambda)
 
         p_tail = p_val if ifault == 0 and np.isfinite(p_val) else p_liu
         if p_tail < _TAIL_P and q > float(np.sum(lambdas)):
@@ -504,4 +502,4 @@ def compute_pvalue(
         )
 
     # --- Tier 3: Liu moment-matching (last resort, always returns a value) ---
-    return p_liu, "liu", False
+    return float(_liu_pvalue(q, lambdas)), "liu", False
