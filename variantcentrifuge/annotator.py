@@ -159,6 +159,15 @@ def _overlapping(tree: Any, pos: int, ref: Any) -> Any:
     return tree.overlap(pos - 1, pos - 1 + (len(ref) if isinstance(ref, str) and ref else 1))
 
 
+def _hit(tree: Any, pos: Any, ref: Any) -> bool:
+    """True if the REF span at a valid positive integer POS overlaps; invalid POS never hits."""
+    try:
+        pos = int(pos)
+    except (ValueError, TypeError):
+        return False
+    return pos > 0 and bool(_overlapping(tree, pos, ref))
+
+
 def _find_region_overlaps(row: pd.Series, regions_by_chrom: dict[str, Any]) -> list[str]:
     """
     Find overlapping regions for a variant.
@@ -323,13 +332,19 @@ def annotate_dataframe_with_features(df: pd.DataFrame, features: dict[str, Any])
     # Make a copy to work on
     df = df.copy()
 
+    pending_json = set()
+    if features.get("json_genes_as_columns"):
+        for data in features.get("json_gene_data", {}).values():
+            pending_json.update(data)
     for name, trees in features.get("named_regions", {}).items():
-        if name in df.columns:
-            raise ValueError(f"--annotate-bed name '{name}' clashes with an existing column")
+        if name in df.columns or name in pending_json:
+            raise ValueError(
+                f"--annotate-bed name '{name}' clashes with an existing or JSON annotation column"
+            )
         refs = df["REF"] if "REF" in df.columns else ["N"] * len(df)
         chroms = df["CHROM"].astype(str).str.removeprefix("chr")
         df[name] = [
-            "yes" if c in trees and pd.notna(p) and _overlapping(trees[c], int(p), r) else "no"
+            "yes" if c in trees and _hit(trees[c], p, r) else "no"
             for c, p, r in zip(chroms, df["POS"], refs, strict=True)
         ]
 

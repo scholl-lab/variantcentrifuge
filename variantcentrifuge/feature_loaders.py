@@ -129,7 +129,9 @@ def _load_bed_files(bed_files: list[str]) -> dict[str, Any]:
         file_name = _sanitize_name(file_path)
         n = 0
         for chrom, start, end, label in _iter_bed_intervals(file_path):
-            regions_by_chrom.setdefault(chrom, tree_cls())[start:end] = f"{label}_{file_name}"
+            if chrom not in regions_by_chrom:
+                regions_by_chrom[chrom] = tree_cls()
+            regions_by_chrom[chrom][start:end] = f"{label}_{file_name}"
             n += 1
         logger.info(f"Loaded {n} regions from BED file: {file_path}")
     return regions_by_chrom
@@ -147,7 +149,9 @@ def _load_named_bed_files(bed_files: list[str]) -> dict[str, dict[str, Any]]:
             continue
         trees = named.setdefault(name, {})
         for chrom, start, end, _ in _iter_bed_intervals(file_path):
-            trees.setdefault(chrom, tree_cls())[start:end] = True
+            if chrom not in trees:
+                trees[chrom] = tree_cls()
+            trees[chrom][start:end] = True
         logger.info(f"Loaded named BED {name} from {file_path}")
     return named
 

@@ -391,7 +391,17 @@ def validate_igv_files(
             raise ValueError(msg)
 
 
-_RESERVED_COLUMNS = {"CHROM", "POS", "ID", "REF", "ALT", "GT", "GENE", "Custom_Annotation"}
+_RESERVED_COLUMNS = {
+    "CHROM",
+    "POS",
+    "ID",
+    "REF",
+    "ALT",
+    "GT",
+    "GENE",
+    "VAR_ID",
+    "Custom_Annotation",
+}
 
 
 def validate_annotate_bed_specs(specs: list[str], fields: str | None = None) -> None:
@@ -404,7 +414,12 @@ def validate_annotate_bed_specs(specs: list[str], fields: str | None = None) -> 
     for spec in specs or []:
         name, path = split_bed_spec(spec)
         if name is not None:
-            if name in seen or name in _RESERVED_COLUMNS or name in extracted:
+            if (
+                name in seen
+                or name in _RESERVED_COLUMNS
+                or name.startswith("_")
+                or name in extracted
+            ):
                 raise ValueError(
                     f"--annotate-bed name '{name}' is duplicated, reserved or an extracted field"
                 )

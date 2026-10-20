@@ -101,6 +101,10 @@ ANNOTATION_ALIAS_KEYS: frozenset[str] = frozenset(
 )
 
 
+# Bump when BED overlap semantics change so old checkpoints with BED annotations are not reused.
+BED_OVERLAP_VERSION = 2
+
+
 def hash_configuration(config: dict[str, Any]) -> str:
     """Create a hash of the configuration for change detection."""
     norm_config = normalize_annotation_config(config.copy())
@@ -113,6 +117,8 @@ def hash_configuration(config: dict[str, Any]) -> str:
         and not (k in CANONICAL_ANNOTATION_KEYS and not v)
     }
     relevant_config["__fingerprint_version__"] = 3
+    if relevant_config.get("annotate_bed_files"):
+        relevant_config["__bed_overlap__"] = BED_OVERLAP_VERSION
 
     config_str = json.dumps(relevant_config, sort_keys=True)
     return hashlib.sha256(config_str.encode()).hexdigest()
