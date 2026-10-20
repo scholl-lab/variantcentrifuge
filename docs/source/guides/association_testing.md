@@ -1209,7 +1209,7 @@ out of FDR correction and ACAT-O for that test. Codes appear in these columns:
 | `zero_variance` | `skat_skip_reason` | Burden-method SKAT: the collapsed burden is in the covariate span. | As for `BURDEN_NOT_ESTIMABLE`. |
 | `OLS_FIT_FAILED` / `NONFINITE_STATISTICS` | `warnings` (linear burden) | The regression raised, or returned a non-finite estimate, SE, p-value or CI. | Check for extreme outcome or covariate values. |
 | `OUTCOME_EXPLAINED_BY_COVARIATES` | `skat_skip_reason`, `skat_warnings`, `warnings` (linear burden), `coast_skip_reason` | The covariates explain the outcome exactly, so no residual variation is left to test. | Remove covariates derived from the outcome. |
-| `INSUFFICIENT_RESIDUAL_DF` | `skat_skip_reason`, `skat_warnings`, `coast_skip_reason` (linear burden reports `NONFINITE_STATISTICS` instead) | Too few samples remain (after per-gene missingness QC) for the number of covariates. | Use fewer covariates or PCs, or more samples. |
+| `INSUFFICIENT_RESIDUAL_DF` | `skat_skip_reason`, `skat_warnings`, `coast_skip_reason` (linear burden reports `OUTCOME_EXPLAINED_BY_COVARIATES` when the covariates alone use up the samples, or `NONFINITE_STATISTICS` when adding the burden does) | Too few samples remain (after per-gene missingness QC) for the number of covariates. | Use fewer covariates or PCs, or more samples. |
 
 COAST also reports structural skips in `coast_skip_reason`: `NO_GENOTYPE_MATRIX`,
 `NO_PHENOTYPE_OR_EMPTY_MATRIX`, `NO_GENE_DF`, `MISSING_EFFECT_IMPACT_COLUMNS`,

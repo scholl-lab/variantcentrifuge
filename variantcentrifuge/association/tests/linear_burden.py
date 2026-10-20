@@ -237,7 +237,9 @@ class LinearBurdenTest(AssociationTest):
 
         # Fit OLS
         try:
-            fit_result = sm.OLS(phenotype, design).fit()
+            # Exact translation (intercept in the design): burden beta/SE/p are unchanged,
+            # and a large outcome offset stays out of the least-squares round-off.
+            fit_result = sm.OLS(phenotype - phenotype[0], design).fit()
         except Exception as exc:
             logger.warning(f"Gene {gene}: OLS.fit() raised {type(exc).__name__}: {exc}")
             return self._skip(gene, ["OLS_FIT_FAILED"], n_cases, n_controls, n_variants, n_carriers)

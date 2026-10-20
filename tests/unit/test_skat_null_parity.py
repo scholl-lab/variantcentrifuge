@@ -744,5 +744,9 @@ def test_outcome_guard_ignores_exact_translation(backend):
         data = {"genotype_matrix": geno, "variant_mafs": geno.mean(axis=0) / 2.0}
         data["phenotype_vector"] = y + offset
         cfg = AssociationConfig(trait_type="quantitative")
-        lb[offset] = LinearBurdenTest().run("G", data, cfg).p_value
-    assert lb[0.0] is not None and lb[2.0**46] is not None
+        lb[offset] = LinearBurdenTest().run("G", data, cfg)
+    assert lb[0.0].p_value is not None
+    for field in ("p_value", "effect_size", "se", "ci_lower", "ci_upper"):
+        assert getattr(lb[2.0**46], field) == pytest.approx(
+            getattr(lb[0.0], field), rel=1e-12, abs=0.0
+        )
