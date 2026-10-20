@@ -68,6 +68,7 @@ _BUILDER_RESULT_KEYS = (
 )
 
 _PER_GENE_MATRIX_PAYLOAD_KEYS = (
+    "_genotype_matrix_builder",
     "genotype_matrix",
     "variant_mafs",
     "score_values",

@@ -163,6 +163,7 @@ class ExcelReportStage(Stage):
             "custom_annotation",
             "variant_scoring",
             "clinvar_pm5",
+            "igv_report",
         }
 
     @property

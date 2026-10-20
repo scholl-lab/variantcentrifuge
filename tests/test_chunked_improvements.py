@@ -327,6 +327,44 @@ class TestChunkedProcessingImprovements:
             assert call_args[1]["pedigree_data"] == sample_pedigree
             assert call_args[1]["use_vectorized_comp_het"] is True
 
+    @pytest.mark.parametrize("mode", ["columns", "simple", "full"])
+    def test_memory_limit_fallback_matches_normal_chunk_schema_across_modes(
+        self, mode, sample_config, sample_dataframe, sample_pedigree, mock_args, mock_workspace
+    ):
+        """Fallback chunk must produce identical columns to normal chunk across all modes."""
+        from variantcentrifuge.stages.chunk_helpers import apply_chunk_inheritance_analysis
+
+        normal_cfg = dict(sample_config, max_memory_gb=16.0)
+        normal_ctx = PipelineContext(mock_args, normal_cfg, mock_workspace)
+        normal_ctx.vcf_samples = sample_config["vcf_samples"]
+        normal_ctx.pedigree_data = sample_pedigree
+        normal_ctx.config["inheritance_analysis_config"] = {
+            "inheritance_mode": mode,
+            "vcf_samples": sample_config["vcf_samples"],
+            "pedigree_data": sample_pedigree,
+            "use_vectorized_comp_het": True,
+            "preserve_details_for_scoring": False,
+        }
+
+        fallback_cfg = dict(sample_config)
+        fallback_ctx = PipelineContext(mock_args, fallback_cfg, mock_workspace)
+        fallback_ctx.vcf_samples = sample_config["vcf_samples"]
+        fallback_ctx.pedigree_data = sample_pedigree
+        fallback_ctx.resource_manager = Mock(
+            memory_gb=0.1,
+            memory_safety_factor=0.8,
+            estimate_memory=Mock(return_value=1.0),
+        )
+        fallback_ctx.config["inheritance_analysis_config"] = dict(
+            normal_ctx.config["inheritance_analysis_config"]
+        )
+
+        normal_df = apply_chunk_inheritance_analysis(sample_dataframe.copy(), normal_ctx)
+        fallback_df = apply_chunk_inheritance_analysis(sample_dataframe.copy(), fallback_ctx)
+
+        assert list(fallback_df.columns) == list(normal_df.columns)
+        assert (fallback_df["Inheritance_Pattern"] == "memory_limit_exceeded").all()
+
 
 if __name__ == "__main__":
     # Run tests with logging

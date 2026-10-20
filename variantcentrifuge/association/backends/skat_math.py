@@ -321,6 +321,7 @@ def _skato_get_pvalue(
     n_rho = len(rho_grid)
     n_variants = z1_half.shape[1]
 
+    # Cap rho at 0.999 to match R's SKAT_Optimal_Logistic and avoid singular R_rho at rho=1
     rho_capped = [min(r, 0.999) for r in rho_grid]
 
     if rho_capped != list(rho_grid):
@@ -334,6 +335,7 @@ def _skato_get_pvalue(
 
     lambda_all: list[np.ndarray] = []
     for _i, rho in enumerate(rho_capped):
+        # Analytic symmetric square root R_rho^{1/2} = s*I + delta*J avoids Cholesky failure near rho=1
         s = np.sqrt(1.0 - rho)
         lam_burden = 1.0 - rho + n_variants * rho
         s_burden = np.sqrt(lam_burden)

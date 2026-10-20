@@ -86,6 +86,8 @@ class TestGenotypeUtils:
         assert is_variant("1|.") is False
         assert is_variant(".|1") is False
         assert is_variant(".") is False
+        assert is_variant("N/A") is False
+        assert is_variant("NA") is False
 
     def test_is_missing(self):
         """Test missing genotype detection."""
@@ -95,6 +97,8 @@ class TestGenotypeUtils:
         assert is_missing(".") is True
         assert is_missing("") is True
         assert is_missing(None) is True
+        assert is_missing("N/A") is True
+        assert is_missing("NA") is True
         assert is_missing("0/0") is False
         assert is_missing("0/1") is False
         assert is_missing("1/1") is False

@@ -389,11 +389,11 @@ def build_genotype_matrix(
         alt_freq = total_ac / total_an if total_an > 0 else 0.0
         mafs[v_idx] = min(alt_freq, 1.0 - alt_freq)
         missing_mask = np.isnan(geno[v_idx])
-        if missing_mask.any():
-            for s in np.where(missing_mask)[0]:
-                s_ploidy = ploidy[v_idx, s]
-                imputed_val = round(s_ploidy * alt_freq) if is_binary else s_ploidy * alt_freq
-                geno[v_idx, s] = imputed_val
+        if np.any(missing_mask):
+            v = ploidy[v_idx, missing_mask] * alt_freq
+            geno[v_idx, missing_mask] = np.round(v) if is_binary else v
+        if alt_freq > 0.5:
+            geno[v_idx] = ploidy[v_idx] - geno[v_idx]
 
     # ------------------------------------------------------------------ #
     # Step 6: Transpose to (n_samples, n_variants)                        #

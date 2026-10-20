@@ -349,9 +349,17 @@ def apply_chunk_inheritance_analysis(
                 f"({estimated_memory_gb:.2f}GB exceeds {safe_memory_gb:.2f}GB limit)."
             )
             chunk_df["Inheritance_Pattern"] = "memory_limit_exceeded"
-            if preserve_details_for_scoring:
-                chunk_df["Inheritance_Details"] = '{"error": "memory_limit_exceeded"}'
-            return chunk_df
+            chunk_df["Inheritance_Details"] = '{"error": "memory_limit_exceeded"}'
+            chunk_df = process_inheritance_output(
+                chunk_df,
+                inheritance_mode,
+                preserve_details_for_scoring=preserve_details_for_scoring,
+            )
+            return cleanup_sample_columns(
+                chunk_df,
+                vcf_samples,
+                preserve_columns=["GT", "Inheritance_Pattern", "Inheritance_Details"],
+            )
 
         logger.info(
             f"Starting inheritance analysis for chunk: {len(chunk_df)} variants, "

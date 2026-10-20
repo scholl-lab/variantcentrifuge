@@ -84,7 +84,7 @@ def convert_to_excel(
         pd.ExcelWriter(
             str(temp_xlsx),
             engine="xlsxwriter",
-            engine_kwargs={"options": {"strings_to_urls": False}},
+            engine_kwargs={"options": {"strings_to_urls": False, "strings_to_formulas": False}},
         ) as writer,
     ):
         df.to_excel(writer, sheet_name="Results", index=False)

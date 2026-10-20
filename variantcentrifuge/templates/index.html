@@ -1485,6 +1485,13 @@ document.addEventListener('DOMContentLoaded', function() {
         if (str.indexOf('<') === -1 && str.indexOf('&') === -1) {
             return { text: str, href: null, links: [] };
         }
+        var cacheKey = (typeof DOMParser !== 'undefined' ? '1:' : '0:') + str;
+        if (!extractCellContent._cache) {
+            extractCellContent._cache = Object.create(null);
+        }
+        if (extractCellContent._cache[cacheKey]) {
+            return extractCellContent._cache[cacheKey];
+        }
 
         if (typeof DOMParser !== 'undefined') {
             var doc = new DOMParser().parseFromString(str, 'text/html');
@@ -1520,11 +1527,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 text = (divClone.textContent || divClone.innerText || '').trim();
             }
 
-            return {
+            var domRes = {
                 text: text,
                 href: links.length > 0 ? links[0].href : null,
                 links: links
             };
+            extractCellContent._cache[cacheKey] = domRes;
+            return domRes;
         } else {
             // Regex fallback for non-DOM / test environments
             var linkRegex = /<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
@@ -1558,11 +1567,13 @@ document.addEventListener('DOMContentLoaded', function() {
                        .replace(/&#39;/g, "'")
                        .trim();
 
-            return {
+            var reRes = {
                 text: text,
                 href: links.length > 0 ? links[0].href : null,
                 links: links
             };
+            extractCellContent._cache[cacheKey] = reRes;
+            return reRes;
         }
     }
 
@@ -1683,7 +1694,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     if (typeof updatePinnedUi === 'function') {
                         updatePinnedUi();
                     }
-                    return;
+                    return reviewState;
                 }
             } catch (e) {
                 console.warn('Unable to load review state from localStorage:', e);
@@ -1693,6 +1704,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (typeof updatePinnedUi === 'function') {
             updatePinnedUi();
         }
+        return reviewState;
     }
 
     function saveReviewState() {
@@ -1852,6 +1864,20 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     var updateToolbarState = updatePinnedUi;
+    var updateToolbarPinCount = updatePinnedUi;
+
+    window.addEventListener('storage', function(e) {
+        if (e && e.key === storageKey) {
+            reviewState = loadReviewState();
+            updateToolbarPinCount();
+            if (typeof syncAllOpenChildControls === 'function') {
+                syncAllOpenChildControls();
+            }
+            if (typeof table !== 'undefined' && table && typeof table.rows === 'function') {
+                table.rows().invalidate('data').draw(false);
+            }
+        }
+    });
 
     // Find indices of columns to hide by default
     defaultHiddenColumnOriginalNames.forEach(function(hiddenColName) {
@@ -2664,7 +2690,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function generateShortlistTsv() {
         var candidates = getShortlistedCandidates();
         var cols = [];
-        if (rawVariants && rawVariants.length > 0) {
+        if (typeof allColumnOriginalNames !== 'undefined' && Array.isArray(allColumnOriginalNames) && allColumnOriginalNames.length > 0) {
+            cols = allColumnOriginalNames.filter(function(k) {
+                return !k.startsWith('_') && k !== 'igv_links';
+            });
+        } else if (rawVariants && rawVariants.length > 0) {
             cols = Object.keys(rawVariants[0]).filter(function(k) {
                 return !k.startsWith('_') && k !== 'igv_links';
             });
