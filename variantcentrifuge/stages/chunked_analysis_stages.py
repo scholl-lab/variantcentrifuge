@@ -12,7 +12,11 @@ from typing import Any, cast
 
 import pandas as pd
 
-from ..dataframe_optimizer import load_optimized_dataframe
+from ..dataframe_optimizer import (
+    load_optimized_dataframe,
+    rename_invalid_identifiers,
+    should_use_memory_passthrough,
+)
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import apply_scoring
 from .chunk_helpers import (
@@ -21,8 +25,52 @@ from .chunk_helpers import (
     ensure_sorted_by_gene,
     read_tsv_in_gene_chunks,
 )
+from .genotype_matrix_builder import _STANDARD_COLUMN_ALIASES, _create_standard_column_aliases
 
 logger = logging.getLogger(__name__)
+
+_ROW_ORDER_COL = "_vc_input_row"
+_GENE_COLUMN_PRIORITY = ("GENE", "Gene", "gene", "SYMBOL", "ANN[*].GENE", "EFF[*].GENE")
+
+
+def _find_gene_column(header: list[str]) -> str | None:
+    """Return the raw header column that the non-chunked loader would expose as the gene."""
+    if not header:
+        return None
+    _, sanitized = rename_invalid_identifiers(pd.DataFrame(columns=header))
+    # Same normalization as DataFrameLoadingStage: sanitize, then ANN_0__GENE -> GENE alias.
+    canonical = {col: _STANDARD_COLUMN_ALIASES.get(sanitized.get(col, col), col) for col in header}
+    for wanted in _GENE_COLUMN_PRIORITY:
+        for col in header:
+            if canonical[col] == wanted:
+                return col
+    return None
+
+
+def _write_row_order_copy(input_file: Path, output_file: Path) -> None:
+    """Copy the TSV adding the original row position, so gene sorting can be undone."""
+    open_fn: Any = gzip.open if str(input_file).endswith(".gz") else open
+    with open_fn(input_file, "rt") as src, open(output_file, "w") as dst:
+        header = src.readline().rstrip("\r\n")
+        dst.write(f"{header}\t{_ROW_ORDER_COL}\n")
+        for i, line in enumerate(src):
+            dst.write(f"{line.rstrip(chr(13) + chr(10))}\t{i}\n")
+
+
+def _restore_input_order(df: pd.DataFrame) -> pd.DataFrame:
+    """Return rows in input order (as the non-chunked path keeps them) without the helper column."""
+    if _ROW_ORDER_COL not in df.columns:
+        return df
+    order = pd.to_numeric(df[_ROW_ORDER_COL]).to_numpy()
+    df = df.drop(columns=_ROW_ORDER_COL).iloc[order.argsort(kind="stable")]
+    return df.reset_index(drop=True)
+
+
+def _normalize_chunk(chunk_df: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Give a raw chunk the column names the non-chunked DataFrame loader produces."""
+    chunk_df, rename_map = rename_invalid_identifiers(chunk_df)
+    _create_standard_column_aliases(chunk_df)
+    return chunk_df, rename_map
 
 
 def _align_chunk_columns(chunk: pd.DataFrame, expected_columns: list[str]) -> pd.DataFrame:
@@ -74,6 +122,11 @@ class ChunkedAnalysisStage(Stage):
 
     def _handle_checkpoint_skip(self, context: PipelineContext) -> PipelineContext:
         """Restore chunked DataFrame analysis state from its durable TSV artifact."""
+        if not context.config.get("use_chunked_processing"):
+            # The completed run was a no-op (see _process); it created no artifact.
+            logger.info("chunked_analysis was a no-op in the checkpointed run; nothing to restore")
+            return context
+
         chunked_tsv = context.chunked_analysis_tsv
         if not chunked_tsv:
             base = context.workspace.get_intermediate_path("chunked_analysis_results.tsv")
@@ -81,6 +134,10 @@ class ChunkedAnalysisStage(Stage):
             chunked_tsv = gz if gz.exists() else base
 
         if not chunked_tsv or not Path(chunked_tsv).exists():
+            input_file = self._find_input_file(context)
+            if _find_gene_column(self._read_header(input_file)) is None:
+                # The checkpointed run took the non-chunked fallback; replay it.
+                return self._load_unchunked(context, input_file)
             raise RuntimeError(
                 "Cannot restore chunked_analysis from checkpoint: "
                 f"chunked output missing: {chunked_tsv}"
@@ -94,7 +151,7 @@ class ChunkedAnalysisStage(Stage):
             quoting=csv.QUOTE_MINIMAL,
             on_bad_lines="warn",
         )
-        context.current_dataframe = df
+        context.current_dataframe = _restore_input_order(df)
         context.column_rename_map = rename_map
         context.chunked_analysis_tsv = Path(chunked_tsv)
         context.config["dataframe_chunked_analysis_complete"] = True
@@ -174,11 +231,56 @@ class ChunkedAnalysisStage(Stage):
 
         return False
 
+    @staticmethod
+    def _find_input_file(context: PipelineContext) -> Path:
+        if context.extra_columns_removed_tsv:
+            return Path(context.extra_columns_removed_tsv)
+        if context.phenotypes_added_tsv:
+            return Path(context.phenotypes_added_tsv)
+        if context.genotype_replaced_tsv:
+            return Path(context.genotype_replaced_tsv)
+        if context.extracted_tsv:
+            return Path(context.extracted_tsv)
+        if context.data:
+            return Path(context.data)
+        raise RuntimeError("No TSV file available for chunked processing")
+
+    @staticmethod
+    def _read_header(path: Path) -> list[str]:
+        open_fn: Any = gzip.open if str(path).endswith(".gz") else open
+        with open_fn(path, "rt") as f:
+            first_line = f.readline().rstrip("\r\n")
+        return first_line.split("\t") if first_line else []
+
+    @staticmethod
+    def _load_unchunked(context: PipelineContext, input_file: Path) -> PipelineContext:
+        """Load the whole TSV exactly like DataFrameLoadingStage and disable chunking."""
+        df, rename_map = load_optimized_dataframe(
+            str(input_file),
+            sep="\t",
+            compression="gzip" if str(input_file).endswith(".gz") else None,
+            on_bad_lines="warn",
+        )
+        _create_standard_column_aliases(df)
+        context.current_dataframe = df
+        context.column_rename_map = rename_map
+        if should_use_memory_passthrough(df):
+            context.variants_df = df
+        context.config["use_chunked_processing"] = False
+        logger.info(f"Loaded {len(df)} variants without chunking from {input_file}")
+        return context
+
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Process file in chunks."""
         if not context.config.get("use_chunked_processing"):
             logger.debug("Chunked processing not enabled")
             return context
+
+        input_file = self._find_input_file(context)
+        gene_col_name = _find_gene_column(self._read_header(input_file))
+        if not gene_col_name:
+            logger.warning("No GENE column found, falling back to non-chunked processing")
+            return self._load_unchunked(context, input_file)
 
         self._setup_inheritance_config(context)
 
@@ -193,36 +295,13 @@ class ChunkedAnalysisStage(Stage):
 
             rm = ResourceManager(config=context.config)
         chunk_size = rm.auto_chunk_size(total_variants, num_samples)
-
-        if context.extra_columns_removed_tsv:
-            input_file = context.extra_columns_removed_tsv
-        elif context.phenotypes_added_tsv:
-            input_file = context.phenotypes_added_tsv
-        elif context.genotype_replaced_tsv:
-            input_file = context.genotype_replaced_tsv
-        elif context.extracted_tsv:
-            input_file = context.extracted_tsv
-        elif context.data:
-            input_file = Path(context.data)
-        else:
-            raise RuntimeError("No TSV file available for chunked processing")
-
         logger.info(f"Processing {input_file} in chunks of {chunk_size} variants")
 
-        gene_col_name = None
-        open_fn: Any = gzip.open if str(input_file).endswith(".gz") else open
-        with open_fn(input_file, "rt") as f:
-            header = f.readline().strip().split("\t")
-            for gene_col in ["GENE", "Gene", "gene", "SYMBOL", "ANN[*].GENE", "EFF[*].GENE"]:
-                if gene_col in header:
-                    gene_col_name = gene_col
-                    break
-
-        if not gene_col_name:
-            logger.warning("No GENE column found, falling back to non-chunked processing")
-            return context
-
-        sorted_file = self._ensure_sorted_by_gene(input_file, gene_col_name, context)
+        ordered_file = context.workspace.get_intermediate_path("chunked_analysis_input.tsv")
+        _write_row_order_copy(input_file, ordered_file)
+        # ensure_sorted_by_gene reuses an existing sorted file; never reuse a stale one.
+        ordered_file.with_suffix(".sorted.tsv").unlink(missing_ok=True)
+        sorted_file = self._ensure_sorted_by_gene(ordered_file, gene_col_name, context)
 
         threads_config = context.config.get("threads", 1)
         memory_per_chunk_gb = rm.estimate_memory(chunk_size, num_samples)
@@ -276,7 +355,7 @@ class ChunkedAnalysisStage(Stage):
             empty_df.to_csv(
                 chunked_output_path, sep="\t", index=False, compression=cast(Any, compression)
             )
-            context.current_dataframe = empty_df
+            context.current_dataframe = _restore_input_order(empty_df)
         else:
             df, rename_map = load_optimized_dataframe(
                 str(chunked_output_path),
@@ -285,7 +364,7 @@ class ChunkedAnalysisStage(Stage):
                 quoting=csv.QUOTE_MINIMAL,
                 on_bad_lines="warn",
             )
-            context.current_dataframe = df
+            context.current_dataframe = _restore_input_order(df)
             context.column_rename_map = rename_map
 
         context.config["dataframe_chunked_analysis_complete"] = True
@@ -435,6 +514,8 @@ class ChunkedAnalysisStage(Stage):
             logger.warning(f"Chunk {chunk_num + 1} is empty, skipping processing")
             return chunk_df
 
+        chunk_df, rename_map = _normalize_chunk(chunk_df)
+
         if context.annotation_configs:
             chunk_df = self._apply_chunk_annotations(chunk_df, context)
 
@@ -455,7 +536,8 @@ class ChunkedAnalysisStage(Stage):
             chunk_df = apply_scoring(chunk_df, context.scoring_config)
 
         logger.debug(f"Chunk {chunk_num + 1} final size: {len(chunk_df)} variants")
-        return chunk_df
+        # Write raw names back; the final reload re-sanitizes them like the non-chunked loader.
+        return chunk_df.rename(columns={v: k for k, v in rename_map.items()})
 
     def _ensure_sorted_by_gene(
         self, input_file: Path, gene_col: str, context: PipelineContext
@@ -499,4 +581,5 @@ class ChunkedAnalysisStage(Stage):
         return []
 
     def get_output_files(self, context: PipelineContext) -> list[Path]:
-        return []
+        # Only a real chunked run creates the artifact; a no-op/fallback records none.
+        return [Path(context.chunked_analysis_tsv)] if context.chunked_analysis_tsv else []

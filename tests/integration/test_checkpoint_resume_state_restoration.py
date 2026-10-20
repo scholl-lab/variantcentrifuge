@@ -163,3 +163,61 @@ def test_plain_resume_restores_header_only_chunked_dataframe(tmp_path):
     assert result.current_dataframe is not None
     assert result.current_dataframe.empty
     assert result.final_output_path.read_text().startswith("GENE\tCHROM\tRESTORED_MARKER\n")
+
+
+def _run_fresh_or_resume(tmp_path: Path, chunking: dict, resume: bool) -> PipelineContext:
+    workspace = Workspace(tmp_path, "rt")
+    workspace.intermediate_dir.mkdir(parents=True, exist_ok=True)
+    extracted = workspace.intermediate_dir / "rt.extracted.tsv"
+    if not resume:  # genes unsorted so real chunking must sort and restore input order
+        extracted.write_text(
+            "CHROM\tPOS\tANN[0].GENE\tGEN[0].GT\n"
+            "1\t10\tZNF1\t0/1\n1\t20\tABC1\t1/1\n1\t30\tZNF1\t0/0\n"
+        )
+    config = {
+        "pipeline_version": "test-version",
+        "output_file": "variants.tsv",
+        "perform_association": True,
+        "gzip_intermediates": False,
+        "threads": 1,
+        "chunk_size": 1,
+        **chunking,
+    }
+    state = PipelineState(str(tmp_path), enable_checksum=False)
+    if resume:
+        assert state.load()
+    else:
+        state.initialize(config, "test-version")
+    context = PipelineContext(
+        args=Namespace(), config={**config, "resume": resume}, workspace=workspace
+    )
+    context.data = extracted
+    context.extracted_tsv = extracted
+    context.checkpoint_state = state
+    stages = [
+        DataFrameLoadingStage(),
+        ChunkedAnalysisStage(),
+        VolatileAnnotationStage(),
+        AssociationProbeStage(),
+        FinalTSVStage(),
+    ]
+    return PipelineRunner(enable_checkpoints=True, max_workers=1).run(stages, context)
+
+
+@pytest.mark.parametrize(
+    "chunking",
+    [{"no_chunked_processing": True}, {"force_chunked_processing": True}],
+    ids=["noop_chunk_stage", "real_chunked"],
+)
+def test_resume_after_completed_run_reproduces_output(tmp_path, chunking, caplog):
+    """#184: resume after a no-op or real chunked run restores and yields identical output."""
+    caplog.set_level("INFO")
+    first = _run_fresh_or_resume(tmp_path, chunking, resume=False).final_output_path.read_text()
+    chunk_artifact = tmp_path / "intermediate" / "chunked_analysis_results.tsv"
+    assert chunk_artifact.exists() == ("force_chunked_processing" in chunking)
+
+    resumed = _run_fresh_or_resume(tmp_path, chunking, resume=True)
+
+    assert "Restoring completed stage from checkpoint: chunked_analysis" in caplog.text
+    assert resumed.final_output_path.read_text() == first
+    assert first.splitlines()[1].startswith("1\t10\tZNF1")
