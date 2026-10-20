@@ -278,7 +278,10 @@ class AssociationAnalysisStage(Stage):
 
         n_cases_total = len(case_samples)
         n_controls_total = len(control_samples)
-        if not quantitative and not _cohort_size_ok(n_cases_total, n_controls_total):
+        guard_ratio = (
+            None if assoc_config.diagnostics_output else assoc_config.max_case_control_ratio
+        )
+        if not quantitative and not _cohort_size_ok(n_cases_total, n_controls_total, guard_ratio):
             return context
 
         raw_categorical: dict[str, Any] = {}

@@ -39,8 +39,13 @@ def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) 
     )
 
 
-def _cohort_size_ok(n_cases_total: int, n_controls_total: int) -> bool:
-    """Log binary cohort size/balance warnings; False when too few cases to analyse."""
+def _cohort_size_ok(
+    n_cases_total: int, n_controls_total: int, max_ratio: float | None = 20.0
+) -> bool:
+    """Log binary cohort size/balance warnings; False when too few cases to analyse.
+
+    ``max_ratio=None`` skips the imbalance warning (diagnostics emit it instead).
+    """
     if n_cases_total < 10:
         logger.error(
             f"Association analysis: only {n_cases_total} case(s) found — "
@@ -59,7 +64,7 @@ def _cohort_size_ok(n_cases_total: int, n_controls_total: int) -> bool:
         )
     from ..association.diagnostics import imbalance_message
 
-    msg = imbalance_message(n_cases_total, n_controls_total)
+    msg = imbalance_message(n_cases_total, n_controls_total, max_ratio) if max_ratio else None
     if msg:
         logger.warning(msg)
     return True

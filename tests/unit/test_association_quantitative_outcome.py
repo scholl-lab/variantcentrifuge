@@ -551,3 +551,16 @@ def test_covariate_case_control_table_written_by_stage(tmp_path):
         {"covariate": "batch", "level": "X", "n_cases": n_cases, "n_controls": 0},
         {"covariate": "batch", "level": "Y", "n_cases": 0, "n_controls": len(SAMPLES) - n_cases},
     ]
+
+
+def test_cohort_size_ok_uses_configured_ratio(caplog):
+    """Ratio 7.8 warns when max_case_control_ratio=5, and stays silent when imbalance is None."""
+    from variantcentrifuge.stages.association_analysis_stages import _cohort_size_ok
+
+    with caplog.at_level("WARNING", logger="variantcentrifuge"):
+        assert _cohort_size_ok(788, 101, 5.0) is True
+    assert "cases outnumber controls 7.8:1" in caplog.text
+    caplog.clear()
+    with caplog.at_level("WARNING", logger="variantcentrifuge"):
+        _cohort_size_ok(788, 101, None)  # diagnostics emit it instead (no duplicate)
+    assert "outnumber" not in caplog.text
