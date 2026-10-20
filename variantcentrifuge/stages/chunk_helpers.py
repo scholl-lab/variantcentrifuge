@@ -38,11 +38,16 @@ TSV_READ_KWARGS: dict[str, Any] = {
 }
 
 
+_HINT = "Fix the input file or rerun with --no-chunked-processing."
+
+
 def _tsv_lines(path: Path) -> Iterator[tuple[int, str]]:
     """Yield (line number, line) for non-blank lines, as the serial loader sees them.
 
-    Newlines are universal (CRLF/CR), a UTF-8 BOM on line 1 is dropped, and empty or
-    space-only lines are skipped; a line containing a tab is a record (of empty fields).
+    Newlines are universal (CRLF/CR), a UTF-8 BOM on line 1 is dropped, and lines that are
+    empty or contain only ASCII spaces are skipped. Any other line is a record, so a line of
+    tabs, form feeds or Unicode spaces reaches width validation. Parity exception: in a
+    one-column file a spaces-only record is kept by the serial loader but skipped here.
     """
     opener: Any = gzip.open if str(path).endswith(".gz") else open
     with opener(path, "rt", encoding="utf-8") as f:
@@ -50,37 +55,56 @@ def _tsv_lines(path: Path) -> Iterator[tuple[int, str]]:
             line = line.rstrip("\r\n")
             if lineno == 1:
                 line = line.removeprefix("\ufeff")
-            if "\t" in line or line.strip():
+            if line.strip(" "):
                 yield lineno, line
 
 
+def _check_no_nul(path: Path, lineno: int, line: str) -> None:
+    if "\x00" in line:
+        raise ValueError(
+            f"Chunked processing: {path} line {lineno} contains a NUL character. {_HINT}"
+        )
+
+
 def read_tsv_header(path: Path) -> list[str]:
-    """Header fields of a TSV (first non-blank line), verbatim apart from BOM/newline."""
-    return next(_tsv_lines(path), (0, ""))[1].split("\t")
+    """Header fields (first non-blank line), verbatim apart from BOM/newline.
+
+    Chunked processing requires a header with non-empty field names and no NUL characters.
+    """
+    lineno, header = next(_tsv_lines(path), (0, ""))
+    if not header:
+        raise ValueError(f"Chunked processing: {path} has no header line. {_HINT}")
+    _check_no_nul(path, lineno, header)
+    fields = header.split("\t")
+    if "" in fields:
+        raise ValueError(
+            f"Chunked processing: {path} header (line {lineno}) has an empty column name "
+            f"at position {fields.index('') + 1}. {_HINT}"
+        )
+    return fields
 
 
 def write_row_indexed_copy(input_file: Path, output_file: Path, index_col: str) -> None:
     """Copy a TSV with each data row prefixed by its 0-based position.
 
     Fast single text pass (plain or gzip). Chunked processing requires well-formed input:
-    every data row must have exactly the header's field count. Unlike the serial loader,
-    which skips or pads malformed rows, a malformed row or missing header fails here.
+    a valid header (see read_tsv_header) and data rows with exactly the header's field
+    count and no NUL characters. Unlike the serial loader, which skips or pads malformed
+    rows, any violation fails here with its line number.
     """
-    hint = "Fix the input file or rerun with --no-chunked-processing."
+    fields = read_tsv_header(input_file)
     lines = _tsv_lines(input_file)
-    lineno, header = next(lines, (0, ""))
-    if not header:
-        raise ValueError(f"Chunked processing: {input_file} has no header line. {hint}")
-    n_tabs = header.count("\t")
+    next(lines)  # header, validated above
     with open(output_file, "w", encoding="utf-8") as dst:
-        dst.write(f"{index_col}\t{header}\n")
+        dst.write(index_col + "\t" + "\t".join(fields) + "\n")
         for row, (lineno, line) in enumerate(lines):
-            if line.count("\t") != n_tabs:
+            if line.count("\t") != len(fields) - 1:
                 raise ValueError(
                     f"Chunked processing: {input_file} line {lineno} has "
-                    f"{line.count(chr(9)) + 1} tab-separated fields, header has {n_tabs + 1}. "
-                    + hint
+                    f"{line.count(chr(9)) + 1} tab-separated fields, header has {len(fields)}. "
+                    + _HINT
                 )
+            _check_no_nul(input_file, lineno, line)
             dst.write(f"{row}\t{line}\n")
 
 
@@ -126,7 +150,7 @@ def ensure_sorted_by_gene(input_file: Path, gene_col: str, context: PipelineCont
             "-t",
             "\t",
             "-k",
-            str(col_idx),
+            f"{col_idx},{col_idx}",  # the gene field only, not the rest of the line
             "--stable",
             "-T",
             str(context.workspace.temp_dir),
@@ -159,7 +183,11 @@ def ensure_sorted_by_gene(input_file: Path, gene_col: str, context: PipelineCont
                 )
 
             assert tail_proc.stdout is not None
-            sort_proc = subprocess.Popen(sort_cmd, stdin=tail_proc.stdout, stdout=out_f)
+            # Bytewise collation: locale rules could interleave e.g. MYC and MYCN rows.
+            sort_env = {**os.environ, "LC_ALL": "C"}
+            sort_proc = subprocess.Popen(
+                sort_cmd, stdin=tail_proc.stdout, stdout=out_f, env=sort_env
+            )
             tail_proc.stdout.close()
             sort_proc.wait()
 

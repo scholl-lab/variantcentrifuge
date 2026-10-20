@@ -441,3 +441,87 @@ def test_header_only_ann_input_has_serial_schema_fresh_and_restored(tmp_path):
         assert list(ctx.current_dataframe.columns) == expected
         assert ctx.current_dataframe.empty
         assert ctx.column_rename_map == {"ANN[0].GENE": "ANN_0__GENE"}
+
+
+def _locale_available(name: str) -> bool:
+    import subprocess
+
+    out = subprocess.run(["locale", "-a"], capture_output=True, text=True).stdout.lower()
+    return name.lower().replace("-", "") in out.replace("-", "")
+
+
+@pytest.mark.parametrize("parent_locale", ["C", "en_US.utf8"])
+def test_gene_sort_is_single_key_bytewise_and_keeps_comp_het(tmp_path, monkeypatch, parent_locale):
+    """Review r5 #1: `sort -k N` (rest of line) under a collating locale interleaved
+    MYC/MYCN rows; chunking then split the MYC comp-het pair."""
+    import subprocess
+
+    import variantcentrifuge.stages.chunk_helpers as helpers
+    from variantcentrifuge.memory import ResourceManager
+
+    if not _locale_available(parent_locale) and parent_locale != "C":
+        pytest.skip(f"locale {parent_locale} not installed")
+    monkeypatch.setenv("LC_ALL", parent_locale)
+    monkeypatch.setattr(ResourceManager, "auto_chunk_size", lambda self, *a, **k: 1)
+    calls: list[tuple[list[str], dict | None]] = []
+    real_popen = subprocess.Popen
+
+    def spy(cmd, *args, **kwargs):
+        calls.append((list(cmd), kwargs.get("env")))
+        return real_popen(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(helpers.subprocess, "Popen", spy)
+    rows = [
+        ("100", "MYC", "missense_variant", ("0/1", "0/1", "0/0")),
+        ("200", "MYCN", "missense_variant", ("0/1", "0/0", "0/0")),
+        ("300", "MYC", "stop_gained", ("0/1", "0/0", "0/1")),
+    ]
+    header = "CHROM\tPOS\tREF\tALT\tGENE\tEFFECT\tGEN[0].GT\tGEN[1].GT\tGEN[2].GT"
+    tsv = tmp_path / "trio.tsv"
+    tsv.write_text(
+        header
+        + "\n"
+        + "".join(f"1\t{p}\tA\tT\t{g}\t{e}\t" + "\t".join(gt) + "\n" for p, g, e, gt in rows)
+    )
+    context = _context(tmp_path, tsv, use_chunked_processing=True, inheritance_mode="simple")
+    context.vcf_samples = ["Child", "Father", "Mother"]
+    context.pedigree_data = _TRIO
+    df = ChunkedAnalysisStage()._process(context).current_dataframe
+
+    sort_cmd, sort_env = next((c, e) for c, e in calls if c[0] == "sort")
+    key = sort_cmd[sort_cmd.index("-k") + 1]
+    assert key == "6,6"  # GENE is field 6 after the row-index prefix; single-field key
+    assert sort_env is not None and sort_env["LC_ALL"] == "C"
+    patterns = dict(zip(df["POS"], df["Inheritance_Pattern"], strict=True))
+    assert patterns["100"] == patterns["300"] == "compound_heterozygous"
+
+
+@pytest.mark.parametrize("ws", ["\f", "\v", "\u00a0", "\u2003", "\t"])
+def test_non_ascii_space_lines_are_records_and_fail_width_check(tmp_path, ws):
+    """Review r5 #2: only empty/ASCII-space lines are blank; others are width-checked."""
+    tsv = tmp_path / "ws.tsv"
+    tsv.write_text(f"CHROM\tPOS\tGENE\n1\t1\tA\n{ws}\n1\t2\tB\n")
+    with pytest.raises(ValueError, match=r"line 3 has \d tab-separated fields"):
+        ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("", "no header line"),
+        ("\n\n", "no header line"),
+        ("﻿\n", "no header line"),
+        ("  \n", "no header line"),
+        ("CHROM\tPOS\tGENE\t\n1\t1\tA\tx\n", "empty column name at position 4"),
+        ("CHROM\t\tGENE\n1\t1\tA\n", "empty column name at position 2"),
+        ("CHROM\tPOS\tGE\x00NE\n1\t1\tA\n", "line 1 contains a NUL"),
+        ("CHROM\tPOS\tGENE\n1\t1\tA\n1\t2\tA\x00B\n", "line 3 contains a NUL"),
+    ],
+)
+def test_stage_rejects_invalid_header_or_nul(tmp_path, text, message):
+    """Review r5 #3/#4: actionable errors from _process itself, before any fallback."""
+    tsv = tmp_path / "bad.tsv"
+    tsv.write_text(text)
+    with pytest.raises(ValueError, match=message) as exc:
+        ChunkedAnalysisStage()._process(_context(tmp_path, tsv, use_chunked_processing=True))
+    assert "--no-chunked-processing" in str(exc.value)
