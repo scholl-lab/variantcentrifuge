@@ -934,3 +934,18 @@ def test_coast_indeterminate_allelic_component_skips_whole_test():
         assert near.extra["coast_status"] == "skipped"
     else:  # classified: must agree with the exact design up to the 1e-8 perturbation
         assert near.p_value < 1e-10
+
+
+def test_coast_outcome_explained_by_covariates_is_skipped():
+    """Final review: an untestable null fit (y == covariate) skips COAST, cached per cohort."""
+    contingency_data, config = _make_coast_contingency_data(trait_type="quantitative")
+    y = np.random.default_rng(0).integers(0, 10, 100).astype(float)
+    contingency_data["phenotype_vector"] = y
+    contingency_data["covariate_matrix"] = y[:, None]
+    test = PurePythonCOASTTest()
+    test.check_dependencies()
+    for _ in range(2):
+        result = test.run("TEST_GENE", contingency_data, config)
+        assert result.p_value is None
+        assert result.extra["coast_skip_reason"] == "OUTCOME_EXPLAINED_BY_COVARIATES"
+        assert result.extra["coast_status"] == "skipped"

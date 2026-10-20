@@ -85,6 +85,21 @@ def full_rank_design(covariates: np.ndarray | None, n_obs: int) -> tuple[np.ndar
     return np.column_stack([ones, basis]), r_sel
 
 
+def outcome_explained(y: np.ndarray, nuisance: NullModelResult, residuals: np.ndarray) -> bool:
+    """
+    True when the covariates leave no testable outcome variation.
+
+    Quantitative: ``||P y|| / ||y||`` is within the projection round-off bound
+    (same reasoning as :func:`explained_columns`; unit invariant).  Binary: every
+    response residual is below 0.5, i.e. the fitted linear predictor separates
+    cases from controls, so no finite null MLE exists.
+    """
+    if nuisance.trait_type == "binary":
+        return bool(np.all(np.abs(residuals) < 0.5))
+    adjusted, z, bound = _project(np.asarray(y, dtype=np.float64), nuisance)
+    return bool(np.linalg.norm(adjusted) <= bound * np.linalg.norm(z))
+
+
 def fit_glm_null_model(
     phenotype: np.ndarray,
     covariates: np.ndarray | None,
@@ -100,8 +115,10 @@ def fit_glm_null_model(
     Raises
     ------
     ValueError
-        Non-finite or constant outcome, non-finite covariates, or no residual
-        degrees of freedom.
+        Non-finite or constant outcome, or non-finite covariates.
+    UntestableGeneError
+        ``INSUFFICIENT_RESIDUAL_DF`` (samples <= independent design columns) or
+        ``OUTCOME_EXPLAINED_BY_COVARIATES``; callers skip the affected gene/sample set.
     """
     import statsmodels.api as sm
 
@@ -116,15 +133,24 @@ def fit_glm_null_model(
     design_matrix, covariate_r = full_rank_design(covariates, n_obs)
     df_resid = n_obs - design_matrix.shape[1]
     if df_resid <= 0:
-        raise ValueError(
+        logger.warning(
             f"Cannot fit SKAT null model: {n_obs} samples for "
             f"{design_matrix.shape[1]} independent design columns"
         )
+        raise UntestableGeneError("INSUFFICIENT_RESIDUAL_DF")
 
     family = sm.families.Binomial() if trait_type == "binary" else sm.families.Gaussian()
     fit_result = sm.GLM(y, design_matrix, family=family).fit()
 
     residuals = np.asarray(fit_result.resid_response, dtype=np.float64)
+    nuisance = NullModelResult(
+        model=None,
+        trait_type=trait_type,
+        n_samples=n_obs,
+        extra={"design_matrix": design_matrix, "covariate_r": covariate_r},
+    )
+    if outcome_explained(y, nuisance, residuals):
+        raise UntestableGeneError("OUTCOME_EXPLAINED_BY_COVARIATES")
     sigma2 = float(residuals @ residuals) / df_resid if trait_type == "quantitative" else 1.0
     mu_hat = np.asarray(fit_result.fittedvalues, dtype=np.float64)
     logger.debug(f"Null model fit: trait_type={trait_type}, n_samples={n_obs}, sigma2={sigma2:.6f}")

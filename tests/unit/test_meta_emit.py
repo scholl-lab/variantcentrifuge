@@ -213,3 +213,26 @@ def test_emit_omits_untestable_gene_and_keeps_others(monkeypatch, tmp_path):
             mask_id="m",
             mask_hash="h",
         )
+
+
+def test_emit_omits_gene_whose_masked_null_has_no_residual_df(tmp_path, caplog):
+    """Final review: masking one sample leaves n == rank(X); omit that gene, keep others."""
+    import dataclasses
+
+    import scipy.linalg
+
+    b, _alt, _pheno = _builder(n=22)
+    b.phenotype_vector = (np.arange(22) % 2).astype(float)
+    b.covariate_matrix = scipy.linalg.null_space(np.vstack([np.ones(22), b.phenotype_vector]))
+    bad = dataclasses.replace(b, gene_df=b.gene_df.assign(S0="./."))
+    art = emit_stratum_artifact(
+        str(tmp_path / "s1"),
+        {"GOOD": b, "BAD": bad},
+        stratum_id="s1",
+        genome_build="GRCh38",
+        annotation_version="GRCh38.99",
+        mask_id="m",
+        mask_hash="h",
+    )
+    assert set(art.genes) == {"GOOD"}
+    assert "INSUFFICIENT_RESIDUAL_DF" in caplog.text

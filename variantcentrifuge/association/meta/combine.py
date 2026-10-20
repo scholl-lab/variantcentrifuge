@@ -28,6 +28,7 @@ import scipy.linalg
 import scipy.stats
 
 from variantcentrifuge.association.backends.davies import compute_pvalue
+from variantcentrifuge.association.backends.null_model import _DECISION_ACC
 from variantcentrifuge.association.backends.python_backend import (
     _SKATO_RHO_GRID,
     _skato_get_pvalue,
@@ -94,7 +95,14 @@ def meta_burden(
     s, sigma = _weighted_moments(u_list, v_list, weights)
     score = float(s.sum())
     var = float(sigma.sum())
-    if var <= 0.0:
+    # Zero information: each retained variant's projected (co)variance is only
+    # accurate to _DECISION_ACC relative (the per-variant informative rule), so a
+    # collapsed variance below that fraction of its Cauchy-Schwarz scale
+    # (sum_j sqrt(sigma_jj))^2 is indistinguishable from cancellation.
+    scale = float(np.sqrt(np.clip(np.diag(sigma), 0.0, None)).sum()) ** 2
+    if var <= _DECISION_ACC * scale:
+        if scale > 0.0:
+            logger.warning("Meta burden: collapsed variance is numerically zero; not tested")
         return None, 0.0, 0
     z = score / np.sqrt(var)
     p = float(2.0 * scipy.stats.norm.sf(abs(z)))

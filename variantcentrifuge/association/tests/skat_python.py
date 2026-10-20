@@ -44,7 +44,10 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from variantcentrifuge.association.backends.null_model import outcome_problem
+from variantcentrifuge.association.backends.null_model import (
+    UntestableGeneError,
+    outcome_problem,
+)
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
 from variantcentrifuge.association.tests.acat import compute_acat_v
 from variantcentrifuge.association.weights import get_weights
@@ -86,6 +89,8 @@ class PurePythonSKATTest(AssociationTest):
     def __init__(self) -> None:
         self._backend: PythonSKATBackend | None = None
         self._null_model: NullModelResult | None = None
+        self._null_failed_key: object = None  # cohort key whose null fit was untestable
+        self._null_failure: str = ""
         self._null_key: tuple | None = None
 
         # Lifecycle tracking (set by prepare())
@@ -262,11 +267,20 @@ class PurePythonSKATTest(AssociationTest):
             else (covariate_matrix.shape, covariate_matrix.tobytes()),
         )
         if self._null_model is None or key != getattr(self, "_null_key", None):
-            self._null_model = self._backend.fit_null_model(
-                phenotype=phenotype,
-                covariates=covariate_matrix,
-                trait_type=config.trait_type,
-            )
+            # Untestable sample sets (e.g. insufficient residual df, outcome explained
+            # by covariates) are skipped; the failure is cached per key.
+            if key == getattr(self, "_null_failed_key", None):
+                return self._skip(gene, self._null_failure, n_cases, n_controls, n_variants)
+            try:
+                self._null_model = self._backend.fit_null_model(
+                    phenotype=phenotype,
+                    covariates=covariate_matrix,
+                    trait_type=config.trait_type,
+                )
+            except UntestableGeneError as exc:
+                self._null_model = None
+                self._null_failed_key, self._null_failure = key, exc.reason
+                return self._skip(gene, exc.reason, n_cases, n_controls, n_variants)
             self._null_key = key
 
         provided_mafs = (

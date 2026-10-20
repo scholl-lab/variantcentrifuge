@@ -331,8 +331,9 @@ class PythonSKATBackend(SKATBackend):
                 "skip_reason": "rank_deficient",
             }
 
-        # Rank check on FULL matrix BEFORE any eigenvalue filtering
-        rank = int(np.linalg.matrix_rank(geno))
+        # Rank of the RETAINED (nonzero-weight) columns, before eigenvalue filtering;
+        # a gene left with one informative variant follows the single-variant policy
+        rank = int(np.linalg.matrix_rank(geno[:, weights != 0.0]))
         if rank < 2:
             logger.debug(f"Gene {gene}: rank={rank} < 2; skipping (rank_deficient)")
             return {
@@ -514,8 +515,8 @@ class PythonSKATBackend(SKATBackend):
                 "skip_reason": "rank_deficient",
             }
 
-        # Rank check on full matrix
-        rank = int(np.linalg.matrix_rank(geno))
+        # Rank of the retained (nonzero-weight) columns, as in _test_skat
+        rank = int(np.linalg.matrix_rank(geno[:, weights != 0.0]))
         if rank < 2:
             logger.debug(f"Gene {gene} (SKAT-O): rank={rank} < 2; skipping")
             return {
@@ -534,6 +535,10 @@ class PythonSKATBackend(SKATBackend):
         if explained_columns(geno_weighted.sum(axis=1)[:, np.newaxis], null_model) is None:
             # rho = 1 (burden) component cannot be classified reliably
             return self._skip_result(n_variants, n_variants, "ill_conditioned_covariates")
+        # Effective rank of the nuisance-projected kernel: the SKAT-O decomposition
+        # needs >= 2 non-round-off eigenvalues (same floors as SKAT)
+        if len(self._compute_eigenvalues_filtered(geno_weighted, null_model)) < 2:
+            return self._skip_result(n_variants, n_variants, "rank_deficient")
 
         # ── Step 1-2: Compute Q_rho and projection-adjusted Z1/sqrt(2) ──
         q_rho, z1_half = compute_skato_q_and_z1(geno_weighted, null_model, _SKATO_RHO_GRID)

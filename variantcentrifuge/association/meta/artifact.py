@@ -338,7 +338,7 @@ def emit_stratum_artifact(
             f"{int((pheno_all == 0).sum())} controls, {pheno_all.size} samples)"
         )
     omitted: list[str] = []
-    nulls: dict[bytes, NullModelResult] = {}
+    nulls: dict[bytes, NullModelResult | UntestableGeneError] = {}
     gene_scores: dict[str, GeneScore] = {}
     for gene, b in builders.items():
         if b.gene_df.empty:
@@ -386,12 +386,16 @@ def emit_stratum_artifact(
             omitted.append(gene)
             continue
         null_key = mask.tobytes()
-        if null_key not in nulls:
-            cov = b.covariate_matrix[mask] if b.covariate_matrix is not None else None
-            nulls[null_key] = fit_stratum_null(pheno_all[mask], cov, "binary")
         try:
-            gene_scores[gene] = compute_gene_score(geno, raw, nulls[null_key], keys, ploidy=plo)
+            if null_key not in nulls:
+                cov = b.covariate_matrix[mask] if b.covariate_matrix is not None else None
+                nulls[null_key] = fit_stratum_null(pheno_all[mask], cov, "binary")
+            null_model = nulls[null_key]
+            if isinstance(null_model, UntestableGeneError):
+                raise null_model
+            gene_scores[gene] = compute_gene_score(geno, raw, null_model, keys, ploidy=plo)
         except UntestableGeneError as exc:
+            nulls.setdefault(null_key, exc)  # cache an untestable sample set
             logger.warning("Score artifact: omitting gene %s: %s", gene, exc.reason)
             omitted.append(gene)
 

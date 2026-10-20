@@ -200,7 +200,7 @@ def test_degenerate_outcomes_rejected(backend, case):
 
 def test_null_model_requires_residual_degrees_of_freedom(backend):
     y = np.array([0.0, 1.0, 2.0])
-    with pytest.raises(ValueError, match="independent design columns"):
+    with pytest.raises(ValueError, match="INSUFFICIENT_RESIDUAL_DF"):
         backend.fit_null_model(y, np.array([[1.0, 0.0], [0.0, 1.0], [2.0, 5.0]]), "quantitative")
 
 
@@ -353,11 +353,14 @@ def test_explained_variant_cannot_mask_small_independent_variant(backend, trait)
     eta = 0.5 * geno[:, 1] + rng.normal(size=100000)
     y = eta if trait == "quantitative" else (eta > 0.5).astype(float)
     null = backend.fit_null_model(y, geno[:, :1], trait)
-    for method in ("SKAT", "Burden"):
-        big = backend.test_gene("G", geno, null, method, weights=np.array([1.0, 1e-10]))
-        ref = backend.test_gene("G", geno, null, method, weights=np.array([0.0, 1e-10]))
-        assert ref["p_value"] is not None and ref["p_value"] < 1e-3
-        assert big["p_value"] == pytest.approx(ref["p_value"], rel=1e-9, abs=0), method
+    big = backend.test_gene("G", geno, null, "Burden", weights=np.array([1.0, 1e-10]))
+    ref = backend.test_gene("G", geno, null, "Burden", weights=np.array([0.0, 1e-10]))
+    assert ref["p_value"] is not None and ref["p_value"] < 1e-3
+    assert big["p_value"] == pytest.approx(ref["p_value"], rel=1e-9, abs=0)
+    # One retained variant: SKAT follows the single-variant (rank < 2) policy either way
+    big = backend.test_gene("G", geno, null, "SKAT", weights=np.array([1.0, 1e-10]))
+    ref = backend.test_gene("G", geno, null, "SKAT", weights=np.array([0.0, 1e-10]))
+    assert big["skip_reason"] == ref["skip_reason"] == "rank_deficient"
 
 
 @pytest.mark.parametrize("name", [s for s in SPECS if s.startswith("quantitative")])
@@ -632,3 +635,91 @@ def test_in_span_columns_never_informative_and_within_bound(trait, sep_exp, n, k
     assert np.all(ratio <= bound)
     explained = explained_columns(geno, null)
     assert explained is None or explained.all()
+
+
+@pytest.mark.parametrize("seed", [0, 6, 17, 31])
+def test_skato_with_one_retained_variant_follows_single_variant_policy(backend, seed):
+    """Final review item 1: covariate explains g0; one informative variant remains."""
+    rng = np.random.default_rng(seed)
+    geno = rng.binomial(2, [0.1, 0.2], (300, 2)).astype(float)
+    y = rng.normal(size=300)
+    null = backend.fit_null_model(y, geno[:, :1], "quantitative")
+    single = backend.test_gene("G", geno[:, 1:], null, "SKATO", weights=np.ones(1))
+    for method in ("SKAT", "SKATO"):
+        res = backend.test_gene("G", geno, null, method, weights=np.ones(2))
+        assert res["p_value"] is None and res["skip_reason"] == single["skip_reason"]
+    burden = backend.test_gene("G", geno, null, "Burden", weights=np.ones(2))
+    ref = backend.test_gene("G", geno[:, 1:], null, "Burden", weights=np.ones(1))
+    assert burden["p_value"] == pytest.approx(ref["p_value"], rel=1e-12, abs=0)
+
+
+@pytest.mark.parametrize("scale", [1.0, 1e-6, 1e6])
+def test_outcome_explained_by_covariates_is_untestable(backend, scale):
+    """Final review item 2: y = x exactly; no residual variation (unit invariant)."""
+    from variantcentrifuge.association.backends.null_model import UntestableGeneError
+
+    rng = np.random.default_rng(0)
+    geno = rng.binomial(2, 0.1, (300, 8)).astype(float)
+    x = rng.integers(0, 10, 300).astype(float)[:, None] * scale
+    y = x[:, 0]
+    with pytest.raises(UntestableGeneError, match="OUTCOME_EXPLAINED_BY_COVARIATES"):
+        backend.fit_null_model(y, x, "quantitative")
+    data = {
+        "genotype_matrix": geno,
+        "variant_mafs": geno.mean(axis=0) / 2,
+        "phenotype_vector": y,
+        "covariate_matrix": x,
+        "n_qualifying_variants": 8,
+    }
+    cfg = AssociationConfig(trait_type="quantitative")
+    res = LinearBurdenTest().run("G", data, cfg)
+    assert res.p_value is None and res.extra["warnings"] == ["OUTCOME_EXPLAINED_BY_COVARIATES"]
+    skat = PurePythonSKATTest()
+    skat.check_dependencies()
+    for _ in range(2):  # second call uses the cached failure
+        res = skat.run("G", data, cfg)
+        assert (
+            res.p_value is None and res.extra["skat_warnings"] == "OUTCOME_EXPLAINED_BY_COVARIATES"
+        )
+    # A genuine residual still tests normally
+    data["phenotype_vector"] = y + scale * rng.normal(size=300)
+    assert skat.run("G", data, cfg).p_value is not None
+
+
+def test_binary_outcome_separated_by_covariates_is_untestable(backend):
+    from variantcentrifuge.association.backends.null_model import UntestableGeneError
+
+    x = np.arange(100, dtype=float)[:, None]
+    y = (x[:, 0] >= 50).astype(float)
+    with pytest.raises(UntestableGeneError, match="OUTCOME_EXPLAINED_BY_COVARIATES"):
+        backend.fit_null_model(y, x, "binary")
+
+
+def test_insufficient_residual_df_skips_skat_gene():
+    rng = np.random.default_rng(1)
+    geno = rng.binomial(2, 0.2, (6, 3)).astype(float)
+    data = {
+        "genotype_matrix": geno,
+        "phenotype_vector": np.array([0.0, 1, 0, 1, 0, 1]),
+        "covariate_matrix": rng.normal(size=(6, 5)),
+        "n_qualifying_variants": 3,
+    }
+    skat = PurePythonSKATTest()
+    skat.check_dependencies()
+    res = skat.run("G", data, AssociationConfig(skat_method="SKAT"))
+    assert res.p_value is None and res.extra["skat_warnings"] == "INSUFFICIENT_RESIDUAL_DF"
+
+
+def test_meta_burden_skips_cancelled_collapsed_variance(backend):
+    """Final review item 4: both variants informative, their sum is the covariate."""
+    from variantcentrifuge.association.meta.artifact import compute_gene_score
+    from variantcentrifuge.association.meta.combine import meta_burden
+
+    rng = np.random.default_rng(21)
+    geno = rng.binomial(2, 0.1, (60, 2)).astype(float)
+    x = geno.sum(axis=1)[:, None]
+    y = rng.binomial(1, 1 / (1 + np.exp(4 - 3 * x[:, 0]))).astype(float)
+    null = backend.fit_null_model(y, x, "binary")
+    assert backend.test_gene("G", geno, null, "Burden", weights=np.ones(2))["p_value"] is None
+    score = compute_gene_score(geno, geno, null, ["1:1:A:G", "1:2:A:G"])
+    assert meta_burden([score.u], [score.v], np.ones(2)) == (None, 0.0, 0)

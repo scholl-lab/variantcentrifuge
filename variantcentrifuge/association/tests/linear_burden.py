@@ -25,6 +25,8 @@ Warning codes
     Covariate matrix contains NaN/inf.
 ``BURDEN_NOT_ESTIMABLE``
     Burden is constant or lies in the span of the intercept and covariates.
+``OUTCOME_EXPLAINED_BY_COVARIATES``
+    Covariates reproduce the outcome exactly (no residual variation to test).
 ``ILL_CONDITIONED_COVARIATES``
     Covariates too ill-conditioned to decide whether the burden is estimable.
 ``OLS_FIT_FAILED`` / ``NONFINITE_STATISTICS``
@@ -42,6 +44,7 @@ from variantcentrifuge.association.backends.base import NullModelResult
 from variantcentrifuge.association.backends.null_model import (
     explained_columns,
     full_rank_design,
+    outcome_explained,
     outcome_problem,
 )
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
@@ -212,6 +215,15 @@ class LinearBurdenTest(AssociationTest):
             n_samples=n_obs,
             extra={"design_matrix": nuisance, "covariate_r": covariate_r},
         )
+        if outcome_explained(phenotype, nuisance_model, phenotype):
+            return self._skip(
+                gene,
+                ["OUTCOME_EXPLAINED_BY_COVARIATES"],
+                n_cases,
+                n_controls,
+                n_variants,
+                n_carriers,
+            )
         explained = explained_columns(burden[:, np.newaxis], nuisance_model)
         if explained is None:
             return self._skip(
