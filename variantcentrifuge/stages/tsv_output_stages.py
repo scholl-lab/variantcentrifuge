@@ -10,7 +10,6 @@ Contains:
 
 import gzip
 import logging
-import shutil
 import sys
 import tarfile
 from pathlib import Path
@@ -220,7 +219,7 @@ class FinalFilteringStage(Stage):
     @property
     def parallel_safe(self) -> bool:
         """Return whether this stage can run in parallel with others."""
-        return True  # Safe - only filters DataFrame, no external I/O
+        return False  # Must run in main process - replaces current_dataframe
 
     @property
     def soft_dependencies(self) -> set[str]:
@@ -300,19 +299,6 @@ class FinalFilteringStage(Stage):
         return context
 
 
-def _tsv_has_data_rows(tsv_path: Path | str) -> bool:
-    """Check if TSV file contains at least one data row beyond the header."""
-    open_fn = gzip.open if str(tsv_path).endswith(".gz") else open
-    try:
-        with open_fn(tsv_path, "rt", encoding="utf-8", errors="replace") as f:
-            header = f.readline()
-            if not header:
-                return False
-            return any(line.strip() for line in f)
-    except Exception:
-        return False
-
-
 class TSVOutputStage(Stage):
     """Write final TSV output file."""
 
@@ -357,67 +343,6 @@ class TSVOutputStage(Stage):
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Write final TSV output."""
         df = context.current_dataframe
-
-        # Handle chunked processing
-        if context.config.get("use_chunked_processing") and df is None:
-            # Check if chunked analysis results are available
-            if hasattr(context, "chunked_analysis_tsv") and context.chunked_analysis_tsv:
-                if not Path(context.chunked_analysis_tsv).exists():
-                    raise RuntimeError("No data to write")
-                if context.config.get("fail_on_empty", False) and not _tsv_has_data_rows(
-                    context.chunked_analysis_tsv
-                ):
-                    logger.error("Zero variants remaining in final output (--fail-on-empty)")
-                    sys.exit(2)
-                logger.info(f"Using chunked analysis results from: {context.chunked_analysis_tsv}")
-                # Copy chunked results to final output location
-                output_file = context.config.get("output_file")
-                if not output_file or output_file in ["stdout", "-"]:
-                    open_fn = (
-                        gzip.open if str(context.chunked_analysis_tsv).endswith(".gz") else open
-                    )
-                    with open_fn(context.chunked_analysis_tsv, "rt") as f:
-                        for line in f:
-                            sys.stdout.write(line)
-                    return context
-                final_output_path = Path(output_file)
-                if not final_output_path.is_absolute():
-                    final_output_path = context.workspace.output_dir / final_output_path
-                src_gz = str(context.chunked_analysis_tsv).endswith(".gz")
-                dst_gz = str(final_output_path).endswith(".gz")
-                with AtomicFileOperation(final_output_path) as temp_out:
-                    if src_gz == dst_gz:
-                        shutil.copy2(context.chunked_analysis_tsv, temp_out)
-                    elif src_gz:
-                        with (
-                            gzip.open(context.chunked_analysis_tsv, "rb") as fi,
-                            open(temp_out, "wb") as fo,
-                        ):
-                            shutil.copyfileobj(fi, fo)
-                    else:
-                        with (
-                            open(context.chunked_analysis_tsv, "rb") as fi,
-                            gzip.open(temp_out, "wb") as fo,
-                        ):
-                            shutil.copyfileobj(fi, fo)
-                context.final_output_path = final_output_path
-                logger.info(f"Chunked analysis results copied to: {final_output_path}")
-                return context
-
-            # Fallback: Output already written during chunked processing
-            output_file = context.config.get("chunked_output_file")
-            if output_file:
-                # Ensure the path is within the output directory
-                output_filename = Path(output_file).name
-                context.final_output_path = context.workspace.output_dir / output_filename
-                logger.info(f"Chunked processing output: {context.final_output_path}")
-                if context.config.get("fail_on_empty", False) and not _tsv_has_data_rows(
-                    context.final_output_path
-                ):
-                    logger.error("Zero variants remaining in final output (--fail-on-empty)")
-                    sys.exit(2)
-                return context
-            raise RuntimeError("No data to write")
 
         if df is None:
             raise RuntimeError("No data to write")

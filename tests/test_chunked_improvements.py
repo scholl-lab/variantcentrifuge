@@ -366,6 +366,43 @@ class TestChunkedProcessingImprovements:
         assert (fallback_df["Inheritance_Pattern"] == "memory_limit_exceeded").all()
 
 
+@pytest.mark.parametrize("parallel", [False, True])
+def test_chunk_writer_rejects_column_mismatch(parallel, tmp_path):
+    """A later chunk with an extra column must fail loudly, not be silently dropped."""
+    stage = ChunkedAnalysisStage()
+    chunks = [
+        pd.DataFrame({"GENE": ["A"], "x": [1]}),
+        pd.DataFrame({"GENE": ["B"], "x": [2], "extra_col": [3]}),
+    ]
+    context = Mock()
+    with (
+        patch.object(stage, "_read_tsv_in_gene_chunks", return_value=iter(chunks)),
+        patch.object(stage, "_process_single_chunk", side_effect=lambda df, *_: df),
+        pytest.raises(ValueError, match="extra_col"),
+    ):
+        out = tmp_path / "out.tsv"
+        if parallel:
+            stage._process_chunks_parallel(tmp_path / "in.tsv", "GENE", 1, context, 2, out, None)
+        else:
+            stage._process_chunks_sequential(tmp_path / "in.tsv", "GENE", 1, context, out, None)
+
+
+def test_chunk_writer_reorders_same_columns(tmp_path):
+    """Chunks with the same columns in a different order are aligned to the first chunk."""
+    stage = ChunkedAnalysisStage()
+    chunks = [
+        pd.DataFrame({"GENE": ["A"], "x": [1]}),
+        pd.DataFrame({"x": [2], "GENE": ["B"]}),
+    ]
+    out = tmp_path / "out.tsv"
+    with (
+        patch.object(stage, "_read_tsv_in_gene_chunks", return_value=iter(chunks)),
+        patch.object(stage, "_process_single_chunk", side_effect=lambda df, *_: df),
+    ):
+        stage._process_chunks_sequential(tmp_path / "in.tsv", "GENE", 1, Mock(), out, None)
+    assert pd.read_csv(out, sep="\t").to_dict("list") == {"GENE": ["A", "B"], "x": [1, 2]}
+
+
 if __name__ == "__main__":
     # Run tests with logging
     logging.basicConfig(level=logging.DEBUG)

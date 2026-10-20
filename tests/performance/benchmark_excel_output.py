@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from variantcentrifuge.converter import convert_to_excel, finalize_excel_file
+from variantcentrifuge.converter import convert_to_excel
 
 
 def _create_variant_df(n_variants: int, n_samples: int = 3, seed: int = 42) -> pd.DataFrame:
@@ -116,7 +116,6 @@ def test_benchmark_excel_write_100(benchmark, tmp_path):
 
     def write_excel():
         xlsx_path = convert_to_excel(str(tsv_path), cfg, df=df)
-        finalize_excel_file(xlsx_path, cfg)
         return xlsx_path
 
     xlsx_path_str = benchmark(write_excel)
@@ -147,7 +146,6 @@ def test_benchmark_excel_write_1k(benchmark, tmp_path):
 
     def write_excel():
         xlsx_path = convert_to_excel(str(tsv_path), cfg, df=df)
-        finalize_excel_file(xlsx_path, cfg)
         return xlsx_path
 
     xlsx_path_str = benchmark(write_excel)
@@ -177,7 +175,6 @@ def test_benchmark_excel_write_10k(benchmark, tmp_path):
 
     def write_excel():
         xlsx_path = convert_to_excel(str(tsv_path), cfg, df=df)
-        finalize_excel_file(xlsx_path, cfg)
         return xlsx_path
 
     xlsx_path_str = benchmark(write_excel)
@@ -207,7 +204,6 @@ def test_benchmark_excel_write_50k(benchmark, tmp_path):
 
     def write_excel():
         xlsx_path = convert_to_excel(str(tsv_path), cfg, df=df)
-        finalize_excel_file(xlsx_path, cfg)
         return xlsx_path
 
     # Use pedantic mode for large dataset (fewer rounds, more reliable)
@@ -221,33 +217,6 @@ def test_benchmark_excel_write_50k(benchmark, tmp_path):
 
     benchmark.extra_info["n_variants"] = n_variants
     benchmark.extra_info["component"] = "excel_write"
-
-
-@pytest.mark.slow
-@pytest.mark.unit
-def test_benchmark_excel_finalization_10k(benchmark, tmp_path):
-    """
-    Benchmark ONLY finalize_excel_file on pre-created 10K row Excel.
-
-    Measures hyperlink/formatting overhead separately from bulk write.
-    """
-    n_variants = 10000
-    df = _create_variant_df(n_variants)
-    cfg = _create_config()
-
-    # Pre-create Excel file (not benchmarked)
-    tsv_path = tmp_path / "variants.tsv"
-    df.to_csv(tsv_path, sep="\t", index=False)
-    xlsx_path = convert_to_excel(str(tsv_path), cfg, df=df)
-
-    # Benchmark only finalization
-    def finalize():
-        finalize_excel_file(xlsx_path, cfg)
-
-    benchmark(finalize)
-
-    benchmark.extra_info["n_variants"] = n_variants
-    benchmark.extra_info["component"] = "excel_finalization"
 
 
 @pytest.mark.slow

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -14,16 +13,7 @@ from .sample_column_helpers import (
     create_sample_columns_from_gt_intelligent,
 )
 
-
-class _LoggerProxy:
-    def __getattr__(self, name: str) -> Any:
-        facade = sys.modules.get("variantcentrifuge.stages.analysis_stages")
-        if facade is not None and hasattr(facade, "logger"):
-            return getattr(facade.logger, name)
-        return getattr(logging.getLogger("variantcentrifuge.stages.analysis_stages"), name)
-
-
-logger: Any = _LoggerProxy()
+logger = logging.getLogger(__name__)
 
 
 class InheritanceAnalysisStage(Stage):
@@ -51,6 +41,9 @@ class InheritanceAnalysisStage(Stage):
 
     def _process(self, context: PipelineContext) -> PipelineContext:
         """Calculate inheritance patterns."""
+        if context.config.get("dataframe_chunked_analysis_complete"):
+            logger.debug("Inheritance already computed during chunked analysis")
+            return context
         df = context.current_dataframe
         if df is None and not context.config.get("use_chunked_processing"):
             logger.warning("No DataFrame loaded for inheritance analysis")
@@ -58,9 +51,7 @@ class InheritanceAnalysisStage(Stage):
 
         inheritance_mode = context.config.get("inheritance_mode", "simple")
 
-        if context.config.get("use_chunked_processing") and not context.config.get(
-            "dataframe_chunked_analysis_complete"
-        ):
+        if context.config.get("use_chunked_processing"):
             logger.info(
                 f"Inheritance analysis ({inheritance_mode} mode) "
                 "will be applied during chunked processing"
@@ -93,49 +84,6 @@ class InheritanceAnalysisStage(Stage):
 
         assert df is not None, "DataFrame must not be None for inheritance analysis"
 
-        rm = context.resource_manager
-        if rm is None:
-            from ..memory import ResourceManager
-
-            rm = ResourceManager(config=context.config)
-
-        chunk_size = rm.auto_chunk_size(len(df), len(vcf_samples))
-
-        num_genes = df["GENE"].nunique() if "GENE" in df.columns else 1
-        avg_variants_per_gene = len(df) / max(1, num_genes)
-        memory_per_gene_gb = rm.estimate_memory(int(avg_variants_per_gene), len(vcf_samples))
-        max_workers = rm.auto_workers(
-            task_count=df["GENE"].nunique() if "GENE" in df.columns else 1,
-            memory_per_task_gb=memory_per_gene_gb,
-        )
-
-        should_chunk = len(df) > chunk_size
-
-        if should_chunk:
-            logger.info(
-                f"Using chunked processing: chunk_size={chunk_size:,}, "
-                f"max_workers={max_workers}, ~{memory_per_gene_gb:.1f}GB per gene"
-            )
-            context.config["use_chunked_processing"] = True
-            context.config["force_chunked_processing"] = True
-
-            preserve_details = self._check_if_scoring_needs_details(context)
-            if preserve_details:
-                logger.info("Preserving Inheritance_Details for chunked processing scoring")
-
-            context.config["inheritance_analysis_config"] = {
-                "inheritance_mode": inheritance_mode,
-                "vcf_samples": vcf_samples,
-                "pedigree_data": pedigree_data,
-                "use_vectorized_comp_het": not context.config.get("no_vectorized_comp_het", False),
-                "preserve_details_for_scoring": preserve_details,
-            }
-            return context
-
-        logger.info(
-            f"Dataset fits in memory ({len(df):,} variants < {chunk_size:,} chunk size), "
-            f"processing as single batch"
-        )
         logger.info(
             f"Calculating inheritance patterns ({inheritance_mode} mode) "
             f"for {len(vcf_samples)} samples"

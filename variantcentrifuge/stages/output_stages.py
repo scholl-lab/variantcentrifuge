@@ -320,19 +320,6 @@ class ExcelReportStage(Stage):
 
         return sheets
 
-    def _add_additional_sheets(self, xlsx_file: str, context: PipelineContext) -> None:
-        """Add additional sheets to existing Excel file (kept for backward compatibility)."""
-        extra_sheets = self._collect_additional_sheets(context)
-        import shutil
-
-        with AtomicFileOperation(xlsx_file) as temp_xlsx:
-            shutil.copy2(xlsx_file, temp_xlsx)
-            with pd.ExcelWriter(
-                str(temp_xlsx), engine="openpyxl", mode="a", if_sheet_exists="new"
-            ) as writer:
-                for sheet_name, sheet_df in extra_sheets.items():
-                    sheet_df.to_excel(writer, index=False, sheet_name=sheet_name)
-
 
 class HTMLReportStage(Stage):
     """Generate interactive HTML report."""

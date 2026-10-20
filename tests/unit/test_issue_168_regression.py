@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import hashlib
+import io
 import json
 from pathlib import Path
 from typing import Any
@@ -316,6 +317,23 @@ class TestReportAndValidateConfigSubcommands:
         assert exc_ir_no_ckpt.value.code == 2
 
 
+def _fake_urlopen(payload: bytes, error: BaseException | None = None) -> Any:
+    """Return a urlopen stand-in streaming payload, then raising error if given."""
+
+    class _Stream(io.BytesIO):
+        def read(self, size: int | None = -1) -> bytes:
+            data = super().read(size)
+            if not data and error is not None:
+                raise error
+            return data
+
+    def fake(url: str, timeout: float | None = None) -> io.BytesIO:
+        assert timeout == 60
+        return _Stream(payload)
+
+    return fake
+
+
 class TestVerifiedReferenceDownloads:
     """Verify reference download integrity, atomic publication, and provenance."""
 
@@ -339,13 +357,7 @@ class TestVerifiedReferenceDownloads:
         payload = self._make_clinvar_gzip_bytes()
         expected_digest = hashlib.sha256(payload).hexdigest()
 
-        def fake_urlretrieve(
-            url: str, filename: str, *args: Any, **kwargs: Any
-        ) -> tuple[str, None]:
-            Path(filename).write_bytes(payload)
-            return filename, None
-
-        monkeypatch.setattr(pm5_module.urllib.request, "urlretrieve", fake_urlretrieve)
+        monkeypatch.setattr(pm5_module.urllib.request, "urlopen", _fake_urlopen(payload))
 
         dest_gz = tmp_path / "variant_summary.txt.gz"
         out_json = tmp_path / "pm5_lookup.json"
@@ -368,7 +380,7 @@ class TestVerifiedReferenceDownloads:
         assert meta["sha256"] == expected_digest
         assert meta["source_url"] == pm5_module.CLINVAR_FTP_URL
         assert "timestamp" in meta
-        assert meta["provenance"]["sha256"] == expected_digest
+        assert "provenance" not in meta
 
     def test_mismatching_sha256_preserves_existing_valid_file(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -380,13 +392,7 @@ class TestVerifiedReferenceDownloads:
 
         corrupt_payload = gzip.compress(b"corrupted new payload")
 
-        def fake_urlretrieve(
-            url: str, filename: str, *args: Any, **kwargs: Any
-        ) -> tuple[str, None]:
-            Path(filename).write_bytes(corrupt_payload)
-            return filename, None
-
-        monkeypatch.setattr(pm5_module.urllib.request, "urlretrieve", fake_urlretrieve)
+        monkeypatch.setattr(pm5_module.urllib.request, "urlopen", _fake_urlopen(corrupt_payload))
 
         with pytest.raises(ValueError, match="SHA-256"):
             pm5_module.download_variant_summary(
@@ -407,15 +413,13 @@ class TestVerifiedReferenceDownloads:
         dest_gz = tmp_path / "variant_summary.txt.gz"
         dest_gz.write_bytes(original_payload)
 
-        def interrupted_urlretrieve(
-            url: str, filename: str, *args: Any, **kwargs: Any
-        ) -> tuple[str, None]:
-            Path(filename).write_bytes(b"\x1f\x8b\x08\x00partial_stream")
-            raise RuntimeError("Connection reset by peer")
+        monkeypatch.setattr(
+            pm5_module.urllib.request,
+            "urlopen",
+            _fake_urlopen(b"\x1f\x8b\x08\x00partial_stream", KeyboardInterrupt()),
+        )
 
-        monkeypatch.setattr(pm5_module.urllib.request, "urlretrieve", interrupted_urlretrieve)
-
-        with pytest.raises(RuntimeError, match="Connection reset by peer"):
+        with pytest.raises(KeyboardInterrupt):
             pm5_module.download_variant_summary(str(dest_gz))
 
         assert dest_gz.read_bytes() == original_payload
@@ -430,14 +434,9 @@ class TestVerifiedReferenceDownloads:
         dest_gz = tmp_path / "variant_summary.txt.gz"
         dest_gz.write_bytes(original_payload)
 
-        def truncated_urlretrieve(
-            url: str, filename: str, *args: Any, **kwargs: Any
-        ) -> tuple[str, None]:
-            # Write truncated gzip bytes
-            Path(filename).write_bytes(original_payload[:-10])
-            return filename, None
-
-        monkeypatch.setattr(pm5_module.urllib.request, "urlretrieve", truncated_urlretrieve)
+        monkeypatch.setattr(
+            pm5_module.urllib.request, "urlopen", _fake_urlopen(original_payload[:-10])
+        )
 
         with pytest.raises(ValueError, match=r"gzip|corrupt|truncated"):
             pm5_module.download_variant_summary(str(dest_gz))
@@ -470,6 +469,8 @@ class TestVerifiedReferenceDownloads:
         )
         assert rc == 0
         assert "PM5 Lookup Table Statistics" in capsys.readouterr().out
+        with gzip.open(out_gz, "rt", encoding="utf-8") as fh:
+            assert json.load(fh)["_meta"]["source_url"] is None
 
         # Mismatching local sha256
         with pytest.raises(ValueError, match="SHA-256"):

@@ -18,12 +18,20 @@ from ..scoring import apply_scoring
 from .chunk_helpers import (
     apply_chunk_annotations,
     apply_chunk_inheritance_analysis,
-    calculate_inheritance_safe_chunk_size,
     ensure_sorted_by_gene,
     read_tsv_in_gene_chunks,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _align_chunk_columns(chunk: pd.DataFrame, expected_columns: list[str]) -> pd.DataFrame:
+    """Reorder a chunk to the first chunk's columns; refuse to drop or invent columns."""
+    if set(chunk.columns) != set(expected_columns):
+        extra = sorted(set(chunk.columns) - set(expected_columns))
+        missing = sorted(set(expected_columns) - set(chunk.columns))
+        raise ValueError(f"Chunk columns differ from first chunk: extra={extra}, missing={missing}")
+    return chunk.reindex(columns=expected_columns)
 
 
 class ChunkedAnalysisStage(Stage):
@@ -97,9 +105,6 @@ class ChunkedAnalysisStage(Stage):
             chunked_tsv,
         )
         return context
-
-    def _has_configs(self) -> bool:
-        return True
 
     def _setup_inheritance_config(self, context: PipelineContext) -> None:
         """Set up inheritance analysis configuration for chunked processing."""
@@ -323,7 +328,7 @@ class ChunkedAnalysisStage(Stage):
                     )
                 else:
                     if expected_columns is not None:
-                        processed_chunk = processed_chunk.reindex(columns=expected_columns)
+                        processed_chunk = _align_chunk_columns(processed_chunk, expected_columns)
                     processed_chunk.to_csv(
                         output_path,
                         sep="\t",
@@ -406,7 +411,7 @@ class ChunkedAnalysisStage(Stage):
                             )
                         else:
                             if expected_columns is not None:
-                                chunk = chunk.reindex(columns=expected_columns)
+                                chunk = _align_chunk_columns(chunk, expected_columns)
                             chunk.to_csv(
                                 output_path,
                                 sep="\t",
@@ -456,11 +461,6 @@ class ChunkedAnalysisStage(Stage):
         self, input_file: Path, gene_col: str, context: PipelineContext
     ) -> Path:
         return ensure_sorted_by_gene(input_file, gene_col, context)
-
-    def _calculate_inheritance_safe_chunk_size(
-        self, sample_count: int, context: PipelineContext | None = None
-    ) -> int:
-        return calculate_inheritance_safe_chunk_size(sample_count, context)
 
     def _read_tsv_in_gene_chunks(
         self,

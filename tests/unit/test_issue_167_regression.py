@@ -22,7 +22,7 @@ import pytest
 
 from variantcentrifuge.checkpoint_models import AtomicFileOperation
 from variantcentrifuge.cli import create_parser
-from variantcentrifuge.converter import append_tsv_as_sheet, convert_to_excel
+from variantcentrifuge.converter import convert_to_excel
 from variantcentrifuge.generate_html_report import generate_html_report
 from variantcentrifuge.pipeline_core.context import PipelineContext
 from variantcentrifuge.pipeline_core.workspace import Workspace
@@ -235,59 +235,6 @@ class TestIssue167AtomicOutputsAndRunSummary:
         assert not output_gz.exists()
         assert len([f for f in tmp_path.glob("*") if ".tmp." in f.name]) == 0
 
-    def test_chunk_copy_atomic_failure_preserves_destination(self, tmp_path: Path) -> None:
-        """TSVOutputStage._process chunk copy failure with partial bytes leaves existing file
-        intact and absent file absent, without leaving any .tmp. files.
-        """
-        from variantcentrifuge.stages.tsv_output_stages import TSVOutputStage
-
-        chunk_tsv = tmp_path / "chunk_results.tsv"
-        chunk_tsv.write_text("CHROM\tPOS\nchr1\t100\n")
-
-        dst_existing = tmp_path / "final_chunk_existing.tsv"
-        dst_existing.write_text("original final data")
-
-        def fake_copy2(src, dst, *args, **kwargs):
-            Path(dst).write_bytes(b"corrupt partial chunk bytes")
-            raise OSError("Copy aborted mid-stream")
-
-        # 1. Destination exists: remains intact
-        ws1 = Workspace(tmp_path / "ws_chunk1", "test")
-        ctx1 = PipelineContext(
-            args=argparse.Namespace(),
-            config={"output_file": str(dst_existing), "use_chunked_processing": True},
-            workspace=ws1,
-        )
-        ctx1.chunked_analysis_tsv = chunk_tsv
-
-        with (
-            patch("shutil.copy2", side_effect=fake_copy2),
-            pytest.raises(OSError, match="Copy aborted mid-stream"),
-        ):
-            TSVOutputStage()._process(ctx1)
-
-        assert dst_existing.read_text() == "original final data"
-        assert len([f for f in tmp_path.glob("*") if ".tmp." in f.name]) == 0
-
-        # 2. Destination did not exist: remains absent
-        dst_new = tmp_path / "new_chunk_absent.tsv"
-        ws2 = Workspace(tmp_path / "ws_chunk2", "test")
-        ctx2 = PipelineContext(
-            args=argparse.Namespace(),
-            config={"output_file": str(dst_new), "use_chunked_processing": True},
-            workspace=ws2,
-        )
-        ctx2.chunked_analysis_tsv = chunk_tsv
-
-        with (
-            patch("shutil.copy2", side_effect=fake_copy2),
-            pytest.raises(OSError, match="Copy aborted mid-stream"),
-        ):
-            TSVOutputStage()._process(ctx2)
-
-        assert not dst_new.exists()
-        assert len([f for f in tmp_path.glob("*") if ".tmp." in f.name]) == 0
-
     def test_excel_output_atomic_failure_preserves_original(self, tmp_path: Path) -> None:
         tsv_file = tmp_path / "input.tsv"
         tsv_file.write_text("CHROM\tPOS\tREF\tALT\nchr1\t100\tA\tT\n")
@@ -318,48 +265,6 @@ class TestIssue167AtomicOutputsAndRunSummary:
             convert_to_excel(str(tsv_file), cfg={}, output_file=str(xlsx_new))
 
         assert not xlsx_new.exists()
-        assert len([f for f in tmp_path.glob("*") if ".tmp." in f.name]) == 0
-
-    def test_excel_sheet_addition_failure_preserves_original(self, tmp_path: Path) -> None:
-        tsv_file = tmp_path / "input.tsv"
-        tsv_file.write_text("CHROM\tPOS\tREF\tALT\nchr1\t100\tA\tT\n")
-        xlsx_file = tmp_path / "results.xlsx"
-        convert_to_excel(str(tsv_file), cfg={}, output_file=str(xlsx_file))
-        orig_bytes = xlsx_file.read_bytes()
-
-        def fake_sheet_to_excel(excel_writer, *args, **kwargs):
-            raise ValueError("Sheet write failed mid-stream")
-
-        with (
-            patch("pandas.DataFrame.to_excel", side_effect=fake_sheet_to_excel),
-            pytest.raises(ValueError, match="Sheet write failed mid-stream"),
-        ):
-            append_tsv_as_sheet(str(xlsx_file), str(tsv_file), sheet_name="Metadata")
-
-        assert xlsx_file.read_bytes() == orig_bytes
-        assert len([f for f in tmp_path.glob("*") if ".tmp." in f.name]) == 0
-
-    def test_finalize_excel_file_failure_preserves_original(self, tmp_path: Path) -> None:
-        """finalize_excel_file failure during wb.save preserves original workbook without .tmp."""
-        from variantcentrifuge.converter import finalize_excel_file
-
-        tsv_file = tmp_path / "input_finalize.tsv"
-        tsv_file.write_text("CHROM\tPOS\tREF\tALT\nchr1\t100\tA\tT\n")
-        xlsx_file = tmp_path / "results_finalize.xlsx"
-        convert_to_excel(str(tsv_file), cfg={}, output_file=str(xlsx_file))
-        orig_bytes = xlsx_file.read_bytes()
-
-        def fake_wb_save(filename, *args, **kwargs):
-            Path(filename).write_bytes(b"corrupted partial openpyxl save")
-            raise OSError("Disk error during openpyxl wb.save")
-
-        with (
-            patch("openpyxl.Workbook.save", side_effect=fake_wb_save),
-            pytest.raises(OSError, match=r"Disk error during openpyxl wb\.save"),
-        ):
-            finalize_excel_file(str(xlsx_file), cfg={})
-
-        assert xlsx_file.read_bytes() == orig_bytes
         assert len([f for f in tmp_path.glob("*") if ".tmp." in f.name]) == 0
 
     def test_html_report_atomic_failure_leaves_target_intact(self, tmp_path: Path) -> None:

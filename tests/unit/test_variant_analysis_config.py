@@ -283,56 +283,6 @@ class TestVariantAnalysisConfig:
         out = stage(context)
         assert out.current_dataframe is not None
 
-    @patch("variantcentrifuge.stages.variant_analysis_stages.analyze_variants_df")
-    def test_variant_analysis_stage_merge_length_mismatch(self, mock_analyze, context):
-        """Test preservation merge when analysis_df has different length than input."""
-        mock_analyze.return_value = pd.DataFrame(
-            {
-                "CHROM": ["1"],
-                "POS": [1000],
-                "REF": ["A"],
-                "ALT": ["T"],
-                "proband_count": [1],
-            }
-        )
-        context.current_dataframe["Extra"] = ["e1", "e2", "e3"]
-        context.mark_complete("dataframe_loading")
-        stage = VariantAnalysisStage()
-        out = stage(context)
-        assert len(out.current_dataframe) == 1
-        assert "Extra" in out.current_dataframe.columns
-
-    @patch("variantcentrifuge.stages.variant_analysis_stages.analyze_variants_df")
-    def test_variant_analysis_stage_preserves_inheritance_columns(self, mock_analyze, context):
-        """Test preserving inheritance columns when original_only_cols has Inheritance_Pattern."""
-        mock_analyze.return_value = pd.DataFrame(
-            {
-                "CHROM": ["1", "1"],
-                "POS": [1000, 2000],
-                "REF": ["A", "G"],
-                "ALT": ["T", "C"],
-                "proband_count": [1, 2],
-            }
-        )
-        context.current_dataframe = pd.DataFrame(
-            {
-                "CHROM": ["1", "1"],
-                "POS": [1000, 2000],
-                "REF": ["A", "G"],
-                "ALT": ["T", "C"],
-                "Inheritance_Pattern": ["AD", "AR"],
-                "VAR_ID": ["v1", "v2"],
-                "Custom_Annotation": ["c1", "c2"],
-                "GT": ["g1", "g2"],
-            }
-        )
-        context.mark_complete("dataframe_loading")
-        stage = VariantAnalysisStage()
-        out = stage(context)
-        assert "Inheritance_Pattern" in out.current_dataframe.columns
-        assert list(out.current_dataframe["Inheritance_Pattern"]) == ["AD", "AR"]
-        assert "VAR_ID" in out.current_dataframe.columns
-
     def test_variant_analysis_buffer_sharing(self, context):
         """Test that analysis stages and helpers maintain buffer sharing via shallow copies."""
         import numpy as np

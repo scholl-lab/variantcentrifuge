@@ -722,7 +722,7 @@ class TestVariantAnalysisStage:
         assert stats_file.read_text(encoding="utf-8") == "metric\tvalue\ncustom_stat\t42\n"
 
     def test_soft_dependencies_for_statistics_and_association_stages(self):
-        """StatisticsGenerationStage and AssociationAnalysisStage declare scoring/inheritance soft deps."""
+        """Statistics and association stages declare scoring/inheritance soft deps."""
         from variantcentrifuge.stages.analysis_stages import (
             AssociationAnalysisStage,
             StatisticsGenerationStage,
@@ -738,7 +738,7 @@ class TestVariantAnalysisStage:
     def test_association_packed_gt_unpacking_preserves_missing_with_extra_fields_and_boundaries(
         self, base_context
     ):
-        """Packed GT unpacking preserves listed ./. with depth fields and avoids substring matches."""
+        """Packed GT unpacking keeps listed ./. with depth fields; no substring matches."""
         from variantcentrifuge.stages.analysis_stages import AssociationAnalysisStage
 
         cases = ["1", "11"] + [f"C{i}" for i in range(8)]

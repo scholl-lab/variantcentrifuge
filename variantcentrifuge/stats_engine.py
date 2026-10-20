@@ -84,41 +84,50 @@ _ALLOWED_AST_NODES: frozenset[type] = frozenset(
     }
 )
 
-# Names the restricted eval namespace exposes — only these may appear
-# as bare ``ast.Name`` references.
-_ALLOWED_NAMES: frozenset[str] = frozenset(
+# Builtins exposed to stats expressions; the eval namespace and both name
+# allowlists below are derived from this single dict.
+_SAFE_BUILTINS: dict[str, Any] = {
+    f.__name__: f
+    for f in (
+        len,
+        float,
+        str,
+        int,
+        bool,
+        sum,
+        min,
+        max,
+        abs,
+        round,
+        sorted,
+        set,
+        list,
+        dict,
+        tuple,
+        any,
+        all,
+        isinstance,
+        range,
+        zip,
+        map,
+        filter,
+        enumerate,
+    )
+}
+
+# ``size`` is bound per-DataFrame in ``_safe_eval``.
+_ALLOWED_CALLABLE_NAMES: frozenset[str] = frozenset(_SAFE_BUILTINS) | {"size"}
+
+# Only these may appear as bare ``ast.Name`` references.
+_ALLOWED_NAMES: frozenset[str] = _ALLOWED_CALLABLE_NAMES | frozenset(
     {
         "df",
         "group_df",
         "pd",
         "np",
-        "len",
-        "float",
-        "str",
-        "int",
-        "bool",
-        "size",
         "True",
         "False",
         "None",
-        "sum",
-        "min",
-        "max",
-        "abs",
-        "round",
-        "sorted",
-        "set",
-        "list",
-        "dict",
-        "tuple",
-        "range",
-        "zip",
-        "map",
-        "filter",
-        "any",
-        "all",
-        "enumerate",
-        "isinstance",
         # Comprehension iteration variables (single-letter by convention)
         *list("abcdefghijklmnopqrstuvwxyz"),
         # Common iteration variable names
@@ -183,35 +192,6 @@ _PROPERTY_ATTRIBUTES: frozenset[str] = frozenset(
 
 _ALLOWED_ATTRIBUTES: frozenset[str] = _CALLABLE_ATTRIBUTES | _PROPERTY_ATTRIBUTES
 _ALLOWED_CALLABLE_ATTRIBUTES: frozenset[str] = _CALLABLE_ATTRIBUTES
-
-_ALLOWED_CALLABLE_NAMES: frozenset[str] = frozenset(
-    {
-        "len",
-        "float",
-        "str",
-        "int",
-        "bool",
-        "size",
-        "sum",
-        "min",
-        "max",
-        "abs",
-        "round",
-        "sorted",
-        "set",
-        "list",
-        "dict",
-        "tuple",
-        "any",
-        "all",
-        "isinstance",
-        "range",
-        "zip",
-        "map",
-        "filter",
-        "enumerate",
-    }
-)
 
 
 class _SafePandas:
@@ -359,34 +339,12 @@ class StatsEngine:
 
             # Create a restricted namespace with only safe objects
             namespace = {
+                **_SAFE_BUILTINS,
                 "df": df,
                 "group_df": df,  # Support both df and group_df names
                 "pd": _SafePandas,
                 "np": _SafeNumpy,
-                "len": len,
-                "float": float,
-                "str": str,
-                "int": int,
-                "bool": bool,
                 "size": lambda: len(df),  # For grouped operations
-                "sum": sum,
-                "min": min,
-                "max": max,
-                "abs": abs,
-                "round": round,
-                "any": any,
-                "all": all,
-                "sorted": sorted,
-                "set": set,
-                "list": list,
-                "dict": dict,
-                "tuple": tuple,
-                "isinstance": isinstance,
-                "range": range,
-                "zip": zip,
-                "map": map,
-                "filter": filter,
-                "enumerate": enumerate,
             }
 
             # eval with empty __builtins__ AND prior AST validation

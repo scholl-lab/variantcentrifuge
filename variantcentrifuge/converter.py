@@ -5,19 +5,16 @@
 File conversion module.
 
 This module provides functionality to convert TSV files to XLSX format
-and append additional sheets in a single writer session or standalone.
+and append additional sheets in a single writer session.
 It also supports producing JSON files for the HTML report.
 """
 
 import json
 import logging
 import os
-import shutil
 from typing import Any, cast
 
 import pandas as pd
-from openpyxl import load_workbook
-from openpyxl.utils import get_column_letter
 
 from .checkpoint_models import AtomicFileOperation
 from .converter_helpers import (
@@ -231,177 +228,6 @@ def convert_to_excel(
                     extra_ws.autofilter(0, 0, len(sheet_df), len(sheet_df.columns) - 1)
 
     return xlsx_file
-
-
-def append_tsv_as_sheet(xlsx_file: str, tsv_file: str, sheet_name: str = "Metadata") -> None:
-    """
-    Append a TSV file as a new sheet to an existing XLSX file (standalone API).
-
-    Parameters
-    ----------
-    xlsx_file : str
-        Path to the existing XLSX file.
-    tsv_file : str
-        Path to the TSV file to append as a sheet.
-    sheet_name : str, optional
-        Name of the new sheet to be appended. Defaults to "Metadata".
-    """
-    df = pd.read_csv(tsv_file, sep="\t", header=0, low_memory=False)
-    with AtomicFileOperation(xlsx_file) as temp_xlsx:
-        shutil.copy2(xlsx_file, temp_xlsx)
-        with pd.ExcelWriter(
-            str(temp_xlsx), engine="openpyxl", mode="a", if_sheet_exists="new"
-        ) as writer:
-            df.to_excel(writer, index=False, sheet_name=sheet_name)
-
-
-def finalize_excel_file(xlsx_file: str, cfg: dict[str, Any]) -> None:
-    """
-    Apply final formatting to all sheets in xlsx_file using openpyxl (standalone API).
-
-    - Freeze top row
-    - Enable auto-filter
-    - Hyperlinks on URL columns
-    - Add IGV Report Links column if enabled and not already present
-    """
-    with AtomicFileOperation(xlsx_file) as temp_xlsx:
-        shutil.copy2(xlsx_file, temp_xlsx)
-        wb = load_workbook(str(temp_xlsx))
-        igv_enabled = cfg.get("igv_enabled", False)
-        igv_lookup = _load_igv_lookup(xlsx_file) if igv_enabled else {}
-
-        for ws in wb.worksheets:
-            ws.freeze_panes = "A2"
-            max_col_letter = get_column_letter(ws.max_column)
-            ws.auto_filter.ref = f"A1:{max_col_letter}1"
-
-            if ws.title != "Results":
-                continue
-
-            header_row = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1))]
-            header_indices = {
-                col_name: idx
-                for idx, col_name in enumerate(header_row, 1)
-                if col_name in ["CHROM", "POS", "REF", "ALT", "GT"]
-            }
-
-            # URL columns
-            url_columns = []
-            if ws.max_row > 1:
-                for idx, _col_name in enumerate(header_row, 1):
-                    sample_cells = [
-                        ws.cell(row=r, column=idx) for r in range(2, min(6, ws.max_row + 1))
-                    ]
-                    sample_values = [
-                        (
-                            c.hyperlink.target
-                            if c.hyperlink and c.hyperlink.target
-                            else str(c.value or "")
-                        ).strip()
-                        for c in sample_cells
-                        if c.value or (c.hyperlink and c.hyperlink.target)
-                    ]
-                    url_count = sum(
-                        1 for val in sample_values if val.startswith(("http://", "https://"))
-                    )
-                    if sample_values and url_count >= len(sample_values) * 0.7:
-                        url_columns.append(idx)
-
-            if url_columns:
-                for row_idx in range(2, ws.max_row + 1):
-                    for col_idx in url_columns:
-                        cell = ws.cell(row=row_idx, column=col_idx)
-                        val = str(cell.value or "").strip()
-                        if val.startswith(("http://", "https://")):
-                            col_name = str(header_row[col_idx - 1])
-                            cell.hyperlink = val
-                            cell.value = col_name
-                        if cell.hyperlink:
-                            cell.style = "Hyperlink"
-
-            # IGV links
-            has_coords = all(c in header_indices for c in ("CHROM", "POS", "REF", "ALT"))
-            overflow_rows: list[list[Any]] = []
-            if igv_enabled and igv_lookup and has_coords and "IGV Report Links" not in header_row:
-                igv_col = ws.max_column + 1
-                ws.cell(row=1, column=igv_col, value="IGV Report Links")
-                from openpyxl.comments import Comment
-
-                for row_idx in range(2, ws.max_row + 1):
-                    raw_chrom = ws.cell(row=row_idx, column=header_indices["CHROM"]).value
-                    raw_pos = ws.cell(row=row_idx, column=header_indices["POS"]).value
-                    raw_ref = ws.cell(row=row_idx, column=header_indices["REF"]).value
-                    raw_alt = ws.cell(row=row_idx, column=header_indices["ALT"]).value
-                    chrom = _fmt_coord(raw_chrom)
-                    pos = _fmt_coord(raw_pos)
-                    ref = _fmt_coord(raw_ref)
-                    alt = _fmt_coord(raw_alt)
-                    gt_val = (
-                        str(ws.cell(row=row_idx, column=header_indices["GT"]).value or "")
-                        if "GT" in header_indices
-                        else ""
-                    )
-
-                    igv_reports = _get_igv_reports_for_variant(
-                        chrom, pos, ref, alt, gt_val, igv_lookup
-                    )
-                    igv_cell = ws.cell(row=row_idx, column=igv_col)
-                    if len(igv_reports) == 1:
-                        sample_id, rpath = igv_reports[0]
-                        igv_cell.value = sample_id
-                        igv_cell.hyperlink = os.path.join("report", rpath)
-                        igv_cell.style = "Hyperlink"
-                    elif len(igv_reports) > 1:
-                        first_sample, _ = igv_reports[0]
-                        num_others = len(igv_reports) - 1
-                        igv_cell.value = f"{first_sample} (+{num_others} others)"
-                        link_texts = [
-                            f"{sid} ({os.path.join('report', rp)})" for sid, rp in igv_reports
-                        ]
-                        comment_text = "; ".join(link_texts)
-                        if len(comment_text) > 32000:
-                            suffix = "\n... (see IGV_Overflow sheet for all sample links)"
-                            comment_text = comment_text[: 32000 - len(suffix)] + suffix
-                            for sid, rp in igv_reports:
-                                overflow_rows.append(
-                                    [
-                                        row_idx,
-                                        raw_chrom,
-                                        raw_pos,
-                                        raw_ref,
-                                        raw_alt,
-                                        sid,
-                                        os.path.join("report", rp),
-                                    ]
-                                )
-                        igv_cell.comment = Comment(comment_text, "IGV Reports")
-                    else:
-                        igv_cell.value = "N/A"
-
-                if overflow_rows:
-                    overflow_headers = [
-                        "Row",
-                        "CHROM",
-                        "POS",
-                        "REF",
-                        "ALT",
-                        "Sample_ID",
-                        "IGV_Report_Path",
-                    ]
-                    if "IGV_Overflow" in wb.sheetnames:
-                        overflow_ws = wb["IGV_Overflow"]
-                    else:
-                        overflow_ws = wb.create_sheet(title="IGV_Overflow")
-                        overflow_ws.append(overflow_headers)
-                    for r in overflow_rows:
-                        overflow_ws.append(r)
-                        overflow_ws.cell(row=overflow_ws.max_row, column=2).data_type = "s"
-                        overflow_ws.cell(row=overflow_ws.max_row, column=6).data_type = "s"
-                    overflow_ws.freeze_panes = "A2"
-                    max_letter = get_column_letter(len(overflow_headers))
-                    overflow_ws.auto_filter.ref = f"A1:{max_letter}1"
-
-        wb.save(str(temp_xlsx))
 
 
 def produce_report_json(variant_tsv: str, output_dir: str) -> None:

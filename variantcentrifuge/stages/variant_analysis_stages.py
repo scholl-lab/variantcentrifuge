@@ -6,8 +6,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
 from ..analyze_variants import analyze_variants_df
 from ..gt_reconstruction import _find_per_sample_gt_columns, reconstruct_gt_column
 from ..pipeline_core import PipelineContext, Stage
@@ -96,97 +94,6 @@ class VariantAnalysisStage(Stage):
         if analysis_df is not None:
             if context.column_rename_map:
                 analysis_df = analysis_df.rename(columns=context.column_rename_map, copy=False)
-
-            key_cols = ["CHROM", "POS", "REF", "ALT"] + [
-                c
-                for c in ("FEATUREID", "ANN[0].FEATUREID", "ANN_0__FEATUREID")
-                if c in df.columns and c in analysis_df.columns
-            ]
-
-            orig_key_cols_present = [col for col in key_cols if col in df.columns]
-            analysis_key_cols_present = [col for col in key_cols if col in analysis_df.columns]
-            logger.debug(f"Original DataFrame key columns: {orig_key_cols_present}")
-            logger.debug(f"Analysis DataFrame key columns: {analysis_key_cols_present}")
-
-            if all(col in df.columns for col in key_cols) and all(
-                col in analysis_df.columns for col in key_cols
-            ):
-                original_only_cols = [col for col in df.columns if col not in analysis_df.columns]
-
-                if original_only_cols:
-                    inheritance_cols = [
-                        col
-                        for col in original_only_cols
-                        if col in ["Inheritance_Pattern", "Inheritance_Details"]
-                    ]
-                    if inheritance_cols:
-                        logger.debug(f"Preserving inheritance columns: {inheritance_cols}")
-
-                    try:
-                        if len(analysis_df) == len(df):
-                            for col in original_only_cols:
-                                analysis_df[col] = df[col].values
-                        else:
-                            merge_df = df[key_cols + original_only_cols].copy()
-                            analysis_df = pd.merge(analysis_df, merge_df, on=key_cols, how="left")
-
-                        logger.debug(
-                            f"Successfully preserved columns from original dataframe: "
-                            f"{original_only_cols}"
-                        )
-
-                        if inheritance_cols:
-                            preserved_inheritance = [
-                                col for col in inheritance_cols if col in analysis_df.columns
-                            ]
-                            if preserved_inheritance:
-                                logger.debug(
-                                    f"Inheritance columns successfully preserved: "
-                                    f"{preserved_inheritance}"
-                                )
-                                for col in preserved_inheritance:
-                                    non_null_count = analysis_df[col].notna().sum()
-                                    logger.debug(
-                                        f"Column '{col}' has {non_null_count} non-null values"
-                                    )
-                            else:
-                                msg = f"Inheritance columns: {inheritance_cols}"
-                                if should_have_inheritance:
-                                    logger.error(f"Failed to preserve {msg}")
-                                else:
-                                    logger.debug(f"No {msg} to preserve")
-                    except Exception as e:
-                        logger.error(f"Error preserving columns: {e}")
-                        logger.warning(
-                            "Inheritance columns may be lost due to preservation failure"
-                        )
-
-                    if "VAR_ID" in analysis_df.columns:
-                        cols = ["VAR_ID", *[c for c in analysis_df.columns if c != "VAR_ID"]]
-                        analysis_df = analysis_df[cols]
-
-                    if "Custom_Annotation" in analysis_df.columns and "GT" in analysis_df.columns:
-                        cols = analysis_df.columns.tolist()
-                        cols.remove("Custom_Annotation")
-                        gt_idx = cols.index("GT")
-                        cols.insert(gt_idx + 1, "Custom_Annotation")
-                        analysis_df = analysis_df[cols]
-
-            else:
-                logger.warning(
-                    "Could not preserve columns from original dataframe - missing key columns "
-                    "for merging"
-                )
-                inheritance_cols = [
-                    col
-                    for col in df.columns
-                    if col in ["Inheritance_Pattern", "Inheritance_Details"]
-                ]
-                if inheritance_cols and should_have_inheritance:
-                    logger.error(
-                        f"CRITICAL: Inheritance columns {inheritance_cols} will be lost "
-                        f"due to missing key columns for merge"
-                    )
 
             context.current_dataframe = analysis_df
             logger.info(f"Variant analysis complete: {len(analysis_df)} variants analyzed")

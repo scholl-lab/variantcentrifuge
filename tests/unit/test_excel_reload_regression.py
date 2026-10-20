@@ -115,15 +115,9 @@ def test_excel_report_stage_performs_no_openpyxl_reload(excel_context: PipelineC
 
     with (
         patch("openpyxl.load_workbook", wraps=openpyxl.load_workbook) as spy_load,
-        patch(
-            "variantcentrifuge.converter.load_workbook", wraps=openpyxl.load_workbook
-        ) as spy_load_conv,
     ):
         stage(excel_context)
         assert spy_load.call_count == 0, f"Expected 0 openpyxl calls, got {spy_load.call_count}"
-        assert spy_load_conv.call_count == 0, (
-            f"Expected 0 converter load_workbook calls, got {spy_load_conv.call_count}"
-        )
 
     excel_file = excel_context.workspace.output_dir / "variants.xlsx"
     assert excel_file.exists()
@@ -221,13 +215,9 @@ def test_excel_empty_results_and_association_fidelity(tmp_path: Path):
     stage = ExcelReportStage()
     with (
         patch("openpyxl.load_workbook", wraps=openpyxl.load_workbook) as spy_load,
-        patch(
-            "variantcentrifuge.converter.load_workbook", wraps=openpyxl.load_workbook
-        ) as spy_load_conv,
     ):
         stage(context)
         assert spy_load.call_count == 0
-        assert spy_load_conv.call_count == 0
 
     excel_file = context.workspace.get_output_path("", ".xlsx")
     assert excel_file.exists()
@@ -589,112 +579,6 @@ def test_excel_mixed_url_column_hyperlinks_preserved(tmp_path: Path):
 
 
 @pytest.mark.unit
-def test_finalize_excel_file_overflow_sheet_created(tmp_path: Path):
-    """Verify finalize_excel_file creates IGV_Overflow sheet on >32,000 char comments (#159)."""
-    from variantcentrifuge.converter import finalize_excel_file
-
-    output_dir = tmp_path / "finalize_overflow"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    report_dir = output_dir / "report" / "igv"
-    report_dir.mkdir(parents=True, exist_ok=True)
-
-    n_samples = 600
-    subfolder = "igv/long_batch_path_subfolder"
-    sample_reports = {
-        f"Patient_Sample_ID_{i:04d}": f"{subfolder}/Patient_Sample_ID_{i:04d}_variant_report.html"
-        for i in range(n_samples)
-    }
-    igv_map = {
-        "variants": [
-            {
-                "chrom": "chr1",
-                "pos": 100,
-                "ref": "A",
-                "alt": "T",
-                "sample_reports": sample_reports,
-            }
-        ]
-    }
-    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
-        json.dump(igv_map, f)
-
-    df = pd.DataFrame(
-        {
-            "CHROM": ["chr1"],
-            "POS": [100],
-            "REF": ["A"],
-            "ALT": ["T"],
-            "GT": [";".join(f"Patient_Sample_ID_{i:04d}(0/1)" for i in range(n_samples))],
-        }
-    )
-    xlsx_file = output_dir / "finalize_overflow.xlsx"
-    df.to_excel(xlsx_file, sheet_name="Results", index=False)
-
-    finalize_excel_file(str(xlsx_file), cfg={"igv_enabled": True})
-
-    wb = openpyxl.load_workbook(xlsx_file)
-    assert "Results" in wb.sheetnames
-    assert "IGV_Overflow" in wb.sheetnames
-
-    ws_overflow = wb["IGV_Overflow"]
-    expected_headers = ["Row", "CHROM", "POS", "REF", "ALT", "Sample_ID", "IGV_Report_Path"]
-    assert [c.value for c in ws_overflow[1]] == expected_headers
-    assert ws_overflow.max_row == n_samples + 1
-
-    first_row = [
-        ws_overflow.cell(row=2, column=i).value for i in range(1, len(expected_headers) + 1)
-    ]
-    assert first_row == [
-        2,
-        "chr1",
-        100,
-        "A",
-        "T",
-        "Patient_Sample_ID_0000",
-        "report/igv/long_batch_path_subfolder/Patient_Sample_ID_0000_variant_report.html",
-    ]
-
-
-@pytest.mark.unit
-def test_finalize_excel_file_missing_coordinates_guard(tmp_path: Path):
-    """Verify finalize_excel_file handles missing coordinates without column 0 ValueError (#159)."""
-    from variantcentrifuge.converter import finalize_excel_file
-
-    output_dir = tmp_path / "missing_coords"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    report_dir = output_dir / "report" / "igv"
-    report_dir.mkdir(parents=True, exist_ok=True)
-
-    igv_map = {
-        "variants": [
-            {
-                "chrom": "chr1",
-                "pos": 100,
-                "ref": "A",
-                "alt": "T",
-                "sample_reports": {"Sample1": "igv/Sample1.html"},
-            }
-        ]
-    }
-    with open(report_dir / "igv_reports_map.json", "w", encoding="utf-8") as f:
-        json.dump(igv_map, f)
-
-    # DataFrame with only CHROM and POS (missing REF and ALT)
-    df = pd.DataFrame({"CHROM": ["chr1"], "POS": [100]})
-    xlsx_file = output_dir / "partial.xlsx"
-    df.to_excel(xlsx_file, sheet_name="Results", index=False)
-
-    # Should safely skip IGV links rather than calling ws.cell(..., column=0)
-    finalize_excel_file(str(xlsx_file), cfg={"igv_enabled": True})
-
-    wb = openpyxl.load_workbook(xlsx_file)
-    ws = wb["Results"]
-    headers = [cell.value for cell in ws[1]]
-    assert "IGV Report Links" not in headers
-    assert headers == ["CHROM", "POS"]
-
-
-@pytest.mark.unit
 def test_excel_igv_comment_overflow_creates_overflow_sheet(tmp_path: Path):
     """Verify IGV comment >32,000 chars is truncated and full links saved to IGV_Overflow (#159)."""
     from variantcentrifuge.converter import convert_to_excel
@@ -930,7 +814,7 @@ def test_excel_hyperlink_protocols_preserved(tmp_path: Path):
 @pytest.mark.unit
 def test_float_integral_pos_normalized_for_igv_lookup(tmp_path: Path):
     """Verify float POS (e.g. 100.0) matches IGV lookup with POS='100' in Excel (#159)."""
-    from variantcentrifuge.converter import convert_to_excel, finalize_excel_file
+    from variantcentrifuge.converter import convert_to_excel
 
     output_dir = tmp_path / "float_pos_test"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -980,21 +864,6 @@ def test_float_integral_pos_normalized_for_igv_lookup(tmp_path: Path):
     assert cell_convert.value == "Sample1"
     assert cell_convert.hyperlink is not None
     assert cell_convert.hyperlink.target.replace("\\", "/") == "report/igv/Sample1.html"
-
-    # Test finalize_excel_file
-    xlsx_finalize = output_dir / "finalize.xlsx"
-    df.to_excel(xlsx_finalize, sheet_name="Results", index=False)
-    finalize_excel_file(str(xlsx_finalize), cfg={"igv_enabled": True})
-
-    wb_finalize = openpyxl.load_workbook(xlsx_finalize)
-    ws_finalize = wb_finalize["Results"]
-    headers_finalize = [c.value for c in ws_finalize[1]]
-    assert "IGV Report Links" in headers_finalize
-    igv_col_finalize = headers_finalize.index("IGV Report Links") + 1
-    cell_finalize = ws_finalize.cell(row=2, column=igv_col_finalize)
-    assert cell_finalize.value == "Sample1"
-    assert cell_finalize.hyperlink is not None
-    assert cell_finalize.hyperlink.target.replace("\\", "/") == "report/igv/Sample1.html"
 
 
 @pytest.mark.unit
@@ -1207,7 +1076,7 @@ def test_excel_list_valued_cells_no_value_error(tmp_path: Path):
 @pytest.mark.unit
 def test_overflow_sample_id_explicit_string(tmp_path: Path):
     """Verify overflow sample ID with formula string has data_type == 's' (#159)."""
-    from variantcentrifuge.converter import convert_to_excel, finalize_excel_file
+    from variantcentrifuge.converter import convert_to_excel
 
     output_dir = tmp_path / "overflow_formula"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -1270,19 +1139,6 @@ def test_overflow_sample_id_explicit_string(tmp_path: Path):
     cell_chrom_xw = ws_xw.cell(row=2, column=2)
     assert cell_chrom_xw.data_type == "s"
 
-    # 2. Test finalize_excel_file (openpyxl path)
-    xlsx_openpyxl_path = output_dir / "openpyxl_overflow.xlsx"
-    df.to_excel(xlsx_openpyxl_path, sheet_name="Results", index=False)
-    finalize_excel_file(str(xlsx_openpyxl_path), cfg={"igv_enabled": True})
-    wb_op = openpyxl.load_workbook(xlsx_openpyxl_path)
-    assert "IGV_Overflow" in wb_op.sheetnames
-    ws_op = wb_op["IGV_Overflow"]
-    cell_sample_op = ws_op.cell(row=2, column=6)
-    assert cell_sample_op.value == "=1+1"
-    assert cell_sample_op.data_type == "s"
-    cell_chrom_op = ws_op.cell(row=2, column=2)
-    assert cell_chrom_op.data_type == "s"
-
 
 @pytest.mark.unit
 def test_detect_url_columns_scalar_denominator(tmp_path: Path):
@@ -1318,9 +1174,9 @@ def test_detect_url_columns_scalar_denominator(tmp_path: Path):
 
 
 @pytest.mark.unit
-def test_finalize_excel_file_no_has_hyperlink_shortcut(tmp_path: Path):
-    """Verify finalize_excel_file keeps URL display text when url ratio < 0.7 (#159)."""
-    from variantcentrifuge.converter import convert_to_excel, finalize_excel_file
+def test_mixed_url_column_keeps_display_text(tmp_path: Path):
+    """Verify convert_to_excel keeps URL display text when url ratio < 0.7 (#159)."""
+    from variantcentrifuge.converter import convert_to_excel
 
     # Column has 2 plain texts and 2 URLs in first 4 rows (ratio 2/4 = 0.5 < 0.7)
     df = pd.DataFrame(
@@ -1339,7 +1195,6 @@ def test_finalize_excel_file_no_has_hyperlink_shortcut(tmp_path: Path):
         df=df,
         output_file=str(xlsx_file),
     )
-    finalize_excel_file(str(xlsx_file), cfg={"igv_enabled": False})
 
     wb = openpyxl.load_workbook(xlsx_file)
     ws = wb["Results"]

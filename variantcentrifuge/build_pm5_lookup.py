@@ -18,11 +18,11 @@ from __future__ import annotations
 import argparse
 import datetime
 import gzip
-import hashlib
 import json
 import logging
 import os
 import re
+import shutil
 import sys
 import tempfile
 import urllib.request
@@ -31,6 +31,8 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+
+from .run_summary import compute_stored_sha256
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -72,15 +74,6 @@ def _simplify_clnsig(clnsig: str) -> str:
     return s
 
 
-def compute_sha256(file_path: str | Path) -> str:
-    """Compute hex SHA-256 digest of a file."""
-    hasher = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        while chunk := f.read(65536):
-            hasher.update(chunk)
-    return hasher.hexdigest()
-
-
 def verify_gzip_integrity(file_path: str | Path) -> None:
     """Verify that a gzipped file has valid headers and a complete stream."""
     path = Path(file_path)
@@ -115,11 +108,12 @@ def download_with_verification(
     os.close(fd)
     tmp_path = Path(tmp_name)
     try:
-        urllib.request.urlretrieve(url, str(tmp_path))
+        with urllib.request.urlopen(url, timeout=60) as resp, open(tmp_path, "wb") as out:
+            shutil.copyfileobj(resp, out)
         if not tmp_path.is_file() or tmp_path.stat().st_size == 0:
             raise ValueError(f"Downloaded file from {url} is empty")
         if expected_sha256 is not None:
-            actual_sha256 = compute_sha256(tmp_path)
+            actual_sha256 = compute_stored_sha256(tmp_path)
             if actual_sha256.lower() != expected_sha256.strip().lower():
                 raise ValueError(
                     f"SHA-256 digest mismatch for {target}: "
@@ -129,7 +123,7 @@ def download_with_verification(
             verify_gzip_integrity(tmp_path)
         os.replace(str(tmp_path), str(target))
         return str(target)
-    except Exception:
+    except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
 
@@ -164,9 +158,6 @@ def download_variant_summary(
     )
     logger.info("Downloaded to %s", output_path)
     return res
-
-
-download_clinvar_vcf = download_variant_summary
 
 
 def build_pm5_lookup(
@@ -261,20 +252,15 @@ def build_pm5_lookup(
             lookup[key].append(entry)
 
     # Step 4: Build output
-    file_sha256 = sha256 or (compute_sha256(input_path) if Path(input_path).is_file() else None)
-    resolved_url = source_url or CLINVAR_FTP_URL
-    timestamp_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    file_sha256 = sha256 or (
+        compute_stored_sha256(input_path) if Path(input_path).is_file() else None
+    )
     output: dict[str, Any] = {
         "_meta": {
             "source": "ClinVar variant_summary.txt.gz",
-            "source_url": resolved_url,
+            "source_url": source_url,
             "sha256": file_sha256,
-            "timestamp": timestamp_iso,
-            "provenance": {
-                "source_url": resolved_url,
-                "sha256": file_sha256,
-                "timestamp": timestamp_iso,
-            },
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             "assembly": assembly,
             "min_review_stars": min_stars,
             "include_lp": include_lp,
@@ -432,7 +418,7 @@ def main(args: list[str] | None = None) -> int:
             else:
                 download_variant_summary(input_path)
         elif parsed.expected_sha256:
-            actual_sha256 = compute_sha256(input_path)
+            actual_sha256 = compute_stored_sha256(input_path)
             expected_clean = parsed.expected_sha256.strip().lower()
             if actual_sha256.lower() != expected_clean:
                 raise ValueError(
@@ -445,6 +431,7 @@ def main(args: list[str] | None = None) -> int:
             assembly=parsed.assembly,
             min_stars=parsed.min_review_stars,
             include_lp=parsed.include_lp,
+            source_url=CLINVAR_FTP_URL if parsed.download else None,
         )
 
         write_lookup(data, parsed.output)

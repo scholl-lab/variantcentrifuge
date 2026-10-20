@@ -220,7 +220,7 @@ class TestFinalFilteringStage:
     def test_parallel_safe(self):
         """Test parallel safety."""
         stage = FinalFilteringStage()
-        assert stage.parallel_safe is True
+        assert stage.parallel_safe is False  # replaces current_dataframe
 
     def test_soft_dependencies(self):
         """Test soft dependencies are correctly defined."""
