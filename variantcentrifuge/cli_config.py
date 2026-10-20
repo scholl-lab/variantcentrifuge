@@ -507,11 +507,12 @@ def populate_cli_config(
         test_list = [
             t.strip() for t in (raw_tests.split(",") if isinstance(raw_tests, str) else raw_tests)
         ]
-        if "logistic_burden" in test_list:
+        binary_only = sorted({"fisher", "logistic_burden"} & set(test_list))
+        if binary_only:
             _fail(
-                "--trait-type quantitative is incompatible with logistic_burden "
-                "(logistic regression is for binary traits only). "
-                "Use linear_burden for quantitative traits."
+                f"--trait-type quantitative is incompatible with {', '.join(binary_only)} "
+                "(binary-trait tests; fisher is the default when --association-tests is not "
+                "given). Use linear_burden and/or skat for quantitative traits."
             )
 
     # Inheritance analysis configuration

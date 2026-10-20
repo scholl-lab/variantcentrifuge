@@ -472,10 +472,13 @@ class AssociationEngine:
         rows = []
         for gene_data in sorted_data:
             gene = gene_data.get("GENE", "")
-            # Include gene if it has a result or a skip reason (rank-deficient)
+            # Include gene if it has a result, a skip reason or a warning code
             any_result = any(results_by_test[tn][gene].p_value is not None for tn in self._tests)
             any_skip = any(
-                results_by_test[tn][gene].extra.get("skat_skip_reason") for tn in self._tests
+                (extra := results_by_test[tn][gene].extra).get("skat_skip_reason")
+                or extra.get("coast_skip_reason")
+                or extra.get("warnings")
+                for tn in self._tests
             )
             if not any_result and not any_skip:
                 continue

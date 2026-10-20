@@ -537,7 +537,14 @@ class AssociationAnalysisStage(Stage):
             gene_warnings = compute_per_gene_warnings(gene, case_carriers, assoc_config)
             if gene_warnings:
                 warnings_by_gene[gene] = ";".join(gene_warnings)
-        results_df["warnings"] = results_df["gene"].map(warnings_by_gene).fillna("")
+        # Keep test-reported codes (e.g. linear/logistic burden skips) and append carrier warnings.
+        test_codes = results_df.get("warnings", pd.Series("", index=results_df.index))
+        results_df["warnings"] = [
+            ";".join(c for c in (*(v if isinstance(v, list) else [v] if v else []), w) if c)
+            for v, w in zip(
+                test_codes, results_df["gene"].map(warnings_by_gene).fillna(""), strict=True
+            )
+        ]
 
         assoc_output, compression = self._resolve_association_output(context)
 

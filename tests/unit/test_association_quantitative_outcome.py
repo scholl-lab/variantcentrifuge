@@ -444,3 +444,16 @@ def test_binary_comma_string_cohorts_are_parsed(tmp_path):
     results = _run(context)
     assert context.config["case_samples"] == SAMPLES[:60]
     assert (results["n_cases"] == 60).all()
+
+
+@pytest.mark.parametrize("tests", [["linear_burden"], ["linear_burden", "skat"]])
+def test_untestable_gene_keeps_row_and_skip_code(tmp_path, tests):
+    """A gene linear burden cannot test stays in the output with its warning code."""
+    ctx = _context(tmp_path, {"association_tests": tests, "skat_backend": "python"})
+    df = ctx.current_dataframe
+    gcols = [c for c in df.columns if c.startswith("GEN_")]
+    df.loc[df.GENE == "NULLGENE", gcols] = "0/1"  # every sample carries every variant
+    res = _run(ctx)
+    assert "NULLGENE" in res.index
+    assert "BURDEN_NOT_ESTIMABLE" in res.loc["NULLGENE", "warnings"]
+    assert pd.isna(res.loc["NULLGENE", "linear_burden_pvalue"])
