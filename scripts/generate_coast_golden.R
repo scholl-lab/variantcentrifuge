@@ -248,41 +248,39 @@ cat("#       matrices will differ. Validation is via statistical behavior ranges
 cat("# =============================================================================\n")
 
 # =============================================================================
-# GCKD-Derived Golden Value Generation (TD-03)
+# SYNTH-Derived Golden Value Generation (TD-03)
 # =============================================================================
 #
-# These scenarios are derived from GCKD study characteristics:
-#   - Data source: testing/gckd_all.GRCh37.annotated.vcf.gz
-#   - Cohort: GCKD study, ~5125 samples (235 PKD cases, 4889 controls)
+# These scenarios are synthetic scenarios with these characteristics:
+#   - Cohort: imbalanced case/control design (~4.6% cases)
 #   - Case prevalence: ~4.6% (highly imbalanced binary phenotype)
-#   - Genes: PKD1 (645 variants), PKD2 (87 variants), COL4A5 (66 variants)
 #   - COAST categories from IMPACT: HIGH->PTV(3), MODERATE damaging->DMV(2),
 #     MODERATE benign->BMV(1)
 #
 # These scenarios use representative small extracts (n=200, ~9 cases) that
-# preserve the GCKD data characteristics — variant density, rare-variant
+# preserve the synthetic data characteristics — variant density, rare-variant
 # distribution, case fraction — in a computationally tractable test size.
 #
 # Run this section to generate golden omnibus p-values:
 #   Rscript scripts/generate_coast_golden.R
 #
-# Then copy the _GCKD_GOLDEN_* dict values into:
+# Then copy the _SYNTH_GOLDEN_* dict values into:
 #   tests/unit/test_coast_python_comparison.py
-#   class TestCOASTGCKDGoldenComparison, _GCKD_GOLDEN_SCENARIOS
+#   class TestCOASTSYNTHGoldenComparison, _SYNTH_GOLDEN_SCENARIOS
 #   field: r_omnibus_p
 # =============================================================================
 
 cat("\n")
 cat("# =============================================================================\n")
-cat("# GCKD-Derived Golden Values (TD-03)\n")
-cat("# Scenarios derived from testing/gckd_all.GRCh37.annotated.vcf.gz characteristics\n")
-cat("# n=200 samples, ~9 cases (4.5% prevalence, mimicking GCKD 235/5125 ratio)\n")
+cat("# SYNTH-Derived Golden Values (TD-03)\n")
+cat("# Synthetic scenarios with rare-variant characteristics\n")
+cat("# n=200 samples, ~9 cases (4.5% prevalence, imbalanced case fraction)\n")
 cat("# =============================================================================\n\n")
 
-# Helper to generate GCKD-like data: rare variant genotypes with realistic MAF
-# GCKD variants are rare: typically AC=1-10 in ~5125 samples -> MAF ~0.001-0.002
+# Helper to generate SYNTH-like data: rare variant genotypes with realistic MAF
+# Variants are rare: typically AC=1-10 in a large cohort -> MAF ~0.001-0.002
 # In n=200 samples with similar rarity: 0-2 carriers per variant
-gckd_geno <- function(seed, n, k_bmv, k_dmv, k_ptv, n_cases,
+synth_geno <- function(seed, n, k_bmv, k_dmv, k_ptv, n_cases,
                        maf_bmv = 0.015, maf_dmv = 0.010, maf_ptv = 0.005) {
   set.seed(seed)
   k <- k_bmv + k_dmv + k_ptv
@@ -303,7 +301,7 @@ gckd_geno <- function(seed, n, k_bmv, k_dmv, k_ptv, n_cases,
   }
   # Annotation codes: 1=BMV, 2=DMV, 3=PTV
   anno <- c(rep(1L, k_bmv), rep(2L, k_dmv), rep(3L, k_ptv))
-  # GCKD-like phenotype: ~4.5% cases (imbalanced)
+  # Imbalanced phenotype: ~4.5% cases
   pheno <- rep(0L, n)
   case_idx <- sample.int(n, n_cases)
   pheno[case_idx] <- 1L
@@ -314,10 +312,10 @@ gckd_geno <- function(seed, n, k_bmv, k_dmv, k_ptv, n_cases,
 FIXTURE_DIR <- file.path("tests", "fixtures", "coast_golden")
 if (!dir.exists(FIXTURE_DIR)) dir.create(FIXTURE_DIR, recursive = TRUE)
 
-# Helper to run COAST on GCKD-derived data, print golden value, and export matrices
-run_gckd_scenario <- function(scenario_name, description, seed, n, k_bmv, k_dmv, k_ptv,
+# Helper to run COAST on SYNTH-derived data, print golden value, and export matrices
+run_synth_scenario <- function(scenario_name, description, seed, n, k_bmv, k_dmv, k_ptv,
                                n_cases, weights = c(1, 2, 3), trait_type = "binary") {
-  dat <- gckd_geno(seed, n, k_bmv, k_dmv, k_ptv, n_cases)
+  dat <- synth_geno(seed, n, k_bmv, k_dmv, k_ptv, n_cases)
   is_binary <- (trait_type == "binary")
 
   # Export matrices as CSV for Python test consumption (same data = comparable p-values)
@@ -340,11 +338,11 @@ run_gckd_scenario <- function(scenario_name, description, seed, n, k_bmv, k_dmv,
       is_pheno_binary = is_binary
     )
   }, error = function(e) {
-    cat(sprintf("# ERROR in GCKD scenario %s: %s\n", scenario_name, conditionMessage(e)))
+    cat(sprintf("# ERROR in SYNTH scenario %s: %s\n", scenario_name, conditionMessage(e)))
     NULL
   })
 
-  cat(sprintf("# --- GCKD Scenario: %s ---\n", scenario_name))
+  cat(sprintf("# --- SYNTH Scenario: %s ---\n", scenario_name))
   cat(sprintf("# Description: %s\n", description))
   cat(sprintf("# Seed=%d, n=%d, n_cases=%d (~%.1f%%), BMV=%d, DMV=%d, PTV=%d\n",
               seed, n, n_cases, 100 * n_cases / n, k_bmv, k_dmv, k_ptv))
@@ -388,28 +386,28 @@ run_gckd_scenario <- function(scenario_name, description, seed, n, k_bmv, k_dmv,
 }
 
 # =============================================================================
-# GCKD Scenario G1: All 3 categories present (PKD1-like gene)
-# PKD1 has ~645 variants in GCKD: mostly MODERATE (missense) BMV/DMV, some HIGH PTV
-# Proportions: ~70% BMV, ~20% DMV, ~10% PTV (similar to PKD1 impact distribution)
+# SYNTH Scenario G1: All 3 categories present (gene with many variants)
+# A gene with many variants: mostly MODERATE (missense) BMV/DMV, some HIGH PTV
+# Proportions: ~70% BMV, ~20% DMV, ~10% PTV (typical impact distribution)
 # n_bmv=7, n_dmv=2, n_ptv=1 represents a small gene extract
 # =============================================================================
-cat("# GCKD Scenario G1: All 3 categories present (PKD1-like)\n")
-run_gckd_scenario(
-  scenario_name = "gckd_g1_all_categories",
-  description   = "All 3 categories present: PKD1-like gene with BMV/DMV/PTV variants",
+cat("# SYNTH Scenario G1: All 3 categories present (many variants)\n")
+run_synth_scenario(
+  scenario_name = "synth_g1_all_categories",
+  description   = "All 3 categories present: many-variant gene with BMV/DMV/PTV variants",
   seed = 1001, n = 200, n_cases = 9,
   k_bmv = 7, k_dmv = 2, k_ptv = 1,
   weights = c(1, 2, 3)
 )
 
 # =============================================================================
-# GCKD Scenario G2: Partial categories - BMV and PTV only, no DMV
+# SYNTH Scenario G2: Partial categories - BMV and PTV only, no DMV
 # Some smaller genes have no damaging missense (DMV category missing)
 # Represents a 'partial' COAST run (should produce p-value, not skip)
 # =============================================================================
-cat("# GCKD Scenario G2: Partial categories (BMV + PTV only, DMV missing)\n")
-run_gckd_scenario(
-  scenario_name = "gckd_g2_partial_bmv_ptv",
+cat("# SYNTH Scenario G2: Partial categories (BMV + PTV only, DMV missing)\n")
+run_synth_scenario(
+  scenario_name = "synth_g2_partial_bmv_ptv",
   description   = "Partial categories: BMV and PTV present, DMV missing",
   seed = 1002, n = 200, n_cases = 9,
   k_bmv = 5, k_dmv = 0, k_ptv = 2,
@@ -417,13 +415,13 @@ run_gckd_scenario(
 )
 
 # =============================================================================
-# GCKD Scenario G3: Single-variant gene
-# Small gene in GCKD panel with only 1 classifiable variant
+# SYNTH Scenario G3: Single-variant gene
+# Small gene in a gene panel with only 1 classifiable variant
 # Tests COAST edge case: 1 variant per test
 # =============================================================================
-cat("# GCKD Scenario G3: Single-variant gene\n")
-run_gckd_scenario(
-  scenario_name = "gckd_g3_single_variant",
+cat("# SYNTH Scenario G3: Single-variant gene\n")
+run_synth_scenario(
+  scenario_name = "synth_g3_single_variant",
   description   = "Single variant in PTV category only",
   seed = 1003, n = 200, n_cases = 9,
   k_bmv = 0, k_dmv = 0, k_ptv = 1,
@@ -431,13 +429,13 @@ run_gckd_scenario(
 )
 
 # =============================================================================
-# GCKD Scenario G4: All variants in one category (BMV-only gene)
+# SYNTH Scenario G4: All variants in one category (BMV-only gene)
 # COL4A5-like: all missense, classified as BMV (benign missense)
 # Tests COAST with single-category input
 # =============================================================================
-cat("# GCKD Scenario G4: All variants in one category (BMV-only)\n")
-run_gckd_scenario(
-  scenario_name = "gckd_g4_all_bmv",
+cat("# SYNTH Scenario G4: All variants in one category (BMV-only)\n")
+run_synth_scenario(
+  scenario_name = "synth_g4_all_bmv",
   description   = "All variants in BMV category (benign missense only gene)",
   seed = 1004, n = 200, n_cases = 9,
   k_bmv = 8, k_dmv = 0, k_ptv = 0,
@@ -445,11 +443,11 @@ run_gckd_scenario(
 )
 
 # =============================================================================
-# GCKD Scenario G5: Tied scores across categories (equal MAF per category)
+# SYNTH Scenario G5: Tied scores across categories (equal MAF per category)
 # Tests COAST behavior when variant characteristics are balanced across categories
 # Equal MAF simulates tied SIFT/PolyPhen scores where BMV/DMV distinction is marginal
 # =============================================================================
-cat("# GCKD Scenario G5: Tied scores across categories (equal MAF)\n")
+cat("# SYNTH Scenario G5: Tied scores across categories (equal MAF)\n")
 {
   set.seed(1005)
   n <- 200L; n_cases <- 9L
@@ -462,16 +460,16 @@ cat("# GCKD Scenario G5: Tied scores across categories (equal MAF)\n")
   pheno_g5[sample.int(n, n_cases)] <- 1L
 
   # Export G5 matrices
-  write.csv(geno_g5, file.path(FIXTURE_DIR, "gckd_g5_tied_scores_geno.csv"),
+  write.csv(geno_g5, file.path(FIXTURE_DIR, "synth_g5_tied_scores_geno.csv"),
             row.names = FALSE)
   write.csv(data.frame(pheno = pheno_g5),
-            file.path(FIXTURE_DIR, "gckd_g5_tied_scores_pheno.csv"),
+            file.path(FIXTURE_DIR, "synth_g5_tied_scores_pheno.csv"),
             row.names = FALSE)
   write.csv(data.frame(anno = anno_g5),
-            file.path(FIXTURE_DIR, "gckd_g5_tied_scores_anno.csv"),
+            file.path(FIXTURE_DIR, "synth_g5_tied_scores_anno.csv"),
             row.names = FALSE)
 
-  cat("# GCKD Scenario G5: Tied scores across categories (equal MAF = 0.010)\n")
+  cat("# SYNTH Scenario G5: Tied scores across categories (equal MAF = 0.010)\n")
   cat("# Description: Equal MAF for BMV/DMV/PTV simulates tied SIFT/PolyPhen boundary\n")
   cat(sprintf("# Seed=1005, n=%d, n_cases=%d, BMV=%d, DMV=%d, PTV=%d\n",
               n, n_cases, k_bmv, k_dmv, k_ptv))
@@ -506,12 +504,12 @@ cat("# GCKD Scenario G5: Tied scores across categories (equal MAF)\n")
 # =============================================================================
 
 cat("# =============================================================================\n")
-cat("# GCKD Golden Values Summary\n")
-cat("# Copy the r_omnibus_p values above into _GCKD_GOLDEN_SCENARIOS in:\n")
+cat("# SYNTH Golden Values Summary\n")
+cat("# Copy the r_omnibus_p values above into _SYNTH_GOLDEN_SCENARIOS in:\n")
 cat("#   tests/unit/test_coast_python_comparison.py\n")
-cat("#   class TestCOASTGCKDGoldenComparison\n")
+cat("#   class TestCOASTSYNTHGoldenComparison\n")
 cat("#\n")
 cat("# Replace placeholder values (0.999) with the values printed above.\n")
-cat("# Run: pytest tests/unit/test_coast_python_comparison.py::TestCOASTGCKDGoldenComparison\n")
+cat("# Run: pytest tests/unit/test_coast_python_comparison.py::TestCOASTSYNTHGoldenComparison\n")
 cat("# Expected: all 5 scenarios pass with abs(py_p - r_p) / r_p < 0.10\n")
 cat("# =============================================================================\n")

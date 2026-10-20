@@ -845,7 +845,7 @@ class EnhancedTestDataGenerator:
         self._create_incomplete_phenotype_file(output_dir / "phenotypes_incomplete.csv")
 
     def _create_basic_phenotype_file(self, output_path: Path) -> None:
-        """Create basic phenotype file similar to GCKD format."""
+        """Create basic phenotype file with a binary case/control column."""
         with open(output_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(

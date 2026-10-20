@@ -17,7 +17,7 @@
 suppressMessages(library(MetaSKAT))
 args <- commandArgs(TRUE)
 fx <- if (length(args)) args[1] else "tests/fixtures/coast_golden"
-for (name in c("gckd_g1_all_categories", "gckd_g2_partial_bmv_ptv", "gckd_g4_all_bmv")) {
+for (name in c("synth_g1_all_categories", "synth_g2_partial_bmv_ptv", "synth_g4_all_bmv")) {
   Z <- as.matrix(read.csv(file.path(fx, paste0(name, "_geno.csv"))))
   y <- read.csv(file.path(fx, paste0(name, "_pheno.csv")))$pheno
   n <- length(y); i0 <- 0:(n - 1)
