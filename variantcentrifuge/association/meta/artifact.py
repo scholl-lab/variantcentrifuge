@@ -59,8 +59,6 @@ class GeneScore:
     n_carriers : int | None
         Samples with >= 1 observed ALT allele over the gene's variants (#194);
         None for artifacts written before it was recorded.
-    firth : dict | None
-        Optional Firth burden fit ``{"beta", "se", "weights"}`` (#198); None if absent.
     """
 
     variant_keys: list[str]
@@ -70,7 +68,6 @@ class GeneScore:
     an: np.ndarray
     null_converged: bool
     n_carriers: int | None = None
-    firth: dict[str, Any] | None = None
 
 
 @dataclass
@@ -259,8 +256,6 @@ def save_artifact(artifact: ScoreCovarianceArtifact, path: str) -> None:
             "null_converged": gs.null_converged,
             "n_carriers": gs.n_carriers,
         }
-        if gs.firth is not None:
-            gene_meta[gene]["firth"] = gs.firth
     np.savez_compressed(path, **arrays)  # type: ignore[arg-type]
     meta = {
         "schema_version": artifact.schema_version,
@@ -312,7 +307,6 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
                 an=data[f"{gene}::an"],
                 null_converged=bool(gmeta["null_converged"]),
                 n_carriers=gmeta.get("n_carriers"),
-                firth=gmeta.get("firth"),
             )
     return ScoreCovarianceArtifact(
         stratum_id=meta["stratum_id"],
@@ -352,7 +346,6 @@ def emit_stratum_artifact(
     mask_hash: str,
     mask_label: str | None = None,
     provenance: dict[str, Any] | None = None,
-    firth_weights: str | None = None,
 ) -> ScoreCovarianceArtifact:
     """Write a stratum artifact from the association stage's per-gene matrix builders.
 
@@ -361,8 +354,6 @@ def emit_stratum_artifact(
     information to the meta. Dosages are kept ALT-coded so ``U`` matches the keys.
     The builders' missing-data policy is recorded in the artifact; with
     ``missing_as_ref`` missing calls count as REF in AC and AN (#200).
-
-    With ``firth_weights`` each gene also stores a Firth burden fit (#198).
 
     A gene whose retained samples (after its missingness QC) are all cases or all
     controls has no estimable null model; it is omitted with a warning. A phenotype
@@ -374,7 +365,6 @@ def emit_stratum_artifact(
         build_genotype_matrix,
     )
     from variantcentrifuge.association.meta.align import canonical_key
-    from variantcentrifuge.association.meta.firth_meta import stratum_firth_burden
 
     first = next(iter(builders.values()), None)
     if first is None or first.phenotype_vector is None:
@@ -440,18 +430,14 @@ def emit_stratum_artifact(
             omitted.append(gene)
             continue
         null_key = mask.tobytes()
-        cov = b.covariate_matrix[mask] if b.covariate_matrix is not None else None
         try:
             if null_key not in nulls:
+                cov = b.covariate_matrix[mask] if b.covariate_matrix is not None else None
                 nulls[null_key] = fit_stratum_null(pheno_all[mask], cov, "binary")
             null_model = nulls[null_key]
             if isinstance(null_model, UntestableGeneError):
                 raise null_model
             gene_scores[gene] = compute_gene_score(geno, raw, null_model, keys, ploidy=plo)
-            if firth_weights is not None:
-                gene_scores[gene].firth = stratum_firth_burden(
-                    geno, ac, an, pheno_all[mask], cov, firth_weights
-                )
         except UntestableGeneError as exc:
             nulls.setdefault(null_key, exc)  # cache an untestable sample set
             logger.warning("Score artifact: omitting gene %s: %s", gene, exc.reason)

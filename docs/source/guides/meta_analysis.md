@@ -153,7 +153,7 @@ Only `beta:a,b` and `uniform` weights are supported (the only schemes reproducib
 from the artifact). `--weights` takes several schemes, e.g.
 `--weights beta:1,25 uniform`: every column that depends on the weights (p-values,
 `meta_burden_beta`/`_direction`, `meta_skato_rho`, heterogeneity, leave-one-out,
-`burden_firth_ivw_*`, `primary_p`/`primary_q`, `status`, and with several masks
+`primary_p`/`primary_q`, `status`, and with several masks
 `acat_masks_p`/`_q`) then
 appears once per scheme, suffixed by the scheme name with non-alphanumerics replaced
 by `_` (`primary_p_beta_1_25`, `primary_p_uniform`). Each scheme is corrected on its
@@ -247,26 +247,7 @@ calibrated under **moderate** imbalance. Under **severe** case:control imbalance
 per-variant/burden normal approximation is anti-conservative in the tail; a
 calibrated result there requires a genotype-level saddlepoint (SPA) backend, which
 is **deferred**. The artifact stores the raw `U`/`V`, so an SPA meta path can be
-added without changing the schema.
-
-As an interim alternative burden p-value (#198), `--score-artifact` also fits, per
-gene, a Firth-penalised logistic regression of case status on the weighted ALT
-burden plus the stratum's covariates, with the run's `--variant-weights` scheme
-(`beta:a,b` or `uniform`) applied to the stratum's own MAF, and stores the burden
-log-OR and its Wald SE (inverse Fisher information at the Firth estimate). `meta`
-pools these with a fixed-effect inverse-variance estimate:
-`burden_firth_ivw_beta`, `burden_firth_ivw_se`, `burden_firth_ivw_p` (two-sided
-z-test) and `burden_firth_ivw_n_strata`. Only strata whose fit converged and used the
-same scheme as `meta --weights` contribute; with none (for example artifacts written
-before this field existed) the columns are empty and `n_strata` is 0. Firth stays
-finite under separation and strong imbalance (e.g. a stratum with 788 cases and 101
-controls), but its weights come from each stratum's frequency rather than the pooled
-one, so it is a sensitivity check: it never changes `primary_p` or the
-multiple-testing correction. Validated against R `logistf` (estimates) and
-`metafor::rma(method = "FE")` on synthetic strata including that imbalance and a
-separated ultra-rare gene (`scripts/generate_firth_meta_parity.R`); note `logistf`
-1.26's `fit$var` uses the augmented-data information, 1-5% smaller (more for ultra-rare burdens) than the
-classic Wald SE reported here. Likewise, `V` is stored as a full matrix, so a
+added without changing the schema. Likewise, `V` is stored as a full matrix, so a
 future relatedness-aware (GLMM/GRM) null drops in without a schema change.
 
 The meta engine is cross-validated against R MetaSKAT 0.90 (`MetaSKAT_wZ`,
