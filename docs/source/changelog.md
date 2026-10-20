@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Python API: `build_stratum_artifact()` and `ScoreCovarianceArtifact` require an explicit keyword `missing_policy`; the `bestguess` default now applies only to version 1 artifacts on load, so pre-imputed matrices cannot be mislabelled (#200).
+- `meta` gives zero weight to loci monomorphic in the pooled strata, so `--weights beta:a,b` with `a < 1` no longer crashes leave-one-out when a locus varies only in the dropped stratum (#193).
 - `meta` leave-one-out (including `loo_min_p`) re-derives the variant weights from the remaining strata, so each LOO result equals a meta-analysis without that stratum (#193).
 - **Genotype missing data (#200).** Added `--missing-as-ref`, which sets missing genotypes to
   reference in every association test (Fisher, the matrix-based tests and `--score-artifact`)
