@@ -55,10 +55,12 @@ def test_run_meta_detects_concordant_signal(tmp_path):
     assert df.loc["SIG", "primary_p"] < df.loc["NULLG", "primary_p"]
 
 
-def test_cli_main_success(tmp_path):
+def test_meta_subcommand_success(tmp_path):
+    from variantcentrifuge.cli import main as vc_main
+
     manifest = _write_study(tmp_path)
     out = str(tmp_path / "meta.tsv")
-    rc = main(["--manifest", manifest, "--output", out, "--weights", "beta:1,25"])
+    rc = vc_main(["meta", "--manifest", manifest, "--output", out, "--weights", "beta:1,25"])
     assert rc == 0
     assert (tmp_path / "meta.tsv").exists()
 

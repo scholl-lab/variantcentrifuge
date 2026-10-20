@@ -17,6 +17,7 @@ RECOGNIZED_SUBCOMMANDS: frozenset[str] = frozenset(
         "validate-config",
         "build-pm5",
         "download-references",
+        "meta",
     }
 )
 
@@ -294,6 +295,10 @@ def dispatch_subcommand(subcommand: str, sub_argv: list[str]) -> int:
 
         dl_argv = list(sub_argv) if "--download" in sub_argv else ["--download", *sub_argv]
         return build_pm5_lookup.main(dl_argv)
+    if subcommand == "meta":
+        from .association.meta.cli import main as meta_main
+
+        return meta_main(sub_argv)
     raise ValueError(f"Unsupported subcommand: {subcommand}")
 
 

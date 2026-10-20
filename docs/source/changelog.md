@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Cohort-stratified rare-variant score-statistic meta-analysis (#112): `--score-artifact` writes a cohort's per-gene score/covariance artifact during association analysis, and the new `variantcentrifuge-meta` command combines two or more cohorts (burden, SKAT, SKAT-O, Cochran Q/I², leave-one-out, exome-wide FDR). Binary traits only.
+- Cohort-stratified rare-variant score-statistic meta-analysis (#112): `--score-artifact` writes a cohort's per-gene score/covariance artifact during association analysis, and the new `variantcentrifuge meta` subcommand combines two or more cohorts (burden, SKAT, SKAT-O, Cochran Q/I², leave-one-out, exome-wide FDR). Binary traits only.
 
 ## [0.18.0] - 2026-10-20
 

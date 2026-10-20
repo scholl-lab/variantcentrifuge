@@ -1,6 +1,6 @@
 # File: variantcentrifuge/association/meta/cli.py
 """
-``variantcentrifuge-meta`` console entry point.
+``variantcentrifuge meta`` subcommand.
 
 Consumes pre-computed per-stratum score/covariance artifacts (no VCF, no external
 tools) and writes a meta-analysis results TSV. This mirrors the RAREMETAL /
@@ -19,7 +19,7 @@ logger = logging.getLogger("variantcentrifuge")
 def build_parser() -> argparse.ArgumentParser:
     """Argument parser for the meta-analysis CLI."""
     parser = argparse.ArgumentParser(
-        prog="variantcentrifuge-meta",
+        prog="variantcentrifuge meta",
         description=(
             "Cohort-stratified rare-variant score-statistic meta-analysis. "
             "Combines per-stratum score/covariance artifacts (binary traits)."

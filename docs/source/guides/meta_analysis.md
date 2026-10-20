@@ -23,7 +23,7 @@ compact **score/covariance artifact**, then a separate step combines them.
    counts (`AC`) and allele numbers (`AN`). These are gene-level **aggregates** —
    no per-sample genotypes or phenotype values — so artifacts are safe to move
    between sites.
-2. **Meta step (`variantcentrifuge-meta`).** For each gene it aligns the strata on
+2. **Meta step (`variantcentrifuge meta`).** For each gene it aligns the strata on
    a canonical `chrom:pos:ref:alt` key (union of variants; a variant absent in a
    stratum contributes zero information there), harmonises weights from the
    **pooled** frequency, and combines:
@@ -92,7 +92,7 @@ assumption.
 ## Running it
 
 ```bash
-variantcentrifuge-meta \
+variantcentrifuge meta \
   --manifest study.tsv \
   --output meta_results.tsv \
   --weights beta:1,25 \
