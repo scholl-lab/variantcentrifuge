@@ -17,7 +17,7 @@ from typing import Any
 
 import pandas as pd
 
-from ..gt_reconstruction import _find_per_sample_gt_columns
+from ..gt_reconstruction import _copy_gt_columns_to_samples, _find_per_sample_gt_columns
 from ..pipeline_core import PipelineContext
 from .sample_column_helpers import (
     cleanup_sample_columns,
@@ -467,10 +467,8 @@ def apply_chunk_inheritance_analysis(
         elif not sample_columns_exist:
             gt_cols = _find_per_sample_gt_columns(chunk_df)
             if gt_cols:
-                n = min(len(gt_cols), len(vcf_samples))
-                logger.info(f"Creating sample columns from {n} per-sample GT columns")
-                for i in range(n):
-                    chunk_df[vcf_samples[i]] = chunk_df[gt_cols[i]]
+                n = _copy_gt_columns_to_samples(chunk_df, gt_cols, vcf_samples)  # by GEN index
+                logger.info(f"Created sample columns from {n} per-sample GT columns")
             else:
                 logger.warning("No GT column or per-sample GT columns found in chunk")
 

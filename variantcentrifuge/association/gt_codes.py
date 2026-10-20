@@ -24,6 +24,7 @@ import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.compute as pc  # type: ignore[import-untyped]
 
 from ..genotype_utils import is_missing
+from ..gt_reconstruction import gt_columns_match_samples
 from .aggregation import _gt_to_dosage
 from .genotype_matrix import _classify_gt_vocabulary, _factorize_gt_block, _multiallelic_error
 
@@ -33,7 +34,7 @@ logger = logging.getLogger("variantcentrifuge")
 # phenotype_helpers.extract_sample_and_genotype (strip, split on [:,;\s]).
 _ENTRY = r"^\s*(?P<name>[^(]*?)\s*\(\s*(?P<gt>[^:,;\s)]*)[^)]*\)"
 _EMPTY_ROWS = {"", "NA", "nan"}
-_ROW_CHUNK = 50_000  # rows per Arrow batch: bounds the transient per-entry arrays
+_BATCH_CHARS = 64_000_000  # GT text per Arrow batch: transient arrays are ~7x the text
 
 
 class GenotypeCodes:
@@ -103,38 +104,53 @@ def parse_genotype_codes(
     vcf_samples: list[str] | None,
     gt_columns: list[str],
 ) -> GenotypeCodes:
-    """Parse packed ``GT`` (preferred) or per-sample GT columns for *samples* once.
+    """Parse per-sample GT columns (preferred) or the packed ``GT`` for *samples* once.
 
-    ``gt_columns[i]`` holds ``vcf_samples[i]``; samples without a column read as empty
-    (missing) calls.
+    Columns are used only when they are exactly ``GEN[0..n-1].GT`` for the n VCF samples,
+    in order (``gt_columns[i]`` holds ``vcf_samples[i]``). They win over packed GT because
+    every sample ID survives in them, while IDs containing ``(``/``;`` or edge whitespace
+    cannot round-trip through ``Name(GT);...``.
     """
     vocab = _Vocab()
     codes = np.zeros((len(df), len(samples)), dtype=np.int8)
-    if "GT" in df.columns:
+    columns_ok = gt_columns_match_samples(gt_columns, vcf_samples)
+    if not columns_ok and "GT" not in df.columns:
+        raise ValueError(
+            f"{len(gt_columns)} per-sample GT columns do not map 1:1 (GEN[0..n-1].GT, in "
+            f"order) to the {len(vcf_samples or [])} VCF samples and there is no packed GT "
+            "column; cannot assign genotypes to samples"
+        )
+    if not columns_ok and gt_columns:
+        logger.warning(
+            "%d per-sample GT columns do not map 1:1 to the %d VCF samples; using packed GT",
+            len(gt_columns),
+            len(vcf_samples or []),
+        )
+    if not columns_ok:
+        ids = vcf_samples or samples
+        bad = sum(1 for s in ids if "(" in s or ";" in s or s != s.strip())
+        if bad:
+            logger.warning(
+                "%d of %d VCF sample IDs cannot be represented in packed GT (they contain "
+                "'(' or ';' or leading/trailing spaces); their genotypes read as reference",
+                bad,
+                len(ids),
+            )
         codes = _parse_packed(df["GT"], samples, vcf_samples, codes, vocab)
         labels = list(samples)
     else:
-        col_of = dict(zip(vcf_samples or [], gt_columns, strict=False))
-        if len(gt_columns) != len(vcf_samples or []):
-            logger.warning(
-                "GT column count (%d) != VCF sample count (%d); samples without a GT "
-                "column are treated as missing",
-                len(gt_columns),
-                len(vcf_samples or []),
-            )
-        labels = [col_of.get(s, s) for s in samples]
-        codes = _parse_columns(df, [col_of.get(s) for s in samples], codes, vocab)
+        col_of = dict(zip(vcf_samples or [], gt_columns, strict=True))
+        labels = [col_of[s] for s in samples]
+        codes = _parse_columns(df, labels, codes, vocab)
     return GenotypeCodes(codes, vocab.items, labels)
 
 
 def _parse_columns(
-    df: pd.DataFrame, columns: list[str | None], codes: np.ndarray, vocab: _Vocab
+    df: pd.DataFrame, columns: list[str], codes: np.ndarray, vocab: _Vocab
 ) -> np.ndarray:
     """Encode per-sample GT columns; cells normalised like ``fillna("").astype(str)``."""
     for j, col in enumerate(columns):
-        if col is None:
-            lut, cell = vocab.lut([""]), np.zeros(len(df), dtype=np.intp)
-        elif isinstance(df[col].dtype, pd.CategoricalDtype):
+        if isinstance(df[col].dtype, pd.CategoricalDtype):
             series = df[col]
             lut = vocab.lut([str(c) for c in series.cat.categories] + [""])
             cell = series.cat.codes.to_numpy()  # -1 (NA) picks the trailing ""
@@ -159,11 +175,16 @@ def _parse_packed(
     text = gt.fillna("").astype(str).to_numpy(dtype=object)
     wanted = pa.array(samples, type=pa.large_string())
     named = np.zeros(len(text), dtype=bool)
-    for lo in range(0, len(text), _ROW_CHUNK):
-        chunk = pa.array(text[lo : lo + _ROW_CHUNK], type=pa.large_string())
-        named[lo : lo + len(chunk)] = pc.match_substring(chunk, "(").to_numpy(False)
+    ends = np.cumsum(np.fromiter(map(len, text), dtype=np.int64, count=len(text)))
+    lo = 0
+    while lo < len(text):
+        start = int(ends[lo - 1]) if lo else 0
+        hi = max(lo + 1, int(np.searchsorted(ends, start + _BATCH_CHARS, side="right")))
+        chunk = pa.array(text[lo:hi], type=pa.large_string())
+        named[lo:hi] = pc.match_substring(chunk, "(").to_numpy(False)
         lists = pc.split_pattern(chunk, ";")
         rows = pc.list_parent_indices(lists).to_numpy() + lo
+        lo = hi
         entries = pc.extract_regex(pc.list_flatten(lists), _ENTRY)
         cols = pc.fill_null(pc.index_in(entries.field("name"), value_set=wanted), -1)
         cols = cols.to_numpy(zero_copy_only=False)

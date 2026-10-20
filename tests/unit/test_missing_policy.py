@@ -302,13 +302,13 @@ def test_fisher_aggregators_honour_missing_as_ref():
     cols = pd.DataFrame(
         {
             "GENE": ["G", "G"],
-            "a": ["0/1", "./."],
-            "b": ["./.", "./1"],
-            "c": ["0/0", "."],
-            "d": ["0/0", "0/0"],
+            "GEN_0__GT": ["0/1", "./."],
+            "GEN_1__GT": ["./.", "./1"],
+            "GEN_2__GT": ["0/0", "."],
+            "GEN_3__GT": ["0/0", "0/0"],
         }
     )
-    order, gt_cols = ["A", "B", "C", "D"], ["a", "b", "c", "d"]
+    order, gt_cols = ["A", "B", "C", "D"], [f"GEN_{i}__GT" for i in range(4)]
     packed = pd.DataFrame({"GENE": ["G", "G"], "GT": ["A(0/1);B(./.)", "A(./.);B(./1);C(.)"]})
     for missing_as_ref, called, carriers in ((False, (0, 1), (0, 0)), (True, (2, 2), (1, 0))):
         for rec in (
