@@ -289,8 +289,9 @@ synthetic data (no real cohorts) and prints one machine-readable `RESULT` line p
 table of the stage's sub-step timings, which the stage records in
 `context.stage_results["association_analysis"]["substep_seconds"]` (`gt_unpack`,
 `gt_reconstruct`, `sample_setup`, `covariates_phenotype`, `aggregation`,
-`matrix_builders`, `score_artifact`, `engine`, `write_output`). Genotype matrices are
-built lazily, so `engine` includes matrix construction.
+`matrix_builders`, `score_artifact`, `engine`, `write_output`). `matrix_builders` times only
+the creation of the per-gene builder objects; the genotype matrices are built lazily inside
+`engine` (and `score_artifact`, when enabled), so those sub-steps include matrix construction.
 
 ```bash
 # Presets: S = 50 genes x 1,000 samples, M = 500 x 3,000, L = 2,000 x 6,000 (~25 variants/gene)
@@ -298,6 +299,11 @@ python scripts/bench_association.py --size M --layout columns --tests fisher --o
 # ... change code, rerun with --out after.tsv, then gate on identical results:
 python scripts/bench_association.py --compare before.tsv after.tsv   # exit 0 only if identical
 ```
+
+`--out PATH` writes the TSV plus `PATH.pkl` (the exact DataFrame) and, with a score artifact,
+`PATH.scores.npz` and `PATH.scores.npz.meta.json`. `--compare` exits 0 only if the TSV text,
+the pickled frames (`assert_frame_equal(check_exact=True)`, dtypes included) and the score
+artifacts (same array keys, dtypes and NaN-aware values, identical metadata) all match.
 
 Target-workload presets (synthetic, 2,000 genes = 1/10 of an exome, 6,000 VCF samples,
 `logistic_burden,skat` with SKAT-O, `--missing-as-ref`, score artifact on, default Beta(1,25)

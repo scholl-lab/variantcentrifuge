@@ -139,7 +139,9 @@ def ensure_sorted_by_gene(input_file: Path, gene_col: str, context: PipelineCont
             logger.error(f"Column {gene_col} not found in header")
             return input_file
 
-    with tempfile.NamedTemporaryFile(mode="w", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(
+        mode="w", delete=False, dir=context.config.get("temp_dir")
+    ) as tmp:
         with open_func(input_file) as f:
             tmp.write(f.readline())
         tmp_path = tmp.name

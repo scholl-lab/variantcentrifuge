@@ -21,6 +21,7 @@ import json
 import os
 import platform
 import resource
+import shutil
 import sys
 import tempfile
 import time
@@ -57,6 +58,8 @@ WORKLOADS = {
 COVARIATES = ["age", "sex"] + [f"PC{i}" for i in range(1, 11)] + ["bin1", "batch"]
 BLAS_VARS = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
 GT_CODES = ["0/0", "0/1", "1/1", "./."]
+PICKLE_SUFFIX = ".pkl"  # --out PATH also writes PATH.pkl (exact frame) ...
+ARTIFACT_SUFFIX = ".scores.npz"  # ... and, with --artifact, PATH.scores.npz(+.meta.json)
 CHUNK_CELLS = 4_000_000  # bounds the transient float64 draw to ~32 MB per chunk
 
 
@@ -183,8 +186,8 @@ def _as_float(text: str) -> float:
         return float("nan")
 
 
-def compare(path_a, path_b) -> int:
-    """Return 0 if both result tables are identical, else print per-column diffs and return 1."""
+def _compare_text(path_a, path_b) -> int:
+    """Compare the TSV text; print per-column diffs and return 1 on any difference."""
     import numpy as np
     import pandas as pd
 
@@ -211,10 +214,63 @@ def compare(path_a, path_b) -> int:
         if not both.all():
             msg += f", {int((~both).sum())} non-numeric/NaN mismatches"
         print(msg)
-    if n_diff:
+    return 1 if n_diff else 0
+
+
+def _compare_pickles(path_a, path_b) -> int:
+    """Exact DataFrame comparison including dtypes and None-vs-NaN; print the first difference."""
+    import pandas as pd
+
+    try:
+        pd.testing.assert_frame_equal(
+            pd.read_pickle(path_a), pd.read_pickle(path_b), check_exact=True
+        )
+    except AssertionError as exc:
+        print(f"DIFF frame: {exc}")
         return 1
-    print(f"IDENTICAL {a.shape[0]} rows x {a.shape[1]} columns")
     return 0
+
+
+def _compare_artifacts(path_a, path_b) -> int:
+    """Compare score artifacts: same array keys, dtypes, NaN-aware values, identical metadata."""
+    import numpy as np
+
+    with np.load(path_a) as fa, np.load(path_b) as fb:
+        ka, kb = set(fa.files), set(fb.files)
+        if ka != kb:
+            print(f"DIFF artifact keys: only A {sorted(ka - kb)[:5]}, only B {sorted(kb - ka)[:5]}")
+            return 1
+        for key in sorted(ka):
+            x, y = fa[key], fb[key]
+            nan_ok = x.dtype.kind in "fc"
+            if x.dtype != y.dtype or not np.array_equal(x, y, equal_nan=nan_ok):
+                print(f"DIFF artifact array {key}: {x.dtype}{x.shape} vs {y.dtype}{y.shape}")
+                return 1
+    # The metadata holds no timestamps or paths (stratum_id is the fixed name "bench").
+    meta_a = json.loads(Path(f"{path_a}.meta.json").read_text())
+    meta_b = json.loads(Path(f"{path_b}.meta.json").read_text())
+    if meta_a != meta_b:
+        diff = sorted(k for k in meta_a.keys() | meta_b.keys() if meta_a.get(k) != meta_b.get(k))
+        print(f"DIFF artifact metadata: {diff}")
+        return 1
+    return 0
+
+
+def compare(path_a, path_b) -> int:
+    """Return 0 only if the result tables (text, frame pickles) and score artifacts match."""
+    rc = _compare_text(path_a, path_b)
+    for suffix, check in ((PICKLE_SUFFIX, _compare_pickles), (ARTIFACT_SUFFIX, _compare_artifacts)):
+        side_a, side_b = Path(path_a + suffix).exists(), Path(path_b + suffix).exists()
+        if side_a != side_b:
+            print(f"DIFF {suffix} present only for {'A' if side_a else 'B'}")
+            rc = 1
+        elif side_a:
+            rc |= check(path_a + suffix, path_b + suffix)
+        elif suffix == PICKLE_SUFFIX:
+            print("NOTE no frame pickles; compared TSV text only")
+    if rc == 0:
+        print(f"IDENTICAL {path_a} vs {path_b}")
+    return rc
 
 
 def parse_args(argv=None):
@@ -273,6 +329,10 @@ def main(argv=None) -> int:
             run = run_stage(df, samples, args, Path(tmp))
             if best is None or run[1] < best[1]:
                 best = run
+        src = Path(tmp) / "bench.scores.npz"
+        if args.out and src.exists():  # absent when the stage aborts before the artifact
+            shutil.copyfile(src, args.out + ARTIFACT_SUFFIX)
+            shutil.copyfile(f"{src}.meta.json", f"{args.out}{ARTIFACT_SUFFIX}.meta.json")
     assert best is not None
     res, wall, timings = best
     rss_self = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
@@ -310,6 +370,7 @@ def main(argv=None) -> int:
     print(f"{'stage total':<22}{wall:>10.3f}")
     if args.out and res is not None:
         res.to_csv(args.out, sep="\t", index=False)
+        res.to_pickle(args.out + PICKLE_SUFFIX)
     if args.write_baseline:
         record["machine"] = f"{platform.machine()} {platform.processor()} cpus={os.cpu_count()}"
         record["python"] = platform.python_version()
