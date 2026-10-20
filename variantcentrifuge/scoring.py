@@ -11,7 +11,7 @@ import logging
 import math
 import os
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -61,18 +61,12 @@ KNOWN_CATEGORICAL_COLS = set(
     "#CHROM ALT BIOTYPE CHROM CLINVAR_CLNSIG CONSEQUENCE EFFECT FEATURE_ID "  # noqa: SIM905
     "FILTER GENE GT HGVS_C HGVS_P ID IMPACT INHERITANCE_DETAILS INHERITANCE_PATTERN REF".split()
 )
-NUMERIC_SUFFIXES = tuple(
-    "_AC _AF _AN _COUNT _P _PHRED _PROB _PVAL _RANKSCORE _SCORE".split()  # noqa: SIM905
-)
 CATEGORICAL_SUFFIXES = ("_CLNSIG", "_CONSEQUENCE", "_EFFECT", "_IMPACT", "_PATTERN", "_PRED")
-NUMERIC_ATTRS = {"abs", "clip", "log", "max", "mean", "min", "pow", "round", "sqrt", "sum"}
-STR_ATTRS = set(
-    (  # noqa: SIM905
-        "astype contains endswith eq fillna ge gt isin le lower lt map ne replace startswith"
-        " str strip upper"
-    ).split()
-)
-
+_NUMERIC_TYPES = ("numeric", "number", "float", "int")
+_TEXT_TYPES = ("categorical", "string", "str")
+_ORDERING = (ast.Lt, ast.LtE, ast.Gt, ast.GtE)
+_BITWISE = (ast.BitAnd, ast.BitOr, ast.BitXor)
+_CMP_METHODS = ("isin", "eq", "ne", "lt", "le", "gt", "ge")
 
 ANN_CAT_RE = re.compile(
     r"^ANN\[\d+\]\.(IMPACT|EFFECT|GENE|FEATUREID|BIOTYPE|HGVS_C|HGVS_P)$",
@@ -112,205 +106,59 @@ def _is_known_categorical_column(col_name: str) -> bool:
     )
 
 
-def _is_numeric_col_name(col_name: str) -> bool:
-    if _is_known_categorical_column(col_name):
-        return False
-    u = col_name.upper().strip()
-    return u.endswith(NUMERIC_SUFFIXES) or any(
-        s in u for s in ("AF", "CADD", "NGS", "SCORE", "PHRED")
-    )
+def _formula_usage(name: str, formulas: list[dict[str, Any]], typed: dict[str, str]) -> set[str]:
+    """Return how formulas use variable *name* ("numeric", "categorical", ...).
 
+    *typed* maps every variable to its explicit or known-column type ("" when untyped).
+    ponytail: transition guard for rule-based variable typing (only detects disagreement,
+    never chooses a type); delete in a later release once configs carry explicit types.
+    """
+    norm = lambda s: re.sub(r"\W", "_", s)  # noqa: E731
+    name = norm(name)
 
-def _is_non_bool_numeric(df: pd.DataFrame, col: str | None) -> bool:
-    if not col or col not in df.columns:
-        return False
-    return pd.api.types.is_numeric_dtype(df[col]) and not pd.api.types.is_bool_dtype(df[col])
+    def has_var(e: ast.AST, anywhere: bool = False) -> bool:
+        nodes = ast.walk(e) if anywhere else [e]
+        return any(isinstance(x, ast.Name) and x.id == name for x in nodes)
 
+    def use_of(other: ast.AST, op: ast.AST | None = None) -> str:
+        if isinstance(other, (ast.List, ast.Tuple, ast.Set)):
+            uses = {use_of(e) for e in other.elts}
+            return "categorical" if "categorical" in uses else max(uses, default="")
+        val = other.value if isinstance(other, ast.Constant) else None
+        if isinstance(val, str):
+            return "" if val.strip().lower() in _MISSING_TOKENS else "categorical"
+        if type(val) in (int, float) or isinstance(op, _ORDERING):
+            return "numeric"
+        if isinstance(other, ast.Name) and other.id in typed:
+            return typed[other.id] or "comparison with an untyped variable"
+        return ""
 
-def _norm_ident(name: str) -> str:
-    s = re.sub(r"\W+", "_", name.strip())
-    return f"_{s}" if s and s[0].isdigit() else s
-
-
-def _norm_formula(f: str) -> str:
-    return re.sub(r"`([^`]+)`", lambda m: _norm_ident(m.group(1)), f)
-
-
-def _formula_strings(formulas: list[dict[str, Any]]) -> list[str]:
-    return [
-        _norm_formula(str(v))
-        for f in formulas
-        for v in (f.values() if isinstance(f, dict) else [str(f)])
-    ]
-
-
-def _call_args(node: ast.Call) -> list[ast.expr]:
-    return [*node.args, *(kw.value for kw in node.keywords)]
-
-
-def _ast_names(node: ast.AST) -> list[str]:
-    return [n.id for n in ast.walk(node) if isinstance(n, ast.Name)]
-
-
-def _container_elts(op: ast.AST) -> Sequence[ast.AST | None]:
-    if isinstance(op, ast.Dict):
-        return (*op.keys, *op.values)
-    return op.elts if isinstance(op, (ast.List, ast.Tuple, ast.Set)) else [op]
-
-
-def _has_str_constant(operands: Sequence[ast.AST]) -> bool:
-    return any(
-        isinstance(e, ast.Constant)
-        and isinstance(e.value, str)
-        and e.value.strip().lower() not in _MISSING_TOKENS
-        for op in operands
-        for e in _container_elts(op)
-        if e is not None
-    )
-
-
-def _has_num_constant(operands: Sequence[ast.AST]) -> bool:
-    return any(
-        isinstance(e, ast.Constant) and type(e.value) in (int, float)
-        for op in operands
-        for e in _container_elts(op)
-        if e is not None
-    )
-
-
-def _unwrap_bitwise(e: ast.expr, get_right: bool) -> ast.expr:
-    while isinstance(e, ast.BinOp) and isinstance(e.op, (ast.BitAnd, ast.BitOr, ast.BitXor)):
-        e = e.right if get_right else e.left
-    return e
-
-
-def _compare_pairs(node: ast.Compare) -> list[tuple[ast.expr, ast.cmpop, ast.expr]]:
-    return [
-        (_unwrap_bitwise(lhs, True), op, _unwrap_bitwise(rhs, False))
-        for lhs, op, rhs in zip(
-            [node.left, *node.comparators], node.ops, node.comparators, strict=False
-        )
-    ]
-
-
-def _is_compared_to_string_in_formulas(target_name: str, formulas: list[dict[str, Any]]) -> bool:
-    target_ident = _norm_ident(target_name)
-    formula_strings = _formula_strings(formulas)
-    for f_str in formula_strings:
+    used: set[str] = set()
+    for expr in (str(e) for f in formulas for e in f.values()):
         try:
-            tree = ast.parse(f_str, mode="eval")
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Compare):
-                    for lhs, _op, rhs in _compare_pairs(node):
-                        operands = [lhs, rhs]
-                        if any(
-                            target_ident in _ast_names(op) for op in operands
-                        ) and _has_str_constant(operands):
-                            return True
-                elif isinstance(node, ast.Attribute):
-                    if getattr(node.value, "id", None) == target_ident and node.attr == "str":
-                        return True
-                elif isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                    ops = [node.func.value, *_call_args(node)]
-                    if (
-                        node.func.attr in STR_ATTRS
-                        and any(target_ident in _ast_names(op) for op in ops)
-                        and _has_str_constant(ops)
-                    ):
-                        return True
+            tree = ast.parse(re.sub(r"`([^`]+)`", lambda m: norm(m.group(1)), expr), mode="eval")
         except SyntaxError:
-            pass
-
-    return False
-
-
-def _numeric_expr_names(node: ast.AST) -> set[str]:
-    if isinstance(node, ast.Name):
-        return {node.id}
-    if isinstance(node, ast.BinOp):
-        return _numeric_expr_names(node.left) | _numeric_expr_names(node.right)
-    if isinstance(node, ast.UnaryOp):
-        return _numeric_expr_names(node.operand)
-    if isinstance(node, ast.Call):
-        names = {n for a in _call_args(node) for n in _numeric_expr_names(a)}
-        if isinstance(node.func, ast.Name):
-            return names
-        if isinstance(node.func, ast.Attribute) and node.func.attr in NUMERIC_ATTRS:
-            return _numeric_expr_names(node.func.value) | names
-    return set()
-
-
-def _variable_requires_numeric(target_name: str, formulas: list[dict[str, Any]]) -> bool:
-    """Check if target_name is used in numeric operations (+, -, *, /, <, math calls)."""
-    target_ident = _norm_ident(target_name)
-    for f_str in _formula_strings(formulas):
-        try:
-            tree = ast.parse(f_str, mode="eval")
-            nodes: list[ast.AST] = [tree.body]
-            while nodes:
-                node = nodes.pop()
-                if isinstance(node, ast.Compare):
-                    for lhs, op, rhs in _compare_pairs(node):
-                        operands = [lhs, rhs]
-                        if _has_str_constant(operands):
-                            continue
-                        if (
-                            isinstance(op, (ast.Lt, ast.LtE, ast.Gt, ast.GtE))
-                            or _has_num_constant(operands)
-                        ) and any(target_ident in _numeric_expr_names(o) for o in operands):
-                            return True
-                        nodes.extend(operands)
-                    continue
-                if isinstance(node, (ast.BinOp, ast.UnaryOp, ast.Call)):
-                    if target_ident in _numeric_expr_names(node):
-                        return True
-                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
-                        attr = node.func.attr
-                        c_args = _call_args(node)
-                        ops = [node.func.value, *c_args]
-                        if (
-                            attr in ("isin", "eq", "ne")
-                            and _has_num_constant(c_args)
-                            and target_ident in _numeric_expr_names(node.func.value)
-                        ) or (
-                            attr in ("lt", "le", "gt", "ge")
-                            and not _has_str_constant(ops)
-                            and any(target_ident in _numeric_expr_names(op) for op in ops)
-                        ):
-                            return True
-                nodes.extend(ast.iter_child_nodes(node))
-        except SyntaxError:
-            pass
-    return False
-
-
-def _get_compared_variables(target_name: str, formulas: list[dict[str, Any]]) -> set[str]:
-    """Find other variables compared via ==, !=, in, not in, or pandas methods."""
-    target_ident = _norm_ident(target_name)
-    compared: set[str] = set()
-    for f_str in _formula_strings(formulas):
-        try:
-            tree = ast.parse(f_str, mode="eval")
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Compare):
-                    for lhs, op, rhs in _compare_pairs(node):
-                        if isinstance(op, (ast.Eq, ast.NotEq, ast.In, ast.NotIn)):
-                            names = [*_ast_names(lhs), *_ast_names(rhs)]
-                            if target_ident in names:
-                                compared.update(n for n in names if n != target_ident)
-                elif (
-                    isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Attribute)
-                    and node.func.attr in ("isin", "eq", "ne", "lt", "le", "gt", "ge")
-                ):
-                    names = [
-                        n for op in [node.func.value, *_call_args(node)] for n in _ast_names(op)
-                    ]
-                    if target_ident in names:
-                        compared.update(n for n in names if n != target_ident)
-        except SyntaxError:
-            pass
-    return compared
+            continue
+        for n in ast.walk(tree):
+            if isinstance(n, ast.BinOp) and not isinstance(n.op, _BITWISE):
+                used.update(["numeric"] if has_var(n.left) or has_var(n.right) else [])
+            elif isinstance(n, ast.Compare):
+                sides = [n.left, *n.comparators]
+                for lhs, op, rhs in zip(sides, n.ops, sides[1:], strict=False):
+                    for me, other in ((lhs, rhs), (rhs, lhs)):
+                        if has_var(me) or (has_var(me, True) and use_of(other) == "categorical"):
+                            used.add(use_of(other, op))
+            elif isinstance(n, ast.Attribute) and has_var(n.value) and n.attr == "str":
+                used.add("categorical")
+            elif (
+                isinstance(n, ast.Call)
+                and isinstance(n.func, ast.Attribute)
+                and has_var(n.func.value)
+                and n.func.attr in _CMP_METHODS
+            ):
+                args = [*n.args, *(k.value for k in n.keywords)]
+                used.update(use_of(c) for a in args for c in ast.walk(a))
+    return used - {""}
 
 
 def _is_numeric_default(val_str: str) -> bool:
@@ -452,70 +300,49 @@ def apply_scoring(
     scored_df = df.copy()
     calculated_columns: list[str] = []
     parsed_vars: dict[str, tuple[str, str, str | None, str | None, bool]] = {}
-    var_name_to_col: dict[str, str] = {}
     for col, cfg in variables.items():
         parsed = _parse_var_config(str(col), cfg)
         if parsed:
             parsed_vars[str(col)] = parsed
-            var_name_to_col[parsed[0]] = str(col)
 
-    norm_to_var = {_norm_ident(k): k for k in var_name_to_col}
-    var_partners = {
-        cfg[0]: {norm_to_var.get(p, p) for p in _get_compared_variables(cfg[0], formulas)}
-        for cfg in parsed_vars.values()
-    }
-
-    def get_p_type(p: str) -> str | None:
-        c = var_name_to_col.get(p, p)
-        if (r := resolved.get(p)) or _is_known_categorical_column(c):
-            return r or "categorical"
-        return "numeric" if _is_non_bool_numeric(scored_df, c) or _is_numeric_col_name(c) else None
-
-    resolved: dict[str, str | None] = {}
-    for original_col, cfg_tuple in parsed_vars.items():
-        target_name, default_val_str, reduction_policy, var_type, has_default = cfg_tuple
-        is_b = var_type in ("bool", "boolean") or (
-            var_type is None
-            and original_col in scored_df.columns
-            and pd.api.types.is_bool_dtype(scored_df[original_col])
-            and not _is_compared_to_string_in_formulas(target_name, formulas)
-        )
-        if is_b:
+    # Fixed order: explicit type, bool dtype, known text column, default value type, numeric.
+    resolved: dict[str, str] = {}
+    for original_col, (target_name, default_str, _r, var_type, has_default) in parsed_vars.items():
+        col = scored_df.get(original_col)
+        if var_type in ("bool", "boolean") or (
+            var_type is None and col is not None and pd.api.types.is_bool_dtype(col)
+        ):
             resolved[target_name] = "bool"
-        elif var_type in ("numeric", "number", "float", "int"):
+        elif var_type in _NUMERIC_TYPES:
             resolved[target_name] = "numeric"
         elif (
-            var_type in ("categorical", "string", "str")
+            var_type in _TEXT_TYPES
             or _is_known_categorical_column(original_col)
-            or _is_compared_to_string_in_formulas(target_name, formulas)
+            or (has_default and not _is_numeric_default(default_str))
         ):
             resolved[target_name] = "categorical"
-        elif (
-            reduction_policy is not None
-            or _is_non_bool_numeric(scored_df, original_col)
-            or _variable_requires_numeric(target_name, formulas)
-            or _is_numeric_col_name(original_col)
-        ):
-            resolved[target_name] = "numeric"
-        elif var_partners.get(target_name):
-            resolved[target_name] = None
-        elif not has_default or _is_numeric_default(default_val_str):
-            resolved[target_name] = "numeric"
         else:
-            resolved[target_name] = "categorical"
-
-    for _ in range(len(parsed_vars)):
-        changed = False
-        for t, r in resolved.items():
-            if r is None:
-                pts = {get_p_type(p) for p in var_partners.get(t, ())}
-                if "categorical" in pts:
-                    resolved[t], changed = "categorical", True
-                elif "numeric" in pts:
-                    resolved[t], changed = "numeric", True
-        if not changed:
-            break
-    resolved = {t: r or "categorical" for t, r in resolved.items()}
+            resolved[target_name] = "numeric"
+    typed = {
+        cfg[0]: resolved[cfg[0]] if cfg[3] or _is_known_categorical_column(col) else ""
+        for col, cfg in parsed_vars.items()
+    }
+    # ponytail: transition guard (see _formula_usage) - raise where the old AST guesser's
+    # precedence (string use > numeric use/reduce/numeric dtype > variable comparison) differs.
+    for original_col, (target_name, _d, red, var_type, _h) in parsed_vars.items():
+        res, col = resolved[target_name], scored_df.get(original_col)
+        used = _formula_usage(target_name, formulas, typed)
+        if red is not None or (col is not None and col.dtype.kind in "iuf"):
+            used.add("numeric")
+        old = next((u for u in ("categorical", "numeric") if u in used), min(used, default=res))
+        if var_type or _is_known_categorical_column(original_col) or old == res:
+            continue
+        if res != "bool" or old == "categorical":
+            raise ValueError(
+                f"Scoring variable '{target_name}' is ambiguous (formulas use it as {old}, "
+                f"type rules resolve it to {res}): add '|type:numeric' or "
+                "'|type:categorical' to its assignment in variable_assignment_config.json"
+            )
 
     rename_map, created_vars = {}, []
     for original_col, cfg_tuple in parsed_vars.items():

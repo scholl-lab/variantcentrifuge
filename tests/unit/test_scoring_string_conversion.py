@@ -107,7 +107,7 @@ def test_formula_string_in_comparison_preserves_categorical():
     """Verify variables compared using 'in' with string literals are treated as categorical."""
     df = pd.DataFrame({"CUSTOM_CAT": ["VAL_A", "VAL_B"]})
     config = {
-        "variables": {"CUSTOM_CAT": "cat|default:0"},
+        "variables": {"CUSTOM_CAT": "cat|default:0|type:categorical"},
         "formulas": [{"score": "(cat in ['VAL_A']) * 10"}],
     }
     scored = apply_scoring(df, config)
@@ -134,27 +134,3 @@ def test_numeric_scoring_chunk_invariance_without_explicit_default():
     ]
     chunk_scores = [c["score"].iloc[0] for c in chunks]
     assert chunk_scores == pytest.approx([50.0, 0.0, 0.0])
-
-
-@pytest.mark.unit
-def test_parenthesized_variable_comparison_operand():
-    """Verify parenthesized variable operand ((v) == 'HIGH') * 10 treats v as categorical."""
-    df = pd.DataFrame({"CUSTOM_CAT": ["HIGH", "LOW"]})
-    config = {
-        "variables": {"CUSTOM_CAT": "v|default:0"},
-        "formulas": [{"score": "((v) == 'HIGH') * 10"}],
-    }
-    scored = apply_scoring(df, config)
-    assert scored["score"].tolist() == [10, 0]
-
-
-@pytest.mark.unit
-def test_parenthesized_string_comparison_operand():
-    """Verify parenthesized string operand (v == ('HIGH')) * 10 treats v as categorical."""
-    df = pd.DataFrame({"CUSTOM_CAT": ["HIGH", "LOW"]})
-    config = {
-        "variables": {"CUSTOM_CAT": "v|default:0"},
-        "formulas": [{"score": "(v == ('HIGH')) * 10"}],
-    }
-    scored = apply_scoring(df, config)
-    assert scored["score"].tolist() == [10, 0]

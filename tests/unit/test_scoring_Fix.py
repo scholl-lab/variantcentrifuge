@@ -13,7 +13,7 @@ def test_parenthesized_variable_comparison_operand():
     """Verify parenthesized variable operand ((v) == 'HIGH') * 10 treats v as categorical."""
     df = pd.DataFrame({"CUSTOM_CAT": ["HIGH", "LOW"]})
     config = {
-        "variables": {"CUSTOM_CAT": "v|default:0"},
+        "variables": {"CUSTOM_CAT": "v|default:0|type:categorical"},
         "formulas": [{"score": "((v) == 'HIGH') * 10"}],
     }
     scored = apply_scoring(df, config)
@@ -25,7 +25,7 @@ def test_parenthesized_string_comparison_operand():
     """Verify parenthesized string operand (v == ('HIGH')) * 10 treats v as categorical."""
     df = pd.DataFrame({"CUSTOM_CAT": ["HIGH", "LOW"]})
     config = {
-        "variables": {"CUSTOM_CAT": "v|default:0"},
+        "variables": {"CUSTOM_CAT": "v|default:0|type:categorical"},
         "formulas": [{"score": "(v == ('HIGH')) * 10"}],
     }
     scored = apply_scoring(df, config)
@@ -57,8 +57,8 @@ def test_variable_to_variable_categorical_comparison():
     )
     config = {
         "variables": {
-            "ANNOTATION_A": "a|default:0",
-            "ANNOTATION_B": "b|default:0",
+            "ANNOTATION_A": "a|default:0|type:categorical",
+            "ANNOTATION_B": "b|default:0|type:categorical",
         },
         "formulas": [{"score": "(a == b) * 10"}],
     }
@@ -104,8 +104,8 @@ def test_categorical_variable_comparison_independent_of_chunk_composition():
     )
     config = {
         "variables": {
-            "CUSTOM_A": "a|default:0",
-            "CUSTOM_B": "b|default:0",
+            "CUSTOM_A": "a|default:0|type:categorical",
+            "CUSTOM_B": "b|default:0|type:categorical",
         },
         "formulas": [{"score": "(a == b) * 10"}],
     }
@@ -147,14 +147,14 @@ def test_categorical_membership_isin():
     """Verify v.isin(w) * 10 and v.isin(['D']) * 10 treat non-numeric variables as categorical."""
     df = pd.DataFrame({"CUSTOM": ["D", "T"], "EXPECTED": ["D", "D"]})
     config_var_partner = {
-        "variables": {"CUSTOM": "v", "EXPECTED": "w"},
+        "variables": {"CUSTOM": "v|type:categorical", "EXPECTED": "w|type:str"},
         "formulas": [{"score": "v.isin(w) * 10"}],
     }
     scored_partner = apply_scoring(df, config_var_partner)
     assert scored_partner["score"].tolist() == [10, 0]
 
     config_literal = {
-        "variables": {"CUSTOM": "v"},
+        "variables": {"CUSTOM": "v|type:string"},
         "formulas": [{"score": "v.isin(['D']) * 10"}],
     }
     scored_literal = apply_scoring(df, config_literal)
@@ -171,7 +171,7 @@ def test_hgvs_p_categorical_inference():
         }
     )
     config = {
-        "variables": {"HGVS_P": "v", "EXPECTED": "e"},
+        "variables": {"HGVS_P": "v", "EXPECTED": "e|type:categorical"},
         "formulas": [{"score": "(v == e) * 10"}],
     }
     scored = apply_scoring(df, config)
@@ -183,7 +183,7 @@ def test_categorical_string_transformation_formulas():
     """Verify categorical string method transformation (e.g. .replace) evaluates correctly."""
     df = pd.DataFrame({"CUSTOM": ["HIGH", "LOW"]})
     config = {
-        "variables": {"CUSTOM": "v|default:0"},
+        "variables": {"CUSTOM": "v|default:0|type:categorical"},
         "formulas": [{"score": "(v.replace('HIGH', 'H') == 'H') * 10"}],
     }
     scored = apply_scoring(df, config)
@@ -195,7 +195,7 @@ def test_numeric_substring_and_partner_numeric_dtype_inference():
     """Verify numeric substrings (e.g. CADD) and partner numeric dtypes infer numeric type."""
     df1 = pd.DataFrame({"CADD": ["20", "30"], "EXPECTED": [20, 30]})
     config1 = {
-        "variables": {"CADD": "v|default:0", "EXPECTED": "e|default:0"},
+        "variables": {"CADD": "v|default:0|type:numeric", "EXPECTED": "e|default:0"},
         "formulas": [{"score": "(v == e) * 10"}],
     }
     scored1 = apply_scoring(df1, config1)
@@ -203,7 +203,7 @@ def test_numeric_substring_and_partner_numeric_dtype_inference():
 
     df2 = pd.DataFrame({"CADD_1": ["0.10"], "CADD_2": ["0.1"]})
     config2 = {
-        "variables": {"CADD_1": "v", "CADD_2": "e"},
+        "variables": {"CADD_1": "v|type:numeric", "CADD_2": "e"},
         "formulas": [{"score": "(v == e) * 10"}],
     }
     scored2 = apply_scoring(df2, config2)
@@ -332,21 +332,21 @@ def test_pandas_comparison_methods():
     """Verify pandas comparison methods (.eq, .ne, .lt) recognize categorical strings."""
     df = pd.DataFrame({"CUSTOM_CLASS": ["HIGH", "LOW"]})
     config_eq = {
-        "variables": {"CUSTOM_CLASS": "v|default:0"},
+        "variables": {"CUSTOM_CLASS": "v|default:0|type:categorical"},
         "formulas": [{"score": "v.eq('HIGH') * 10"}],
     }
     scored_eq = apply_scoring(df, config_eq)
     assert scored_eq["score"].tolist() == [10, 0]
 
     config_ne = {
-        "variables": {"CUSTOM_CLASS": "v|default:0"},
+        "variables": {"CUSTOM_CLASS": "v|default:0|type:categorical"},
         "formulas": [{"score": "v.ne('LOW') * 10"}],
     }
     scored_ne = apply_scoring(df, config_ne)
     assert scored_ne["score"].tolist() == [10, 0]
 
     config_lt = {
-        "variables": {"CUSTOM_CLASS": "v|default:0"},
+        "variables": {"CUSTOM_CLASS": "v|default:0|type:categorical"},
         "formulas": [{"score": "v.lt('LOW') * 10"}],
     }
     scored_lt = apply_scoring(df, config_lt)
@@ -378,7 +378,7 @@ def test_backtick_quoted_pandas_identifiers():
     """Verify backtick-quoted variables in formulas infer categorical type correctly."""
     df = pd.DataFrame({"CUSTOM_CAT": ["HIGH", "LOW"]})
     config = {
-        "variables": {"CUSTOM_CAT": "v|default:0"},
+        "variables": {"CUSTOM_CAT": "v|default:0|type:categorical"},
         "formulas": [{"score": "(`v` == 'HIGH') * 10"}],
     }
     scored = apply_scoring(df, config)
@@ -402,7 +402,7 @@ def test_integer_column_astype_str():
     """Verify non-null integer column preserves integer representation in astype('str')."""
     df = pd.DataFrame({"CUSTOM": pd.Series([1, 2], dtype="int64")})
     config = {
-        "variables": {"CUSTOM": "v"},
+        "variables": {"CUSTOM": "v|type:categorical"},
         "formulas": [{"score": "(v.astype('str') == '1') * 10"}],
     }
     scored = apply_scoring(df, config)
@@ -414,14 +414,14 @@ def test_keyword_arguments_in_ast_inspection():
     """Verify methods with keyword arguments (.eq(other=...), .isin(values=...)) are recognized."""
     df = pd.DataFrame({"CUSTOM_CAT": ["HIGH", "LOW"]})
     config_eq = {
-        "variables": {"CUSTOM_CAT": "v|default:0"},
+        "variables": {"CUSTOM_CAT": "v|default:0|type:categorical"},
         "formulas": [{"score": "v.eq(other='HIGH') * 10"}],
     }
     scored_eq = apply_scoring(df, config_eq)
     assert scored_eq["score"].tolist() == [10, 0]
 
     config_isin = {
-        "variables": {"CUSTOM_CAT": "v|default:0"},
+        "variables": {"CUSTOM_CAT": "v|default:0|type:categorical"},
         "formulas": [{"score": "v.isin(values=['HIGH']) * 10"}],
     }
     scored_isin = apply_scoring(df, config_isin)
@@ -433,7 +433,7 @@ def test_backtick_variable_name_with_spaces():
     """Verify backtick-quoted variable name with spaces is recognized as categorical in formula."""
     df = pd.DataFrame({"CUSTOM_CAT": ["HIGH", "LOW"]})
     config = {
-        "variables": {"CUSTOM_CAT": "Custom Class|default:0"},
+        "variables": {"CUSTOM_CAT": "Custom Class|default:0|type:categorical"},
         "formulas": [{"score": "(`Custom Class` == 'HIGH') * 10"}],
     }
     scored = apply_scoring(df, config)
@@ -445,7 +445,7 @@ def test_string_concatenation_in_comparison():
     """Verify string concatenation within a string comparison is not treated as numeric."""
     df = pd.DataFrame({"CUSTOM_CAT": ["HIGH", "LOW"]})
     config = {
-        "variables": {"CUSTOM_CAT": "v|default:0"},
+        "variables": {"CUSTOM_CAT": "v|default:0|type:categorical"},
         "formulas": [{"score": "(v + v == 'HIGHHIGH') * 10"}],
     }
     scored = apply_scoring(df, config)
@@ -454,63 +454,15 @@ def test_string_concatenation_in_comparison():
 
 @pytest.mark.unit
 def test_chained_or_bitwise_glued_mixed_comparisons():
-    """Verify unparenthesized bitwise-glued and chained comparisons infer numeric
-    and string types separately.
-    """
-    from variantcentrifuge.scoring import (
-        _is_compared_to_string_in_formulas,
-        _variable_requires_numeric,
-    )
-
+    """Verify bitwise-glued comparisons: string use of an untyped numeric-default var raises."""
     df = pd.DataFrame({"CUSTOM_NUM": ["25.0", "10.0"], "CUSTOM_CAT": ["HIGH", "LOW"]})
-    config = {
-        "variables": {"CUSTOM_NUM": "cadd_v", "CUSTOM_CAT": "impact_v|default:0"},
-        "formulas": [{"score": "(cadd_v > 20 & impact_v == 'HIGH') * 10"}],
-    }
-    assert _variable_requires_numeric("cadd_v", config["formulas"]) is True
-    assert _is_compared_to_string_in_formulas("cadd_v", config["formulas"]) is False
-    assert _is_compared_to_string_in_formulas("impact_v", config["formulas"]) is True
-    assert _variable_requires_numeric("impact_v", config["formulas"]) is False
-    scored = apply_scoring(df, config)
+    formulas = [{"score": "(cadd_v > 20 & impact_v == 'HIGH') * 10"}]
+    config = {"variables": {"CUSTOM_NUM": "cadd_v", "CUSTOM_CAT": "impact_v|default:0"}}
+    with pytest.raises(ValueError, match="'impact_v' is ambiguous"):
+        apply_scoring(df, {**config, "formulas": formulas})
+    config["variables"]["CUSTOM_CAT"] += "|type:categorical"
+    scored = apply_scoring(df, {**config, "formulas": formulas})
     assert scored["score"].tolist() == [10, 0]
-
-
-@pytest.mark.unit
-def test_partner_type_inference_is_order_independent_and_transitive():
-    """Verify multi-hop comparison partner type inference does not depend on variable dict order."""
-    df1 = pd.DataFrame({"A": ["1.50", "2.0"], "B": ["1.5", "3.0"], "C": ["1.5", "2.0"]})
-    formulas = [{"score": "(a == b) * 10 + (b == c) * 5 + (c > 1.0) * 1"}]
-    cfg_forward = {
-        "variables": {"A": "a", "B": "b", "C": "c"},
-        "formulas": formulas,
-    }
-    cfg_reverse = {
-        "variables": {"C": "c", "B": "b", "A": "a"},
-        "formulas": formulas,
-    }
-    res_fwd = apply_scoring(df1.copy(), cfg_forward)
-    res_rev = apply_scoring(df1.copy(), cfg_reverse)
-    assert res_fwd["score"].tolist() == [16.0, 1.0]
-    assert res_rev["score"].tolist() == [16.0, 1.0]
-
-    df_cat = pd.DataFrame({"A": ["HIGH", "LOW"], "B": ["HIGH", "MED"], "C": ["HIGH", "HIGH"]})
-    formulas_cat = [{"score": "(a == b) * 10 + (b == c) * 5 + (c == 'HIGH') * 1"}]
-    cat_fwd = apply_scoring(
-        df_cat.copy(),
-        {
-            "variables": {"A": "a|default:0", "B": "b|default:0", "C": "c|default:0"},
-            "formulas": formulas_cat,
-        },
-    )
-    cat_rev = apply_scoring(
-        df_cat.copy(),
-        {
-            "variables": {"C": "c|default:0", "B": "b|default:0", "A": "a|default:0"},
-            "formulas": formulas_cat,
-        },
-    )
-    assert cat_fwd["score"].tolist() == [16, 1]
-    assert cat_rev["score"].tolist() == [16, 1]
 
 
 @pytest.mark.unit
@@ -530,11 +482,11 @@ def test_order_independent_comparison_chain():
     """Verify (a == b) * 10 + (b == c) is order-independent when one variable has numeric type."""
     df = pd.DataFrame({"A": ["0.1"], "B": ["0.10"], "C": ["0.1"]})
     cfg_abc = {
-        "variables": {"A": "a", "B": "b", "C": "c|type:numeric"},
+        "variables": {"A": "a|type:float", "B": "b", "C": "c|type:numeric"},
         "formulas": [{"score": "(a == b) * 10 + (b == c)"}],
     }
     cfg_cba = {
-        "variables": {"C": "c|type:numeric", "B": "b", "A": "a"},
+        "variables": {"C": "c|type:numeric", "B": "b", "A": "a|type:float"},
         "formulas": [{"score": "(a == b) * 10 + (b == c)"}],
     }
     assert apply_scoring(df, cfg_abc)["score"].tolist() == [11.0]

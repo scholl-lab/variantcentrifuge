@@ -419,7 +419,10 @@ def test_scoring_type_inference_row_order_invariant():
     # 25 dots followed by a string
     vals1 = ["."] * 25 + ["SOME_TEXT"]
     df1 = pd.DataFrame({"MY_COL": vals1})
-    config1 = {"variables": {"MY_COL": "val"}, "formulas": [{"res": "val == 'SOME_TEXT'"}]}
+    config1 = {
+        "variables": {"MY_COL": "val|default:''"},
+        "formulas": [{"res": "val == 'SOME_TEXT'"}],
+    }
     scored1 = apply_scoring(df1, config1)
     assert scored1["res"].iloc[-1] == 1.0
 
@@ -471,3 +474,53 @@ def test_legacy_categorical_mapping_with_numeric_default(col_name, var_mapping, 
     }
     scored = apply_scoring(df, config)
     assert scored["score"].tolist() == [10, 0]
+
+
+@pytest.mark.parametrize(
+    ("values", "assignment", "expected"),
+    [
+        (["1", "x"], "v|default:''|type:numeric", [1.0, 0.0]),  # 1. explicit beats default
+        (["1", "x"], "v|default:0|type:categorical", ["1", "x"]),
+        ([True, False], "v", [True, False]),  # 2. bool dtype
+        (["HIGH", None], "v|default:0", ["HIGH", "0"]),  # 3. known text column (IMPACT)
+        (["1", "x"], "v|default:0.0", [1.0, 0.0]),  # 4. numeric default
+        (["1", None], "v|default:''", ["1", ""]),  # 4. string default
+        (["1", "x"], "v", [1.0, 0.0]),  # 5. fallback numeric
+    ],
+)
+def test_variable_type_rules(values, assignment, expected):
+    """Verify the fixed type order: explicit, bool dtype, known text column, default, numeric."""
+    col = "IMPACT" if "HIGH" in values else "CUSTOM"
+    scored = apply_scoring(
+        pd.DataFrame({col: values}),
+        {"variables": {col: assignment}, "formulas": [{"s": "v.notna()"}]},
+    )
+    assert scored[col].tolist() == expected
+
+
+@pytest.mark.parametrize(
+    ("variables", "formula", "message"),
+    [
+        ({"CUSTOM": "v|default:''"}, "v * 2", r"'v' is ambiguous \(formulas use it as numeric"),
+        ({"CUSTOM": "v|default:0"}, "v == 'A'", "use it as categorical, type rules .* numeric"),
+        ({"CUSTOM": "v"}, "v.isin(['A'])", "'v' is ambiguous"),
+        ({"CUSTOM": "v|default:''|reduce:max"}, "v.notna()", "use it as numeric"),
+        ({"CUSTOM": "v", "OTHER": "w"}, "v == w", "comparison with an untyped variable"),
+    ],
+)
+def test_ambiguous_variable_type_raises(variables, formula, message):
+    """Verify the transition guard raises instead of silently changing a variable's type."""
+    df = pd.DataFrame({"CUSTOM": ["A", "1"], "OTHER": ["A", "2"]})
+    with pytest.raises(ValueError, match=message):
+        apply_scoring(df, {"variables": variables, "formulas": [{"s": formula}]})
+    typed = {k: f"{v}|type:categorical" for k, v in variables.items()}
+    apply_scoring(df, {"variables": typed, "formulas": [{"s": formula}]})  # explicit type fixes it
+
+
+def test_ambiguity_guard_ignores_missing_tokens_and_syntax_errors():
+    """Verify '.' guards and unparsable formulas do not trigger the ambiguity error."""
+    df = pd.DataFrame({"CUSTOM": ["20", "."]})
+    config = {"variables": {"CUSTOM": "v|default:0"}, "formulas": [{"s": "(v != '.') * v"}]}
+    assert apply_scoring(df, config)["s"].tolist() == [20.0, 0.0]
+    bad = {"variables": {"CUSTOM": "v"}, "formulas": [{"s": "v +"}]}
+    assert apply_scoring(df, bad)["s"].isna().all()
