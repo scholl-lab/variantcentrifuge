@@ -525,3 +525,29 @@ class TestListProfiles:
         # Assert literal threshold in expression
         assert "< 0.01" in preset_expr
         assert "< 0.001" not in preset_expr
+
+
+class TestPopmaxPresets:
+    """#202 part 3. Field names verified against the dbNSFP readmes: v4.1a
+    (gnomAD_exomes/genomes_POPMAX_AF/AC) and v5.4a (gnomAD4.1_joint_POPMAX_AF/AC)."""
+
+    def test_popmax_rare_dbnsfp4(self):
+        from variantcentrifuge.config import load_config
+
+        cfg = load_config()
+        resolve_profile(cfg)
+        expr = cfg["presets"]["popmax_rare"]
+        assert "{{" not in expr
+        for f in ("exomes", "genomes"):
+            assert f"dbNSFP_gnomAD_{f}_POPMAX_AF[0] < 0.0001" in expr
+            assert f"na dbNSFP_gnomAD_{f}_POPMAX_AC[0]" in expr
+
+    def test_popmax_1percent_dbnsfp5(self):
+        from variantcentrifuge.config import load_config
+
+        cfg = load_config()
+        cfg["field_profile"] = "dbnsfp5"
+        resolve_profile(cfg)
+        expr = cfg["presets"]["popmax_1percent"]
+        assert "dbNSFP_gnomAD4.1_joint_POPMAX_AF[0] < 0.01" in expr
+        assert "na dbNSFP_gnomAD4.1_joint_POPMAX_AC[0]" in expr

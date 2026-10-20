@@ -87,6 +87,7 @@ The default configuration includes many useful presets:
 
 #### Rarity Filters
 - **`super_rare`** - AC ≤ 2 in gnomAD exomes and genomes
+- **`popmax_1percent`**, **`popmax_rare`** - popmax AF below 1% / 0.01% (dbNSFP `gnomAD_exomes/genomes_POPMAX_AF`; `gnomAD4.1_joint_POPMAX_AF` with `dbnsfp5`); popmax excludes Ashkenazi, Finnish and indeterminate ancestry
 - **`rare`** - AF < 0.0001 in gnomAD exomes and genomes
 - **`1percent`** - AF < 0.01 in gnomAD exomes and genomes (1%)
 - **`5percent`** - AF < 0.05 in gnomAD exomes and genomes
