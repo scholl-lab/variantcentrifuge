@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+import threading
 from typing import Any
 
 import numpy as np
@@ -43,7 +44,16 @@ _LAG_NODES, _LAG_WEIGHTS = laggauss(16)
 
 
 class _DaviesFailureError(Exception):
-    """Davies failed inside the SKAT-O integrand (R then uses the Liu integral)."""
+    """Davies or the outer quadrature failed for the SKAT-O integral (R: use Liu)."""
+
+
+# Whether the last SKAT-O p-value in this thread came from the Davies integral (not Liu);
+# reported as p_converged without changing _skato_get_pvalue's return value.
+_STATUS = threading.local()
+
+
+def _skato_last_converged() -> bool:
+    return bool(getattr(_STATUS, "converged", True))
 
 
 def _tilted_sf(z: float, lambdas: np.ndarray) -> float:
@@ -333,6 +343,7 @@ def _skato_integrate_davies(
             )
             if len(info) > 1:
                 logger.warning("SKAT-O integral piece [%g, %g]: %s", lo**2, hi**2, info[1])
+                raise _DaviesFailureError(f"outer quadrature did not converge (err {err:.2g})")
             pvalue += _SQRT_2_OVER_PI * v
         tail_hi = min(edge, _SKATO_X_MAX)
         # Mass beyond x = 40 is < 2.6e-10; integrate it only where it matters relative to p
@@ -374,6 +385,7 @@ def _skato_integrate_liu(
 
     Fallback when Davies integration fails.
     """
+    _STATUS.converged = False
     tau = param["tau"]
     mu_q = param["mu_q"]
     var_q = param["var_q"]
@@ -437,6 +449,7 @@ def _skato_get_pvalue(
         p_value : float — omnibus p-value
         p_val_each : np.ndarray, shape (n_rho,) — per-rho p-values
     """
+    _STATUS.converged = True
     n_rho = len(rho_grid)
     n_variants = z1_half.shape[1]
 

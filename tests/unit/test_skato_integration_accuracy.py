@@ -360,12 +360,33 @@ def test_scale_invariance(c: float) -> None:
 
 
 @pytest.mark.unit
-def test_subdivision_cap_is_logged(
+def test_subdivision_cap_falls_back_to_liu_and_reports_it(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Hitting the per-piece subdivision cap warns instead of failing silently."""
+    """Outer quadrature over budget -> whole-integral Liu (as for Davies faults), reported."""
+    g, x, y, w = _lowrank(300, 150, 0, 51)
+    backend = PythonSKATBackend()
+    null = backend.fit_null_model(y, x, "binary")
+    ok = backend.test_gene("G", g, null, "SKATO", weights=w)
+    assert ok["p_converged"] is True
     monkeypatch.setattr(skato_integrate, "_SKATO_QUAD_LIMIT", 1)
     monkeypatch.setattr(skato_integrate, "_SKATO_DAVIES_REL_ACC", 1e-14)
     with caplog.at_level("WARNING", logger="variantcentrifuge"):
-        _integrate(PARAMS["rank_one_narrow"])
+        res = backend.test_gene("G", g, null, "SKATO", weights=w)
     assert "SKAT-O integral piece" in caplog.text
+    assert res["p_converged"] is False
+    # rank-one conditional: the Liu integrand is exact, so the value is unchanged
+    assert res["p_value"] == pytest.approx(ok["p_value"], rel=1e-6, abs=0.0)
+    assert skato_integrate._skato_last_converged() is False
+
+
+@pytest.mark.unit
+def test_davies_threadsafe() -> None:
+    """qfc uses C globals and CFFI releases the GIL: concurrent calls must not interfere."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    args = [(5.0 + i % 4, np.array([1.0, 0.1, 0.01])) for i in range(64)]
+    seq = [dv.davies_pvalue(q, lam) for q, lam in args]
+    with ThreadPoolExecutor(4) as pool:
+        par = list(pool.map(lambda a: dv.davies_pvalue(*a), args))
+    assert par == seq

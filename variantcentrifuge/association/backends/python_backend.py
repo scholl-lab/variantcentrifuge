@@ -51,6 +51,7 @@ from variantcentrifuge.association.backends.skat_math import (
     compute_eigenvalues_filtered,
     compute_skato_q_and_z1,
 )
+from variantcentrifuge.association.backends.skato_integrate import _skato_last_converged
 
 __all__ = [
     "_GL_A",
@@ -561,7 +562,7 @@ class PythonSKATBackend(SKATBackend):
             "n_marker_test": n_variants,
             "warnings": [],
             "p_method": "optimal.adj",
-            "p_converged": True,
+            "p_converged": _skato_last_converged(),  # False if the Liu integral was used
             "skip_reason": None,
         }
 

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 
 import numpy as np
 from scipy.optimize import brentq
@@ -48,6 +49,8 @@ _qfc_ffi = None  # The CFFI FFI object
 _DAVIES_AVAILABLE = False
 _DAVIES_LOAD_ATTEMPTED = False
 
+# qfc keeps its state in C globals and the CFFI call releases the GIL: serialize calls
+_QFC_LOCK = threading.Lock()
 _PROACTIVE_THRESHOLD = 1e-5  # GMMAT-style proactive saddlepoint trigger
 # Davies term cap for a retry after ifault=1 (term limit hit). qfc's result does not depend
 # on lim when the smaller cap converges, but lim=10_000 (R) fails for small q with few or
@@ -330,7 +333,8 @@ def davies_pvalue(
     ifault = ffi.new("int[1]", [0])
     res = ffi.new("double[1]", [0.0])
 
-    lib.qfc(lb1, nc1, n1, r1, sigma, c1, lim1, acc_arr, trace, ifault, res)
+    with _QFC_LOCK:
+        lib.qfc(lb1, nc1, n1, r1, sigma, c1, lim1, acc_arr, trace, ifault, res)
 
     # qfc returns the CDF P[Q <= q]; convert to survival P[Q > q] = 1 - CDF
     # (matches R CompQuadForm::davies which returns Qq = 1 - qfc_result)
