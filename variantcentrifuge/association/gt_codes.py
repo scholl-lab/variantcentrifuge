@@ -15,13 +15,13 @@ Packed rows list only non-reference samples; unlisted samples are ``0/0``.
 
 from __future__ import annotations
 
-import itertools
 import logging
-import re
 from collections.abc import Sequence
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa  # type: ignore[import-untyped]
+import pyarrow.compute as pc  # type: ignore[import-untyped]
 
 from ..genotype_utils import is_missing
 from .aggregation import _gt_to_dosage
@@ -30,10 +30,10 @@ from .genotype_matrix import _classify_gt_vocabulary, _factorize_gt_block, _mult
 logger = logging.getLogger("variantcentrifuge")
 
 # "Sample(GT[:extra...])": name before "(", GT = first token inside, like
-# phenotype_helpers.extract_sample_and_genotype (split on [:,;\s]).
-_ENTRY = re.compile(r"([^;()]*)\(\s*([^:,;\s)]*)[^;)]*\)")
+# phenotype_helpers.extract_sample_and_genotype (strip, split on [:,;\s]).
+_ENTRY = r"^\s*(?P<name>[^(]*?)\s*\(\s*(?P<gt>[^:,;\s)]*)[^)]*\)"
 _EMPTY_ROWS = {"", "NA", "nan"}
-_ROW_CHUNK = 20_000  # rows per findall batch: bounds transient per-entry objects
+_ROW_CHUNK = 50_000  # rows per Arrow batch: bounds the transient per-entry arrays
 
 
 class GenotypeCodes:
@@ -157,21 +157,24 @@ def _parse_packed(
     if isinstance(gt.dtype, pd.CategoricalDtype):
         gt = gt.astype(object)
     text = gt.fillna("").astype(str).to_numpy(dtype=object)
-    col_index = pd.Index(samples)
-    named = np.array(["(" in s for s in text], dtype=bool)
+    wanted = pa.array(samples, type=pa.large_string())
+    named = np.zeros(len(text), dtype=bool)
     for lo in range(0, len(text), _ROW_CHUNK):
-        found = [_ENTRY.findall(s) for s in text[lo : lo + _ROW_CHUNK]]
-        rows = np.repeat(np.arange(lo, lo + len(found)), [len(f) for f in found])
-        pairs = list(itertools.chain.from_iterable(found))
-        if not pairs:
-            continue
-        names = pd.Index([p[0] for p in pairs], dtype=object).str.strip()
-        cols = col_index.get_indexer(names)
+        chunk = pa.array(text[lo : lo + _ROW_CHUNK], type=pa.large_string())
+        named[lo : lo + len(chunk)] = pc.match_substring(chunk, "(").to_numpy(False)
+        lists = pc.split_pattern(chunk, ";")
+        rows = pc.list_parent_indices(lists).to_numpy() + lo
+        entries = pc.extract_regex(pc.list_flatten(lists), _ENTRY)
+        cols = pc.fill_null(pc.index_in(entries.field("name"), value_set=wanted), -1)
+        cols = cols.to_numpy(zero_copy_only=False)
         keep = cols >= 0
-        cell, strings = pd.factorize(np.array([p[1] for p in pairs], dtype=object)[keep])
-        lut = vocab.lut(list(strings))
+        if not keep.any():
+            continue
+        enc = pc.dictionary_encode(pc.filter(entries.field("gt"), pa.array(keep)))
+        enc = enc.combine_chunks() if isinstance(enc, pa.ChunkedArray) else enc
+        lut = vocab.lut(enc.dictionary.to_pylist())
         codes = _store(codes, vocab)
-        codes[rows[keep], cols[keep]] = lut[cell]
+        codes[rows[keep], cols[keep]] = lut[enc.indices.to_numpy()]
     positional = ~named & ~np.isin(text, list(_EMPTY_ROWS))
     if positional.any() and vcf_samples:
         # Positional rows list every VCF sample in order; absent trailing calls are ./.
