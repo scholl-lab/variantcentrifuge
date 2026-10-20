@@ -86,9 +86,9 @@ def emit_sample_size_warnings(
         logger.warning(msg)
         warnings.append("LOW_CASE_COUNT")
 
-    msg = imbalance_message(n_cases, n_controls, config.max_case_control_ratio)
-    if msg:
-        logger.warning(msg)
+    imbalance = imbalance_message(n_cases, n_controls, config.max_case_control_ratio)
+    if imbalance:
+        logger.warning(imbalance)
         warnings.append("IMBALANCED_COHORT")
 
     return warnings
