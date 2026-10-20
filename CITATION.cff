@@ -9,7 +9,7 @@ abstract: >-
   extracting, and prioritizing genetic variants from VCF files. It combines
   gene-centric region extraction, multi-tier filtering, inheritance analysis,
   configurable scoring, association testing, and report generation.
-version: 0.18.0
+version: 0.19.0
 url: https://scholl-lab.github.io/variantcentrifuge/
 repository-code: https://github.com/scholl-lab/variantcentrifuge
 license: MIT
