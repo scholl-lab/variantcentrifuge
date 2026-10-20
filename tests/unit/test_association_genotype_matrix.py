@@ -526,6 +526,27 @@ class TestBuildGenotypeMatrixWarnings:
             f"Expected differential missingness warning, got: {warnings_list}"
         )
 
+    def test_quantitative_outcomes_skip_case_control_missingness_warning(self) -> None:
+        """Quantitative outcomes equal to 0/1 are not cases/controls (final review item 2)."""
+        n_samples = 10
+        gt_values = [["./.", "0/1"] + ["0/1", "0/0"] * 4]  # sample with outcome 0 missing
+        gene_df, vcf_samples, gt_cols = _make_gene_df(n_samples, 1, gt_values)
+        outcome = np.array([0.0, 1.0, 2.5, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+
+        def warnings_for(is_binary: bool) -> list[str]:
+            return build_genotype_matrix(
+                gene_df,
+                vcf_samples,
+                gt_cols,
+                is_binary=is_binary,
+                missing_site_threshold=1.0,
+                phenotype_vector=outcome,
+            )[3]
+
+        assert not any("differential" in w.lower() for w in warnings_for(False))
+        # The binary reading of the same vector (1 vs 0) still triggers the diagnostic.
+        assert any("differential" in w.lower() for w in warnings_for(True))
+
     def test_build_genotype_matrix_alt_major_flips_dosage(self) -> None:
         """ALT-major sites (alt_freq > 0.5) flip dosage to minor allele count (ploidy - geno)."""
         gt_values = [["1/1", "1/1", "1/1", "0/1", "0/0"]]

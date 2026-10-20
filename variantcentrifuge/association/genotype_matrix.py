@@ -351,7 +351,8 @@ def build_genotype_matrix(
     # ------------------------------------------------------------------ #
     # Step 4 (optional): Differential missingness warning per variant     #
     # ------------------------------------------------------------------ #
-    if phenotype_vector is not None and raw.shape[0] > 0:
+    # Case/control diagnostic: meaningless for quantitative outcomes that happen to be 0/1.
+    if is_binary and phenotype_vector is not None and raw.shape[0] > 0:
         pheno = np.asarray(phenotype_vector, dtype=np.float64)
         case_mask = pheno == 1
         ctrl_mask = pheno == 0
