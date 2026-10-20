@@ -5,13 +5,11 @@ Heterogeneity diagnostics for cohort meta-analysis.
 - Per-stratum burden effect and standard error from the score/covariance.
 - Cochran's Q, its p-value, and I-squared across strata with non-zero information
   (df = usable strata - 1).
-- Leave-one-stratum-out re-combination.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
 
 import numpy as np
 import scipy.stats
@@ -71,30 +69,7 @@ def cochran_q(betas: np.ndarray, ses: np.ndarray) -> tuple[float, float, float]:
     return q, p, i2
 
 
-def leave_one_out(
-    u_list: list[np.ndarray],
-    v_list: list[np.ndarray],
-    weights: np.ndarray,
-    stratum_ids: list[str],
-    combine_fn: Callable[[list[np.ndarray], list[np.ndarray], np.ndarray], float | None],
-) -> list[tuple[str, float | None]]:
-    """Recompute the meta p-value dropping each stratum in turn.
-
-    ``combine_fn`` maps (u_list, v_list, weights) -> p_value (e.g. a lambda over
-    ``meta_burden``/``meta_skat``). Returns [(dropped_stratum_id, p_value), ...].
-    """
-    if len(u_list) < 2:
-        return []
-    results: list[tuple[str, float | None]] = []
-    for i, sid in enumerate(stratum_ids):
-        u_sub = [u for j, u in enumerate(u_list) if j != i]
-        v_sub = [v for j, v in enumerate(v_list) if j != i]
-        results.append((sid, combine_fn(u_sub, v_sub, weights)))
-    return results
-
-
 __all__ = [
     "cochran_q",
-    "leave_one_out",
     "per_stratum_burden",
 ]

@@ -9,7 +9,6 @@ from variantcentrifuge.association.meta.align import align_strata, pooled_freque
 from variantcentrifuge.association.meta.combine import meta_burden
 from variantcentrifuge.association.meta.heterogeneity import (
     cochran_q,
-    leave_one_out,
     per_stratum_burden,
 )
 
@@ -57,15 +56,6 @@ def test_opposite_directions_are_distinguishable():
     assert np.sign(betas[0]) != np.sign(betas[1])
     assert het_p < burden_p
     assert i2 > 0.5
-
-
-def test_leave_one_out_returns_per_stratum_dropped_pvalues():
-    a = make_stratum("A", seed=505, gene_keys=KEYS, effect_gene=GENE, effect_sign=+1.0)
-    b = make_stratum("B", seed=606, gene_keys=KEYS, effect_gene=GENE, effect_sign=+1.0)
-    u_list, v_list, w = _combine_two(a, b)
-    loo = leave_one_out(u_list, v_list, w, ["A", "B"], lambda u, v, ww: meta_burden(u, v, ww)[0])
-    assert [sid for sid, _p in loo] == ["A", "B"]
-    assert all(p is not None for _sid, p in loo)
 
 
 def test_cochran_q_df_uses_usable_strata_only():
