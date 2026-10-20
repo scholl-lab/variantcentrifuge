@@ -8,10 +8,26 @@ This module contains targeted tests for argument parsing to prevent regression
 of the duplicate argument parser bug and ensure all critical parameters work.
 """
 
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _foreign_python_first_on_path(monkeypatch, tmp_path_factory):
+    """Put a broken ``python`` first on PATH (#177).
+
+    CLI subprocesses must use ``sys.executable``; a bare ``python`` would pick
+    up this shim and fail, as it does under ``conda run`` with a tools env.
+    """
+    shim_dir = tmp_path_factory.mktemp("foreign_python")
+    shim = shim_dir / "python"
+    shim.write_text("#!/bin/sh\necho 'foreign python on PATH' >&2\nexit 97\n")
+    shim.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{shim_dir}{os.pathsep}{os.environ.get('PATH', '')}")
 
 
 def _make_test_vcf(tmp_path: Path) -> Path:
@@ -199,7 +215,7 @@ class TestCriticalArgumentParsing:
 
         for value in test_values:
             cmd = [
-                "python",
+                sys.executable,
                 "-m",
                 "variantcentrifuge.cli",
                 "--max-memory-gb",
@@ -224,7 +240,7 @@ class TestCriticalArgumentParsing:
         }
 
         for param, value in performance_params.items():
-            cmd = ["python", "-m", "variantcentrifuge.cli", param, value, "--help"]
+            cmd = [sys.executable, "-m", "variantcentrifuge.cli", param, value, "--help"]
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             assert result.returncode == 0, f"Parameter {param} failed"
@@ -245,7 +261,7 @@ class TestCriticalArgumentParsing:
 
         for method in methods:
             cmd = [
-                "python",
+                sys.executable,
                 "-m",
                 "variantcentrifuge.cli",
                 "--genotype-replacement-method",
@@ -286,7 +302,9 @@ class TestCriticalArgumentParsing:
         """Test that parameters shown in help actually work when used."""
         # Get help output
         result = subprocess.run(
-            ["python", "-m", "variantcentrifuge.cli", "--help"], capture_output=True, text=True
+            [sys.executable, "-m", "variantcentrifuge.cli", "--help"],
+            capture_output=True,
+            text=True,
         )
 
         assert result.returncode == 0
@@ -306,7 +324,7 @@ class TestCriticalArgumentParsing:
                 test_value = "16.0"
             else:
                 test_value = "10"
-            cmd = ["python", "-m", "variantcentrifuge.cli", param, test_value, "--help"]
+            cmd = [sys.executable, "-m", "variantcentrifuge.cli", param, test_value, "--help"]
             test_result = subprocess.run(cmd, capture_output=True, text=True)
             assert test_result.returncode == 0, f"Parameter {param} doesn't work"
             assert "unrecognized arguments" not in test_result.stderr

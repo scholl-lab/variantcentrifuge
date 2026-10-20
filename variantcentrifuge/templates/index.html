@@ -83,7 +83,8 @@
     }
     .charts-grid {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        /* two columns, stacking when narrower than 2 x 300px (#185) */
+        grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
         gap: 16px;
     }
 
@@ -719,12 +720,14 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        gap: 0;
+        flex-wrap: wrap; /* wrap on narrow viewports instead of widening the page (#185) */
+        gap: 4px 0;
         padding: 4px 0;
         margin-bottom: 2px;
     }
     .toolbar-group {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 6px;
     }
@@ -799,7 +802,7 @@
     /* ===== Phase 16: Compact Filter Panel ===== */
     .filter-row {
         display: none;
-        flex-wrap: nowrap;
+        flex-wrap: wrap;
         gap: 6px;
         padding: 6px 8px;
         background: #f8f9fa;
@@ -820,7 +823,8 @@
         min-width: 90px;
     }
     .filter-control.filter-type-categorical {
-        flex: 0 0 auto;
+        flex: 0 1 auto;
+        max-width: 100%; /* long category values must not widen the page (#185) */
     }
     .filter-control.filter-type-text {
         flex: 0 0 auto;
@@ -864,6 +868,7 @@
         background-color: white;
         cursor: pointer;
         width: auto;
+        max-width: 100%;
     }
     .category-dropdown:hover {
         border-color: #adb5bd;

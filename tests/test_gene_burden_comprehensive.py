@@ -12,11 +12,20 @@ Uses the comprehensive test dataset generated in tests/fixtures/geneburden/
 """
 
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 import pandas as pd
 import pytest
+
+# Run the CLI with pytest's interpreter, exactly like the console script (sys.exit(main())),
+# instead of whichever ``variantcentrifuge`` is first on PATH (#177).
+_CLI = [
+    sys.executable,
+    "-c",
+    "import sys; from variantcentrifuge.cli import main; sys.exit(main())",
+]
 
 
 @pytest.fixture(scope="module")
@@ -63,7 +72,7 @@ class TestGeneBurdenDirectSamples:
             )
 
             cmd = [
-                "variantcentrifuge",
+                *_CLI,
                 "--vcf-file",
                 str(vcf_file),
                 "--gene-file",
@@ -100,7 +109,7 @@ class TestGeneBurdenDirectSamples:
             control_file = test_data_dir / "control_samples.txt"
 
             cmd = [
-                "variantcentrifuge",
+                *_CLI,
                 "--vcf-file",
                 str(vcf_file),
                 "--gene-file",
@@ -137,7 +146,7 @@ class TestGeneBurdenPhenotypeBased:
             )
 
             cmd = [
-                "variantcentrifuge",
+                *_CLI,
                 "--vcf-file",
                 str(vcf_file),
                 "--gene-file",
@@ -174,7 +183,7 @@ class TestGeneBurdenPhenotypeBased:
             control_hpo_file = test_data_dir / "control_hpo_terms.txt"
 
             cmd = [
-                "variantcentrifuge",
+                *_CLI,
                 "--vcf-file",
                 str(vcf_file),
                 "--gene-file",
@@ -213,7 +222,7 @@ class TestGeneBurdenPhenotypeBased:
             )
 
             cmd = [
-                "variantcentrifuge",
+                *_CLI,
                 "--vcf-file",
                 str(vcf_file),
                 "--gene-file",
@@ -253,7 +262,7 @@ class TestGeneBurdenValidation:
             control_file = test_data_dir / "control_samples.txt"
 
             cmd = [
-                "variantcentrifuge",
+                *_CLI,
                 "--vcf-file",
                 str(vcf_file),
                 "--gene-file",
@@ -304,7 +313,7 @@ class TestGeneBurdenErrorHandling:
         """Test behavior when no case/control groups are specified."""
         with tempfile.TemporaryDirectory() as tmpdir:
             cmd = [
-                "variantcentrifuge",
+                *_CLI,
                 "--vcf-file",
                 str(vcf_file),
                 "--gene-file",
@@ -328,7 +337,7 @@ class TestGeneBurdenErrorHandling:
         """Test behavior with missing phenotype file."""
         with tempfile.TemporaryDirectory() as tmpdir:
             cmd = [
-                "variantcentrifuge",
+                *_CLI,
                 "--vcf-file",
                 str(vcf_file),
                 "--gene-file",
