@@ -34,7 +34,7 @@ def _vcf_meta_lines(path: str) -> list[str]:
     with open(path, "rb") as fh:
         is_gz = fh.read(2) == b"\x1f\x8b"
     lines: list[str] = []
-    with (gzip.open(path, "rt") if is_gz else open(path)) as fh:
+    with gzip.open(path, "rt") if is_gz else open(path) as fh:
         for line in fh:
             if not line.startswith("##"):
                 break
@@ -109,9 +109,7 @@ def check_provenance(artifacts: list, allow_mismatch: bool, error: type[Exceptio
                 raise error(f"{msg} Pass --allow-annotation-mismatch to pool anyway.")
             logger.warning("%s Pooling anyway (--allow-annotation-mismatch).", msg)
     if unknown:
-        logger.warning(
-            "Annotation provenance unknown, so not checked: %s.", "; ".join(unknown)
-        )
+        logger.warning("Annotation provenance unknown, so not checked: %s.", "; ".join(unknown))
 
 
 __all__ = ["PROVENANCE_FIELDS", "check_provenance", "collect_provenance"]

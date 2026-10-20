@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `meta` reports cumulative minor-allele counts (`cmac_total`, `cmac_by_stratum`); `--min-mac N` marks genes below N as `status=low_mac`, and `--require-variants-in-all-strata` marks genes without an informative minor allele in every stratum as `status=not_in_all_strata`; both are left out of the multiple-testing correction and the diagnostics (#194).
 - `--mask-label NAME` stores a readable mask name in the `--score-artifact`, which now also records annotation provenance (snpEff version and genome, dbNSFP and gnomAD files from the VCF header, SHA-256 of `--regions-bed`/`--gene-file`) as optional schema-v2 fields. `meta` refuses strata whose provenance differs (naming field and strata) unless `--allow-annotation-mismatch` is given; unknown provenance only warns (#197).
 - `--score-artifact` records per-gene carrier counts (samples with ≥1 ALT allele after QC; optional schema-v2 field) and `meta` reports them as `carriers_by_stratum` and `n_carriers_total`, completing #194.
+- `meta` runs several masks at once from an optional manifest `mask_id` column: each mask is combined exactly as in a single-mask run, and `acat_masks_p` (Cauchy combination of the masks' `primary_p`) plus `acat_masks_q` (corrected across genes) are added; diagnostics go to one subdirectory per mask. Without the column the output is unchanged, except that `mask` shows the `--mask-label` when the artifacts have one (#196).
 
 ### Changed
 

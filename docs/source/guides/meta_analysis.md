@@ -97,6 +97,31 @@ Relative paths are read relative to the manifest file. The `stratum_id` names th
 cohort in the output (e.g. `per_stratum_directions` = `adult_cohort:1,pediatric_cohort:-1`).
 It must not contain `:`, `;` or `,`, which separate the per-stratum output fields.
 
+### Several masks
+
+An optional `mask_id` column runs several masks in one `meta` call, one row per mask
+and stratum (each row points at that mask's artifact for the stratum):
+
+```
+stratum_id	artifact_path	mask_id
+adult_cohort	adult.plof.npz	pLoF
+pediatric_cohort	pediatric.plof.npz	pLoF
+adult_cohort	adult.missense.npz	missense
+pediatric_cohort	pediatric.missense.npz	missense
+```
+
+Each mask needs at least two strata and is validated and combined on its own, exactly
+as a single-mask run (identical results); the output stacks one row per gene and mask,
+with `mask` set to the `mask_id`. Two columns are added, repeated on each of a gene's
+rows: `acat_masks_p`, the Cauchy (ACAT, Liu et al. 2019) combination with equal
+weights of the gene's per-mask `primary_p`, and `acat_masks_q`, corrected with
+`--correction` across genes (one ACAT test per gene). Only masks inside their own
+correction family (`primary_q` set; not `low_mac`, `not_in_all_strata` or degenerate)
+enter the combination; a gene with none has no ACAT value. Report `acat_masks_p`
+rather than the best mask: picking the smallest per-mask p-value inflates type I error.
+Without a `mask_id` column the output is unchanged, and `mask` is the artifacts'
+`--mask-label` (or the mask hash prefix).
+
 The meta step **refuses** (hard error, no silent fallback) when strata disagree on
 genome build, annotation version, mask definition, trait type, or missing-genotype
 imputation mode, or when their (hashed) sample sets overlap — overlap would violate the additive-covariance
@@ -176,9 +201,8 @@ strata whose null model converged.
 
 `--diagnostics-output DIR` writes the same files as a single-cohort run
 (`lambda_gc.tsv`, `qq_data.tsv`, `summary.txt`, and `qq_plot.png` when matplotlib is
-installed) for `meta_burden`, `meta_skat`, `meta_skato` and `primary`. A `meta` run
-covers one mask, so each run's directory holds that mask's diagnostics; run once per
-mask for multi-mask designs. λ and QQ use exactly the genes in the correction family
+installed) for `meta_burden`, `meta_skat`, `meta_skato` and `primary`, per mask:
+with several masks each gets its own subdirectory `DIR/<mask_id>/`. λ and QQ use exactly the genes in the correction family
 (those with a `primary_q`; `low_mac` and `degenerate` genes are left out), while the
 warning count in `summary.txt` covers every gene. λ from fewer than 100 genes is
 flagged as unreliable.

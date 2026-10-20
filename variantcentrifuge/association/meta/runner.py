@@ -7,14 +7,15 @@ weights from pooled frequency, run the common-effect burden/SKAT/SKAT-O meta,
 compute heterogeneity and leave-one-out, then apply exome-wide multiplicity
 correction to the primary (SKAT-O) p-value.
 
-This runner handles a single declared mask (all artifacts share ``mask_hash``,
-enforced by comparability validation). Multi-mask designs run this once per mask
-and ACAT-combine the per-gene primaries at a higher level.
+Each mask (all its artifacts share ``mask_hash``, enforced by comparability
+validation) is combined on its own; with several masks in the manifest
+(``mask_id`` column) the per-gene primaries are also ACAT-combined (#196).
 """
 
 from __future__ import annotations
 
 import logging
+import os
 
 import numpy as np
 import pandas as pd
@@ -26,10 +27,12 @@ from variantcentrifuge.association.meta.artifact import GeneScore, ScoreCovarian
 from variantcentrifuge.association.meta.combine import meta_burden, meta_skat, meta_skato
 from variantcentrifuge.association.meta.heterogeneity import cochran_q, per_stratum_burden
 from variantcentrifuge.association.meta.manifest import (
+    group_by_mask,
     load_manifest_artifacts,
     read_study_manifest,
     validate_comparability,
 )
+from variantcentrifuge.association.tests.acat import cauchy_combination
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -216,8 +219,12 @@ def meta_analyze_artifacts(
     correction: str = "fdr",
     min_mac: float = 0.0,
     require_variants_in_all_strata: bool = False,
+    mask_name: str | None = None,
 ) -> pd.DataFrame:
     """Combine already-loaded, already-validated artifacts into a results frame.
+
+    The ``mask`` column is ``mask_name`` (manifest ``mask_id``), else the artifacts'
+    ``--mask-label``, else their mask hash prefix.
 
     Genes with cumulative MAC below ``min_mac`` (``status=low_mac``) or, with
     ``require_variants_in_all_strata``, without an informative minor allele in every
@@ -231,7 +238,7 @@ def meta_analyze_artifacts(
         raise ValueError(
             f"stratum_id must not contain the output separators ':', ';' or ',': {bad}"
         )
-    mask_id = artifacts[0].mask_id
+    mask_id = mask_name or artifacts[0].mask_label or artifacts[0].mask_id
     all_genes = sorted({g for art in artifacts for g in art.genes})
 
     rows: list[dict] = []
@@ -259,6 +266,42 @@ def meta_analyze_artifacts(
     return df
 
 
+def add_acat_masks(df: pd.DataFrame, correction: str, suffix: str = "") -> pd.DataFrame:
+    """Per-gene ACAT (Cauchy) combination of the masks' ``primary_p`` (#196).
+
+    Only mask rows inside their correction family (``primary_q`` set) contribute.
+    ``acat_masks_q`` corrects the ACAT p-values across genes (one test per gene).
+    """
+    p_col, q_col = f"primary_p{suffix}", f"primary_q{suffix}"
+    in_family = df[df[q_col].notna()]
+    acat: dict[str, float] = {}
+    for gene, rows in in_family.groupby("gene", sort=False):
+        ps = rows[p_col].astype(float).tolist()
+        combined = cauchy_combination(ps)
+        acat[gene] = 1.0 if combined is None else combined  # None: every p was 1
+    q = apply_correction(np.array(list(acat.values()), dtype=float), correction) if acat else ()
+    df[f"acat_masks_p{suffix}"] = df["gene"].map(acat)
+    df[f"acat_masks_q{suffix}"] = df["gene"].map(dict(zip(acat, q, strict=True)))
+    return df
+
+
+def _write_meta_diagnostics(
+    df: pd.DataFrame, out_dir: str, artifacts: list[ScoreCovarianceArtifact]
+) -> None:
+    """lambda/QQ over exactly the correction family; all rows kept for warning counts."""
+    diag = df.rename(columns={c: f"{t}_pvalue" for c, t in _DIAG_TESTS.items()})
+    diag.loc[df["primary_q"].isna(), [f"{t}_pvalue" for t in _DIAG_TESTS.values()]] = np.nan
+    diag["warnings"] = diag["warnings"].fillna("")
+    write_diagnostics(
+        diag,
+        out_dir,
+        test_names=list(_DIAG_TESTS.values()),
+        n_cases=sum(art.n_cases for art in artifacts),
+        n_controls=sum(art.n_controls for art in artifacts),
+        cohort_warnings=[],
+    )
+
+
 def run_meta(
     manifest_path: str,
     output_path: str,
@@ -271,37 +314,38 @@ def run_meta(
 ) -> pd.DataFrame:
     """Full pipeline: manifest → validated artifacts → meta results → TSV.
 
-    With ``diagnostics_dir``, also writes λ_GC/QQ diagnostics for the run's single
-    mask over the genes inside the correction family (``primary_q`` set).
+    Each mask in the manifest is validated and combined separately; with several
+    masks the rows are stacked and ``acat_masks_p``/``acat_masks_q`` added. With
+    ``diagnostics_dir``, also writes λ_GC/QQ diagnostics over the genes inside the
+    correction family (``primary_q`` set), in one subdirectory per mask when the
+    manifest has several.
     """
-    refs = read_study_manifest(manifest_path)
-    artifacts = load_manifest_artifacts(refs)
-    validate_comparability(artifacts, allow_annotation_mismatch)
-    logger.info("Meta-analysis: %d strata, mask '%s'", len(artifacts), artifacts[0].mask_id)
-
-    df = meta_analyze_artifacts(
-        artifacts,
-        weight_scheme=weight_scheme,
-        correction=correction,
-        min_mac=min_mac,
-        require_variants_in_all_strata=require_variants_in_all_strata,
-    )
+    groups = group_by_mask(read_study_manifest(manifest_path))
+    frames: list[pd.DataFrame] = []
+    for mask, refs in groups.items():
+        artifacts = load_manifest_artifacts(refs)
+        validate_comparability(artifacts, allow_annotation_mismatch)
+        logger.info(
+            "Meta-analysis: %d strata, mask '%s'", len(artifacts), mask or artifacts[0].mask_id
+        )
+        df = meta_analyze_artifacts(
+            artifacts,
+            weight_scheme=weight_scheme,
+            correction=correction,
+            min_mac=min_mac,
+            require_variants_in_all_strata=require_variants_in_all_strata,
+            mask_name=mask,
+        )
+        if diagnostics_dir is not None:
+            sub = diagnostics_dir if len(groups) == 1 else os.path.join(diagnostics_dir, str(mask))
+            _write_meta_diagnostics(df, sub, artifacts)
+        frames.append(df)
+    df = pd.concat(frames, ignore_index=True) if len(frames) > 1 else frames[0]
+    if len(groups) > 1:
+        df = add_acat_masks(df, correction)
     df.to_csv(output_path, sep="\t", index=False)
     logger.info("Wrote meta results to %s", output_path)
-    if diagnostics_dir is not None:
-        # lambda/QQ over exactly the correction family; all rows kept for warning counts
-        diag = df.rename(columns={c: f"{t}_pvalue" for c, t in _DIAG_TESTS.items()})
-        diag.loc[df["primary_q"].isna(), [f"{t}_pvalue" for t in _DIAG_TESTS.values()]] = np.nan
-        diag["warnings"] = diag["warnings"].fillna("")
-        write_diagnostics(
-            diag,
-            diagnostics_dir,
-            test_names=list(_DIAG_TESTS.values()),
-            n_cases=sum(art.n_cases for art in artifacts),
-            n_controls=sum(art.n_controls for art in artifacts),
-            cohort_warnings=[],
-        )
     return df
 
 
-__all__ = ["OUTPUT_COLUMNS", "meta_analyze_artifacts", "run_meta"]
+__all__ = ["OUTPUT_COLUMNS", "add_acat_masks", "meta_analyze_artifacts", "run_meta"]
