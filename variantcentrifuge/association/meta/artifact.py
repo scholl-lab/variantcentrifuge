@@ -348,6 +348,7 @@ def emit_stratum_artifact(
     omitted: list[str] = []
     nulls: dict[bytes, NullModelResult | UntestableGeneError] = {}
     gene_scores: dict[str, GeneScore] = {}
+    n_sites = n_kept = 0
     for gene, b in builders.items():
         if b.gene_df.empty:
             continue
@@ -364,6 +365,7 @@ def emit_stratum_artifact(
             return_keep_mask=True,
             missing_as_ref=b.missing_as_ref,
         )
+        n_sites, n_kept = n_sites + len(keep), n_kept + int(keep.sum())
         # ponytail: parses GT twice per gene (build_genotype_matrix hides raw/ploidy);
         # fine for an opt-in export, expose them from the builder if it shows in profiles.
         raw, plo, kind = _vectorized_parse_gt_columns(b.gene_df, list(b.gt_columns))
@@ -410,6 +412,15 @@ def emit_stratum_artifact(
             logger.warning("Score artifact: omitting gene %s: %s", gene, exc.reason)
             omitted.append(gene)
 
+    if n_kept < n_sites:
+        logger.warning(
+            "Score artifact: site missingness QC removed %d of %d variants (missing fraction "
+            "> %s). For merged VCFs where ./. means 'no variant called', consider "
+            "--missing-as-ref.",
+            n_sites - n_kept,
+            n_sites,
+            first.missing_site_threshold,
+        )
     if not gene_scores:
         raise ValueError(
             f"Score artifact: no genes survived QC ({len(builders)} genes: empty, removed by "

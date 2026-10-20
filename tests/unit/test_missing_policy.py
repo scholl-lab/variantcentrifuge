@@ -363,3 +363,25 @@ def test_stage_passes_missing_as_ref_to_fisher_and_builders(monkeypatch, tmp_pat
     assert gene["_genotype_matrix_builder"].missing_as_ref is missing_as_ref
     called = 10 if missing_as_ref else 1  # complete-case: only CASE0 is called at site 2
     assert gene["proband_called_count"] == called
+
+
+def test_artifact_only_run_warns_about_dropped_sites(monkeypatch, tmp_path, caplog):
+    from variantcentrifuge.association.engine import AssociationEngine
+    from variantcentrifuge.stages.analysis_stages import AssociationAnalysisStage
+
+    monkeypatch.setattr(
+        AssociationEngine, "run_all", lambda self, d: pd.DataFrame({"gene": ["GENE1"]})
+    )
+    df, cases, ctrls, samples = _stage_df()
+    config = {
+        "perform_association": True,
+        "case_samples": cases,
+        "control_samples": ctrls,
+        "association_tests": ["fisher"],
+        "gzip_intermediates": False,
+        "score_artifact": str(tmp_path / "s.npz"),
+        "reference": "GRCh38",
+    }
+    with caplog.at_level(logging.WARNING):
+        AssociationAnalysisStage()._process(_stage_ctx(tmp_path, config, df, samples))
+    assert "Score artifact: site missingness QC removed 1 of 2 variants" in caplog.text
