@@ -440,3 +440,57 @@ class TestPcaDelimiterAndValidation:
         p = _write(tmp_path, "akt_out.txt", AKT_CONTENT)
         with pytest.raises(ValueError, match="n_components"):
             load_pca_file(p, VCF_SAMPLES, n_components=0)
+
+
+@pytest.mark.unit
+class TestPcaLayoutGuards:
+    def test_tsv_header_names_with_spaces(self, tmp_path):
+        content = "sample id\tPC 1\tPC 2\nSYN_A\t0.1\t0.2\nSYN_B\t0.3\t0.4\n"
+        p = _write(tmp_path, "pca.tsv", content)
+        matrix, _ = load_pca_file(p, ["SYN_B", "SYN_A"], n_components=2)
+        np.testing.assert_array_equal(matrix, [[0.3, 0.4], [0.1, 0.2]])
+
+    def test_tsv_sample_ids_with_spaces(self, tmp_path):
+        content = "sample id\tPC 1\nSYN A\t0.1\nSYN B\t0.3\n"
+        p = _write(tmp_path, "pca.tsv", content)
+        matrix, _ = load_pca_file(p, ["SYN B", "SYN A"], n_components=1)
+        np.testing.assert_array_equal(matrix, [[0.3], [0.1]])
+
+    def test_tab_padded_akt_layout_still_whitespace(self, tmp_path):
+        # exactly one tab per line, like akt: must not be read as a 2-column TSV
+        p = _write(tmp_path, "pca.tsv", "SYN_A\t 0.1 -0.2\nSYN_B\t-0.3  0.4\n")
+        matrix, _ = load_pca_file(p, ["SYN_A", "SYN_B"], n_components=2)
+        np.testing.assert_array_equal(matrix, [[0.1, -0.2], [-0.3, 0.4]])
+
+    def test_headerless_plink_numeric_fid_iid_uses_iid(self, tmp_path):
+        p = _write(tmp_path, "pca.eigenvec", "1 1001 0.1 0.2\n2 1002 0.3 0.4\n")
+        matrix, _ = load_pca_file(p, ["1002", "1001"], n_components=2)
+        np.testing.assert_array_equal(matrix, [[0.3, 0.4], [0.1, 0.2]])
+
+    def test_headerless_numeric_ids_akt_layout(self, tmp_path):
+        p = _write(tmp_path, "pca.txt", "1001 0.1 0.2\n1002 0.3 0.4\n")
+        matrix, _ = load_pca_file(p, ["1001", "1002"], n_components=2)
+        np.testing.assert_array_equal(matrix, [[0.1, 0.2], [0.3, 0.4]])
+
+    def test_headerless_fid_equals_iid_is_ambiguous(self, tmp_path):
+        p = _write(tmp_path, "pca.eigenvec", "1001 1001 0.1 0.2\n1002 1002 0.3 0.4\n")
+        with pytest.raises(ValueError, match="header"):
+            load_pca_file(p, ["1001", "1002"], n_components=2)
+
+    def test_duplicate_samples_raise(self, tmp_path):
+        p = _write(tmp_path, "pca.txt", "SYN_A 0.1\nSYN_B 0.2\nSYN_A 0.3\n")
+        with pytest.raises(
+            ValueError, match=r"1 sample ID\(s\) appear on more than one row.*SYN_A"
+        ):
+            load_pca_file(p, ["SYN_A", "SYN_B"], n_components=1)
+
+    def test_sample_named_like_fid_is_data(self, tmp_path):
+        assert _detect_pca_format(["fido 0.1 0.2"]) == "akt_or_generic"
+        p = _write(tmp_path, "pca.txt", "fido 0.1 0.2\nfidelio 0.3 0.4\n")
+        matrix, _ = load_pca_file(p, ["fido", "fidelio"], n_components=2)
+        np.testing.assert_array_equal(matrix, [[0.1, 0.2], [0.3, 0.4]])
+
+    def test_plink2_iid_header(self, tmp_path):
+        p = _write(tmp_path, "pca.eigenvec", "#IID\tPC1\tPC2\nSYN_A\t0.1\t0.2\nSYN_B\t0.3\t0.4\n")
+        matrix, _ = load_pca_file(p, ["SYN_B", "SYN_A"], n_components=2)
+        np.testing.assert_array_equal(matrix, [[0.3, 0.4], [0.1, 0.2]])
