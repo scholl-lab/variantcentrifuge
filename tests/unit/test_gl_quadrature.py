@@ -1,8 +1,8 @@
 """
-Unit tests for 128-node Gauss-Legendre quadrature in SKAT-O integration.
+Unit tests for the piecewise Gauss-Legendre quadrature in SKAT-O integration.
 
 Covers:
-- GL constants shape and domain validation
+- quadrature nodes integrate the singular chi2(1) density
 - GL quadrature accuracy (smoke test: valid p-value from SKAT-O integration)
 - parallel_safe attributes on all 6 Python/R backend test classes
 
@@ -20,37 +20,20 @@ import pytest
 
 
 @pytest.mark.unit
-class TestGLConstants:
-    """Tests for module-level GL quadrature constants."""
+class TestSkatoQuadratureNodes:
+    """Piecewise sqrt-substituted Gauss-Legendre nodes for the SKAT-O integral."""
 
-    def test_gl_constants_shape(self) -> None:
-        """_GL_X and _GL_W each have exactly 128 elements."""
-        from variantcentrifuge.association.backends.python_backend import _GL_W, _GL_X
+    def test_nodes_integrate_chi2_density_with_kinks(self) -> None:
+        """chi2(1) has an x^-1/2 singularity at 0; the rule must still integrate it."""
+        import scipy.stats
 
-        assert len(_GL_X) == 128, f"Expected 128 GL nodes, got {len(_GL_X)}"
-        assert len(_GL_W) == 128, f"Expected 128 GL weights, got {len(_GL_W)}"
+        from variantcentrifuge.association.backends.skat_math import _skato_quadrature_nodes
 
-    def test_gl_nodes_in_bounds(self) -> None:
-        """All GL nodes fall within [0, 40] (integration bounds matching R upper=40)."""
-        from variantcentrifuge.association.backends.python_backend import _GL_X
-
-        assert float(np.min(_GL_X)) >= 0.0, f"GL nodes below 0: min={np.min(_GL_X)}"
-        assert float(np.max(_GL_X)) <= 40.0, f"GL nodes above 40: max={np.max(_GL_X)}"
-
-    def test_gl_weights_positive(self) -> None:
-        """All GL weights are strictly positive (property of GL quadrature)."""
-        from variantcentrifuge.association.backends.python_backend import _GL_W
-
-        assert np.all(_GL_W > 0), "Some GL weights are non-positive"
-
-    def test_gl_weights_sum_matches_interval(self) -> None:
-        """Sum of GL weights equals interval length 40 = (b - a)."""
-        from variantcentrifuge.association.backends.python_backend import _GL_W
-
-        # For a [a, b] transformed GL rule: sum(w_k) = b - a
-        assert abs(float(np.sum(_GL_W)) - 40.0) < 1e-10, (
-            f"Sum of GL weights {np.sum(_GL_W):.6f} != 40.0"
-        )
+        rho = np.array([0.0, 0.01, 0.04, 0.09, 0.25, 0.5, 0.999])
+        x, w = _skato_quadrature_nodes(np.linspace(100, 400, 7), np.linspace(5, 60, 7), rho)
+        assert np.all((x >= 0) & (x <= 40)) and np.all(w > 0)
+        integral = float(scipy.stats.chi2.pdf(x, 1) @ w)
+        assert integral == pytest.approx(scipy.stats.chi2.cdf(40, 1), abs=1e-6)
 
 
 # ---------------------------------------------------------------------------
@@ -108,31 +91,44 @@ class TestGLQuadratureAccuracy:
         assert isinstance(p_value, float), f"p_value is not float: {type(p_value)}"
         assert 0.0 < p_value <= 1.0, f"p_value={p_value} out of range (0, 1]"
 
-    def test_gl_vs_known_smooth_integral(self) -> None:
-        """
-        GL quadrature accurately integrates a smooth function over [0, 40].
+    def test_skato_integral_matches_adaptive_quadrature(self) -> None:
+        """Regression: a single 128-node rule over x was ~5% off R on null genes."""
+        import scipy.integrate
+        import scipy.stats
 
-        Integrates exp(-x/20) from 0 to 40, which has the exact analytical value
-        20*(1 - exp(-2)) = 17.29329... This validates the GL constants independently
-        of SKAT-O logic using a function without singularities that GL handles exactly.
-        Note: chi2(1) has a singularity at x=0 (pdf->inf) so is not used here;
-        the SKAT-O integrand's (1-cdf) factor cancels that singularity in practice.
-        """
-        import math
+        from variantcentrifuge.association.backends import skat_math as sm
+        from variantcentrifuge.association.backends.davies import davies_pvalue
 
-        from variantcentrifuge.association.backends.python_backend import _GL_W, _GL_X
+        rng = np.random.default_rng(7)
+        n, p = 700, 12
+        geno = rng.binomial(2, rng.uniform(0.003, 0.03, p), size=(n, p)).astype(np.float64)
+        res = rng.integers(0, 2, n) - 0.5
+        z1_half = (geno - geno.mean(axis=0)) * 0.5 / np.sqrt(2.0)
+        score = geno.T @ res
+        rho = [0.0, 0.01, 0.04, 0.09, 0.25, 0.5, 0.999]
+        q = np.array([((1 - r) * score @ score + r * score.sum() ** 2) / 8.0 for r in rho])
+        param = sm._skato_optimal_param(z1_half, rho)
+        a_mat = z1_half.T @ z1_half
+        lam = []
+        for r in rho:
+            s = np.sqrt(1 - r)
+            d = (np.sqrt(1 - r + p * r) - s) / p
+            k = s * s * a_mat + s * d * (a_mat.sum(0)[None, :] + a_mat.sum(1)[:, None])
+            lam.append(sm._get_lambda(k + d * d * a_mat.sum()))
+        pmin, _pval, pmin_q = sm._skato_each_q(param, q[None, :], rho, lam)
+        got = sm._skato_integrate_davies(pmin_q[0], param, rho, float(pmin[0]))
 
-        # Integrate exp(-x/20) from 0 to 40 using GL quadrature
-        f_vals = np.array([math.exp(-float(x) / 20.0) for x in _GL_X])
-        gl_integral = float(np.dot(f_vals, _GL_W))
+        r_arr = np.array(rho)
+        sd1 = np.sqrt((param["var_q"] - param["var_remain"]) / param["var_q"])
 
-        # Exact value: integral(exp(-x/20), 0, 40) = 20*(1 - exp(-2))
-        true_val = 20.0 * (1.0 - math.exp(-2.0))  # ~17.29329...
+        def f(x: float) -> float:
+            m = float(np.min((pmin_q[0] - param["tau"] * x) / (1 - r_arr)))
+            c = davies_pvalue((m - param["mu_q"]) * sd1 + param["mu_q"], param["lambdas"])[0]
+            return (1 - min(c, 1.0)) * float(scipy.stats.chi2.pdf(x, 1))
 
-        assert abs(gl_integral - true_val) < 1e-10, (
-            f"GL integral of exp(-x/20) over [0,40] = {gl_integral:.14f}, "
-            f"expected {true_val:.14f}, diff={abs(gl_integral - true_val):.2e}"
-        )
+        ref = 1 - scipy.integrate.quad(f, 0, 40, limit=1000, epsabs=1e-25)[0]
+        assert 1e-4 < ref < 0.9
+        assert got == pytest.approx(min(ref, float(pmin[0]) * len(rho)), rel=2e-3)
 
 
 # ---------------------------------------------------------------------------

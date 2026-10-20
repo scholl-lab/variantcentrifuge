@@ -1,4 +1,4 @@
-.PHONY: help install install-dev clean lint lint-loc format format-check typecheck check-version test test-unit test-integration test-fast ci-check fix build-ext
+.PHONY: help install install-dev clean lint lint-loc format format-check typecheck check-version test test-unit test-integration test-fast test-e2e fixture-1000g ci-check fix build-ext
 
 # Colors for output
 CYAN := \033[0;36m
@@ -89,6 +89,21 @@ test-integration: $(DAVIES_EXT) ## Run integration tests only
 
 test-fast: $(DAVIES_EXT) ## Run non-slow, non-integration tests
 	$(PYTHON) -m pytest -n auto -m "not slow and not integration" tests/ --tb=short -q
+
+# Real-data e2e: run inside the variantcentrifuge image (bcftools, snpEff, SnpSift).
+E2E_IMAGE ?= variantcentrifuge:0.18.0
+SNPEFF_DATA ?= /mnt/nas-bioinformatics/bioinformatics/variantcentrifuge/resources/snpeff
+
+fixture-1000g: ## Rebuild tests/fixtures/1000g_cohort from 1000 Genomes (needs SNPEFF_DATA with GRCh38.p14)
+	docker run --rm --user $$(id -u):$$(id -g) -e HOME=/tmp -v $(CURDIR):/repo -w /repo \
+		-v $(SNPEFF_DATA):/data/snpeff --entrypoint micromamba $(E2E_IMAGE) run -n base \
+		bash scripts/build_1000g_fixture.sh
+
+test-e2e: ## Run real-data e2e tests (1000 Genomes cohort meta-analysis) in the image
+	docker run --rm --user root -e PYTHONDONTWRITEBYTECODE=1 -e PYTHONPATH=/repo -v $(CURDIR):/repo -w /repo \
+		--entrypoint micromamba $(E2E_IMAGE) run -n base bash -c \
+		'micromamba install -q -y -n base -c conda-forge pytest >/dev/null && \
+		python -m pytest -p no:cacheprovider -o addopts= -m e2e tests/e2e -v'
 
 ##@ CI Verification
 

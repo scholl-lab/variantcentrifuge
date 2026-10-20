@@ -415,6 +415,15 @@ def add_analysis_argument_groups(parser: argparse.ArgumentParser) -> None:
         ),
     )
     stats_group.add_argument(
+        "--score-artifact",
+        type=str,
+        default=None,
+        help=(
+            "Also write this cohort's per-gene score/covariance artifact (.npz + .meta.json) "
+            "for cross-cohort meta-analysis with `variantcentrifuge meta`. Binary traits only."
+        ),
+    )
+    stats_group.add_argument(
         "--variant-weights",
         type=str,
         default="beta:1,25",

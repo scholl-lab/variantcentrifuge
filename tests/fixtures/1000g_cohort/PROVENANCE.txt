@@ -1,0 +1,6 @@
+panel: https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/working/20220422_3202_phased_SNV_INDEL_SV/1kGP_high_coverage_Illumina.<chrom>.filtered.SNV_INDEL_SV_phased_panel.vcf.gz
+pedigree: https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/data_collections/1000G_2504_high_coverage/20130606_g1k_3202_samples_ped_population.txt
+clinvar: https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/archive_2.0/2025/clinvar_20250504.vcf.gz
+snpeff_db: GRCh38.p14
+SnpEff	5.2	2023-09-29
+bcftools 1.21

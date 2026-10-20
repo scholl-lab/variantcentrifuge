@@ -35,6 +35,27 @@ from .genotype_utils import is_missing
 logger = logging.getLogger("variantcentrifuge")
 
 
+_VARIANT_KEY = ["GENE", "CHROM", "POS", "REF", "ALT"]
+
+
+def drop_transcript_duplicates(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep one row per variant per gene before burden/association tests.
+
+    ``--split-snpeff-lines`` writes one row per transcript, so a variant on two
+    transcripts of a gene would enter the genotype matrix twice. snpEff orders
+    annotations by severity, so the first row kept is the most severe consequence.
+    """
+    if df.empty or not set(_VARIANT_KEY).issubset(df.columns):
+        return df
+    deduped = df.drop_duplicates(subset=_VARIANT_KEY)
+    if len(deduped) < len(df):
+        logger.info(
+            "Collapsed %d transcript-duplicate rows to one row per variant per gene",
+            len(df) - len(deduped),
+        )
+    return deduped
+
+
 def _find_gt_columns(df: pd.DataFrame) -> list[str]:
     """Find per-sample GT columns in DataFrame, sorted by sample index."""
     cols = [c for c in df.columns if re.match(r"^GEN[_\[](\d+)[_\]\.]+(GT)$", c)]
@@ -257,6 +278,8 @@ def perform_gene_burden_analysis(
         c_s = cfg.get("control_samples") or attrs.get("control_samples")
         if c_s is not None:
             control_samples = set(c_s)
+
+    df = drop_transcript_duplicates(df)
 
     # Determine aggregation strategy (priority: columns > packed GT > legacy)
     has_case_ctrl = case_samples is not None and control_samples is not None

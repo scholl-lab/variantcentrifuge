@@ -16,6 +16,7 @@ from ..gene_burden import (
     _aggregate_gene_burden_from_columns,
     _aggregate_gene_burden_from_gt,
     _aggregate_gene_burden_legacy,
+    drop_transcript_duplicates,
 )
 from ..gt_reconstruction import _find_per_sample_gt_columns, reconstruct_gt_column
 from ..pipeline_core import PipelineContext, Stage
@@ -31,6 +32,33 @@ from .genotype_matrix_builder import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _emit_score_artifact(config: dict, path: str, gene_burden_data: list[dict]) -> None:
+    """Write the meta-analysis score artifact from this run's per-gene matrix builders."""
+    import hashlib
+    import json
+
+    from ..association.meta.artifact import emit_stratum_artifact
+    from ..links import normalize_reference
+
+    reference = str(config.get("reference") or "")
+    # Strata are pooled only when they selected variants the same way.
+    selection = {k: config.get(k) for k in ("filters", "final_filter", "bcftools_prefilter")}
+    mask_hash = hashlib.sha256(json.dumps(selection, sort_keys=True).encode()).hexdigest()
+    emit_stratum_artifact(
+        path,
+        {
+            d["GENE"]: d["_genotype_matrix_builder"]
+            for d in gene_burden_data
+            if "_genotype_matrix_builder" in d
+        },
+        stratum_id=Path(path).name.split(".")[0],
+        genome_build=normalize_reference(reference) or reference,
+        annotation_version=reference,
+        mask_id=mask_hash[:12],
+        mask_hash=mask_hash,
+    )
 
 
 class AssociationAnalysisStage(Stage):
@@ -151,6 +179,7 @@ class AssociationAnalysisStage(Stage):
             df = context.variants_df
         if df is None:
             raise RuntimeError("No DataFrame loaded for association analysis")
+        df = drop_transcript_duplicates(df)
 
         pca_result = context.get_result("pca_computation")
         if pca_result and isinstance(pca_result, dict):
@@ -242,10 +271,13 @@ class AssociationAnalysisStage(Stage):
                     return context
                 engine = AssociationEngine.from_names(test_names, assoc_config)
 
-        needs_regression = any(
+        score_artifact = context.config.get("score_artifact")
+        # The score artifact needs the same per-gene genotype matrices as regression tests.
+        regression_tests = any(
             t in test_names
             for t in ("logistic_burden", "linear_burden", "skat", "skat_python", "coast")
         )
+        needs_regression = regression_tests or bool(score_artifact)
 
         df_with_per_sample_gt: pd.DataFrame | None = None
         gt_cols = _find_per_sample_gt_columns(df)
@@ -444,6 +476,12 @@ class AssociationAnalysisStage(Stage):
             del df_with_per_sample_gt, gt_source_df
 
         gene_data_by_gene = {d.get("GENE", d.get("gene", "")): d for d in gene_burden_data}
+
+        if score_artifact:  # before run_all, which consumes the matrix builders
+            _emit_score_artifact(context.config, score_artifact, gene_burden_data)
+            if not regression_tests:  # don't make the engine build matrices nobody tests
+                for d in gene_burden_data:
+                    d.pop("_genotype_matrix_builder", None)
 
         results_df = engine.run_all(gene_burden_data)
 

@@ -14,6 +14,9 @@ on:
       - "scripts/test_container_image.sh"
       - "scripts/summarize_trivy.py"
       - "tests/fixtures/container/**"
+      - "tests/fixtures/1000g_cohort/**"
+      - "tests/e2e/**"
+      - "Makefile"
       - "variantcentrifuge/**"
       - "pyproject.toml"
       - "setup.py"
@@ -82,6 +85,9 @@ jobs:
 
       - name: Test production image
         run: bash scripts/test_container_image.sh "${LOCAL_IMAGE}"
+
+      - name: Real-data e2e (1000 Genomes two-cohort meta-analysis)
+        run: make test-e2e E2E_IMAGE="${LOCAL_IMAGE}"
 
       - name: Generate complete vulnerability report
         uses: aquasecurity/trivy-action@v0.36.0
