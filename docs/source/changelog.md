@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Deprecated
+
+- `--perform-gene-burden` now warns and will be removed in the next minor release; use `--perform-association` (e.g. `--association-tests fisher`). The legacy path ignores `--missing-as-ref` (#217).
+
 ## [0.22.1] - 2026-10-20
 
 ### Changed

@@ -245,6 +245,9 @@ Yes, multiple ways:
 
 ### How do I perform gene burden analysis?
 
+> **Deprecated:** `--perform-gene-burden` is deprecated and will be removed in the next minor release.
+> Use the association engine instead: `--perform-association --association-tests fisher`.
+
 For case-control studies:
 
 ```bash
@@ -287,7 +290,7 @@ See the [Docker installation guide](installation.md#method-4-docker-recommended-
 
 ### How do I run a gene burden test with covariate adjustment?
 
-Use `--perform-association` with `--covariate-file` instead of (or in addition to) `--perform-gene-burden`:
+Use `--perform-association` with `--covariate-file` (`--perform-gene-burden` is deprecated):
 
 ```bash
 variantcentrifuge \

@@ -7,6 +7,7 @@ with Fisher's exact test and multiple testing correction (FDR/Bonferroni).
 
 import logging
 import re
+import warnings
 from typing import Any
 
 import pandas as pd
@@ -41,6 +42,18 @@ from .association.aggregation import (  # noqa: F401 - re-exported for existing 
 )
 
 logger = logging.getLogger("variantcentrifuge")
+
+
+def warn_legacy_gene_burden(missing_as_ref: bool = False) -> None:
+    """Warn that --perform-gene-burden is deprecated in favour of the association engine."""
+    msg = (
+        "--perform-gene-burden is deprecated and will be removed in the next minor release; "
+        "use --perform-association (e.g. --association-tests fisher) instead."
+    )
+    if missing_as_ref:
+        msg += " --missing-as-ref is ignored by the legacy gene burden path."
+    logger.warning(msg)
+    warnings.warn(msg, DeprecationWarning, stacklevel=2)
 
 
 _VARIANT_KEY = ["GENE", "CHROM", "POS", "REF", "ALT"]

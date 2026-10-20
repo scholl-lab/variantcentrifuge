@@ -106,7 +106,7 @@ For statistical gene burden analysis across the cohort:
 variantcentrifuge \
     --gene-file target_genes.txt \
     --vcf-file cohort_merged.vcf.gz \
-    --perform-gene-burden \
+    --perform-association --association-tests fisher \
     --phenotype-file sample_phenotypes.tsv \
     --phenotype-sample-column "sample_id" \
     --phenotype-value-column "case_control_status" \
@@ -115,7 +115,7 @@ variantcentrifuge \
 
 ### Advanced Association Testing
 
-For statistical tests beyond Fisher's exact test — including SKAT-O, COAST allelic series, logistic/linear burden regression with covariate adjustment, PCA integration for population stratification, and ACAT-O omnibus combination — see the [Association Testing Guide](association_testing.md). The association framework accepts the same phenotype-derived case/control sample lists and supports all gene burden collapsing modes available in `--perform-gene-burden`.
+For statistical tests beyond Fisher's exact test — including SKAT-O, COAST allelic series, logistic/linear burden regression with covariate adjustment, PCA integration for population stratification, and ACAT-O omnibus combination — see the [Association Testing Guide](association_testing.md). The association framework accepts the same phenotype-derived case/control sample lists and supports all gene burden collapsing modes available in the deprecated `--perform-gene-burden`.
 
 Cohort VCFs merged from variant-only per-sample VCFs using missing-to-reference filling (for
 example `bcftools merge -0`) store filled `0/0` genotypes that carry no evidence that the sample was callable. Read
@@ -135,7 +135,7 @@ Create cohort-specific configuration files:
     "cohort_rare": "(((dbNSFP_gnomAD_exomes_AF < 0.001) | (na dbNSFP_gnomAD_exomes_AF)) & ((ANN[ANY].IMPACT has 'HIGH') | (ANN[ANY].IMPACT has 'MODERATE')))",
     "cohort_quality": "(GEN[*].DP >= 20) & (QUAL >= 30)"
   },
-  "perform_gene_burden": true,
+  "perform_association": true,
   "html_report_default_hidden_columns": [
     "QUAL", "FEATUREID", "AA_POS", "AA_LEN"
   ]
@@ -198,7 +198,7 @@ for sample in patient_*; do
         --phenotype-sample-column "sample_id" \
         --phenotype-value-column "affected_status" \
         --output-file "results/${sample}_rare_variants.tsv" \
-        --perform-gene-burden \
+        --perform-association --association-tests fisher \
         --xlsx
 done
 

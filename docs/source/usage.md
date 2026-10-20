@@ -139,7 +139,7 @@ variantcentrifuge \
 | `--split-snpeff-lines MODE` | — | Split multi-annotation lines: `before_filters` or `after_filters`. Use `before_filters` for row-level ANN/LOF/NMD consequence filtering with transcript-selected gene burden or association. Omit to skip |
 
 :::{warning}
-When performing gene burden (`--perform-gene-burden`) or association (`--perform-association`)
+When performing gene burden (deprecated `--perform-gene-burden`) or association (`--perform-association`)
 with consequence filters (`ANN[ANY]`, `LOF[*]`, `NMD[*]`) or consequence presets (`coding`, `high`, `missense`, etc.),
 `--split-snpeff-lines before_filters` is required. This enforces row-level qualification and prevents
 cross-gene misattribution. Without splitting, or with `after_filters`, tables represent
@@ -233,7 +233,7 @@ Inheritance analysis is triggered when `--ped` or `--inheritance-mode` is specif
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--perform-gene-burden` | `false` | Run gene burden analysis |
+| `--perform-gene-burden` | `false` | **Deprecated** (removed next minor release): use `--perform-association --association-tests fisher` |
 | `--gene-burden-mode MODE` | `alleles` | Gene burden mode: `samples` or `alleles` |
 | `--correction-method METHOD` | `fdr` | Multiple testing correction: `fdr` or `bonferroni` |
 | `--no-stats` | `false` | Skip statistics computation step |
@@ -242,7 +242,7 @@ Inheritance analysis is triggered when `--ped` or `--inheritance-mode` is specif
 
 ### Association Testing
 
-For modular rare variant association testing beyond the basic Fisher's exact test in `--perform-gene-burden`:
+For modular rare variant association testing beyond the basic Fisher's exact test in the deprecated `--perform-gene-burden`:
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -395,7 +395,7 @@ variantcentrifuge \
   --phenotype-file patient_data.tsv \
   --phenotype-sample-column "sample_id" \
   --phenotype-value-column "disease_status" \
-  --perform-gene-burden \
+  --perform-association --association-tests fisher \
   --html-report \
   --xlsx \
   --output-file brca1_analysis.tsv
@@ -648,7 +648,7 @@ The `--json-gene-mapping` parameter specifies:
 
 - **HTML report** — Interactive variant browser with filtering, summary dashboard, and charts (if `--html-report` specified)
 - **IGV reports** — Individual variant visualization (if `--igv` specified)
-- **Gene burden results** — Statistical analysis (if `--perform-gene-burden` specified)
+- **Gene burden results** — Statistical analysis (if `--perform-association` specified; `--perform-gene-burden` is deprecated)
 - **Pseudonymization mapping** — Sample ID mapping table (if `--pseudonymize` specified)
 
 ## Configuration

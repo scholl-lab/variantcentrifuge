@@ -22,7 +22,10 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
     stats_group.add_argument(
         "--perform-gene-burden",
         action="store_true",
-        help="Perform gene burden analysis",
+        help=(
+            "DEPRECATED: use --perform-association (e.g. --association-tests fisher); "
+            "will be removed in the next minor release. Performs legacy gene burden analysis."
+        ),
     )
     stats_group.add_argument(
         "--gene-burden-mode",
