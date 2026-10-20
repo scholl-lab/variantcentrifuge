@@ -152,6 +152,7 @@ class TestGenotypeMatrixBuilder:
             "covariate_matrix",
             "gt_warnings",
             "mac_filtered",
+            "n_variants_qc",
         }
         assert set(result.keys()) == expected_keys
 

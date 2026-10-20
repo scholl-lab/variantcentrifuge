@@ -87,11 +87,26 @@ def load_manifest_artifacts(refs: list[StratumRef]) -> list[ScoreCovarianceArtif
     return artifacts
 
 
+def _check_missing_policy(artifacts: list[ScoreCovarianceArtifact]) -> None:
+    """Refuse mixed missing-genotype imputation; warn on differing QC thresholds (#200)."""
+    by_stratum = {a.stratum_id: a.missing_policy for a in artifacts}
+    if len({p["imputation"] for p in by_stratum.values()}) > 1:
+        listing = ", ".join(f"{s}={p['imputation']}" for s, p in by_stratum.items())
+        raise MetaCompatibilityError(
+            f"Strata use different missing-genotype imputation ({listing}). Re-run the "
+            "strata with the same --missing-as-ref setting before pooling."
+        )
+    for key in ("site_threshold", "sample_threshold"):
+        if len({p.get(key) for p in by_stratum.values()}) > 1:
+            listing = ", ".join(f"{s}={p.get(key)}" for s, p in by_stratum.items())
+            logger.warning("Strata use different missingness %s (%s).", key, listing)
+
+
 def validate_comparability(artifacts: list[ScoreCovarianceArtifact]) -> None:
     """Raise MetaCompatibilityError unless all strata are comparable.
 
     Checks: identical genome_build, annotation_version, mask_hash, trait_type,
-    and disjoint sample_id_hashes across strata.
+    missing-genotype imputation, and disjoint sample_id_hashes across strata.
     """
     if len(artifacts) < 2:
         raise MetaCompatibilityError("Need at least 2 strata to validate comparability.")
@@ -106,6 +121,7 @@ def validate_comparability(artifacts: list[ScoreCovarianceArtifact]) -> None:
 
     for attr in ("genome_build", "annotation_version", "mask_hash", "trait_type"):
         _uniform(attr)
+    _check_missing_policy(artifacts)
 
     # Sample-hash overlap check (independence of covariances).
     seen: dict[str, str] = {}

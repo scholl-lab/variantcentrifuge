@@ -110,6 +110,10 @@ def populate_association_config(
     cfg["association_min_cases"] = getattr(args, "min_cases", 200)
     cfg["association_max_case_control_ratio"] = getattr(args, "max_case_control_ratio", 20.0)
     cfg["association_min_case_carriers"] = getattr(args, "min_case_carriers", 10)
+    # Unset on the CLI (None): the config file / JSON "association" section or default applies.
+    for key in ("missing_site_threshold", "missing_sample_threshold", "missing_as_ref"):
+        if getattr(args, key, None) is not None:
+            cfg[key] = getattr(args, key)
 
 
 def inject_coast_fields(
@@ -210,8 +214,15 @@ def validate_association_args(
             _fail("--variant-weights column:<name> requires a non-empty column name")
 
     # These outputs only make sense with association analysis
-    for dest in ("covariate_file", "diagnostics_output", "score_artifact"):
-        if getattr(args, dest, None) and not args.perform_association:
+    for dest in (
+        "covariate_file",
+        "diagnostics_output",
+        "score_artifact",
+        "missing_site_threshold",
+        "missing_sample_threshold",
+        "missing_as_ref",
+    ):
+        if getattr(args, dest, None) is not None and not args.perform_association:
             _fail(f"--{dest.replace('_', '-')} requires --perform-association to be set")
     if getattr(args, "score_artifact", None) and getattr(args, "trait_type", "binary") != "binary":
         _fail("--score-artifact supports binary traits only")

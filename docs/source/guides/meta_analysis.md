@@ -69,6 +69,12 @@ as build and annotation version, a hash of the variant selection (`--filters`,
 sample IDs for the overlap check. Run every cohort with the same reference and
 filters, or the meta step will refuse to pool them.
 
+The artifact (schema version 2) also records the missing-genotype policy as
+`missing_policy`: the imputation mode (`bestguess`, or `missing_as_ref` with
+`--missing-as-ref`) and the site and sample missingness thresholds. Version 1 artifacts
+still load. They are read as `bestguess` with unknown thresholds, which is what they used.
+With `--missing-as-ref`, the stored `AN` counts every sample.
+
 ## Study manifest
 
 A TSV, one row per stratum:
@@ -84,11 +90,11 @@ cohort in the output (e.g. `per_stratum_directions` = `adult_cohort:1,pediatric_
 It must not contain `:`, `;` or `,`, which separate the per-stratum output fields.
 
 The meta step **refuses** (hard error, no silent fallback) when strata disagree on
-genome build, annotation version, mask definition, or trait type, or when their
-(hashed) sample sets overlap — overlap would violate the additive-covariance
+genome build, annotation version, mask definition, trait type, or missing-genotype
+imputation mode, or when their (hashed) sample sets overlap — overlap would violate the additive-covariance
 independence assumption. Sample non-overlap does not by itself establish
 independence for related or shared-control populations; that remains a caller
-assumption.
+assumption. Strata whose missingness thresholds differ are pooled, with a warning.
 
 ## Running it
 

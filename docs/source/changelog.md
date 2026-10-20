@@ -20,9 +20,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - `meta` leave-one-out (including `loo_min_p`) re-derives the variant weights from the remaining strata, so each LOO result equals a meta-analysis without that stratum (#193).
+- **Genotype missing data (#200).** Added `--missing-as-ref`, which sets missing genotypes to
+  reference in every association test (Fisher, the matrix-based tests and `--score-artifact`)
+  before missingness QC. Use it for VCFs merged from single-sample VCFs, where `./.`
+  means "not called as variant". Before, raising the site threshold to keep such sites imputed
+  every missing sample as a carrier. `--missing-site-threshold` and
+  `--missing-sample-threshold` expose the existing thresholds (defaults unchanged, range 0–1).
+  Variants dropped by site-missingness QC are now logged as one WARNING with totals, and the
+  results gain an `n_variants_qc` column when matrix-based tests run. The default imputation is
+  unchanged, and it is now checked against R SKAT (bestguess for binary traits, fixed for
+  quantitative traits).
+- **Score artifact schema version 2 (#200).** `--score-artifact` records `missing_policy`
+  (imputation mode and both thresholds). Version 1 artifacts still load as `bestguess` with
+  unknown thresholds. `variantcentrifuge meta` refuses to pool strata with different
+  imputation modes and warns when their thresholds differ. Artifacts written by this version
+  cannot be read by older versions.
 
 ### Fixed
 
+- Per-sample genotype columns built by the iterative path were misaligned after transcript de-duplication, so real carriers became missing; and positional comma-separated GT turned explicit no-calls (`./.`) into reference without any flag. Both affected association input (#200).
 - `--annotate-bed` treated 1-based VCF POS as 0-based, so hits at BED interval edges were wrong (first base missed ... last base excluded); overlap now uses the REF span [POS-1, POS-1+len(REF)), so deletions reaching into a region are hit. Legacy `Region=` output changes at interval edges (#94).
 - An unreadable or missing `--annotate-bed` file now raises instead of silently annotating nothing (#94).
 - Association diagnostics: `IMBALANCED_COHORT` is now two-sided (max/min of cases and controls) and the warning names the direction, e.g. "cases outnumber controls 100.0:1" (#199).

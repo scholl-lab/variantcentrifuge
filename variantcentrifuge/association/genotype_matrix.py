@@ -264,6 +264,7 @@ def build_genotype_matrix(
     missing_sample_threshold: float = 0.80,
     phenotype_vector: np.ndarray | None = None,
     return_keep_mask: bool = False,
+    missing_as_ref: bool = False,
 ) -> (
     tuple[np.ndarray, np.ndarray, list[bool], list[str]]
     | tuple[np.ndarray, np.ndarray, list[bool], list[str], np.ndarray]
@@ -300,6 +301,12 @@ def build_genotype_matrix(
     return_keep_mask : bool
         When True, append the site-level variant keep mask as a fifth return value.
         Default False preserves the historical four-tuple return.
+    missing_as_ref : bool
+        When True, every missing call (including partial calls such as ``./1``) is
+        set to reference dosage 0 *before* site/sample missingness QC, so nothing is
+        imputed or dropped for missingness (``bcftools +setGT -t . -n 0``). Meant for
+        merged single-sample VCFs where ``./.`` means "not called as variant".
+        Default False keeps the SKAT conventions (bestguess / mean imputation).
 
     Returns
     -------
@@ -339,6 +346,9 @@ def build_genotype_matrix(
     # ops instead of per-cell Python function calls.                       #
     # ------------------------------------------------------------------ #
     raw, ploidy, kind = _vectorized_parse_gt_columns(gene_df, gt_columns_list)
+    if missing_as_ref:
+        # Missing ploidy is still inferred below (generic missing calls on haploid rows -> 1).
+        raw[np.isnan(raw)] = 0.0
 
     # ------------------------------------------------------------------ #
     # Step 2 — Layer 1a: Remove variants with >missing_site_threshold     #
