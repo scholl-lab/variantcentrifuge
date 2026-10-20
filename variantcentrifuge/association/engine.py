@@ -13,7 +13,7 @@ from typing import Any
 
 import pandas as pd
 
-from variantcentrifuge.association.acat_o import compute_acat_o
+from variantcentrifuge.association.acat_o import compute_acat_o, resolve_primary_test
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
 from variantcentrifuge.association.correction import apply_correction
 from variantcentrifuge.association.engine_workers import (
@@ -96,6 +96,7 @@ class AssociationEngine:
     def __init__(self, tests: list[AssociationTest], config: AssociationConfig) -> None:
         self._tests: dict[str, AssociationTest] = {t.name: t for t in tests}
         self._config = config
+        self._primary_override = resolve_primary_test(list(self._tests), config)
 
     @classmethod
     def from_names(
@@ -184,7 +185,8 @@ class AssociationEngine:
         sorted_data: list[dict[str, Any]],
     ) -> dict[str, TestResult]:
         """Compute ACAT-O per gene; see ``association.acat_o.compute_acat_o``."""
-        return compute_acat_o(results_by_test, sorted_data, list(self._tests))
+        exclude = getattr(self._config, "acat_o_exclude", None)
+        return compute_acat_o(results_by_test, sorted_data, list(self._tests), exclude)
 
     def run_all(
         self, gene_burden_data: list[dict[str, Any]], gene_hook: GeneHook | None = None
@@ -315,17 +317,19 @@ class AssociationEngine:
         # combination. For single non-SKAT tests, ACAT-O would be a pure
         # pass-through, so correction is attached to the actual test result
         # (for example fisher_qvalue) instead of misleading acat_o_* columns.
-        primary_result_id = next(iter(self._tests))
-        write_acat_o = len(self._tests) > 1 or "skat" in self._tests
+        # --primary-test skato/burden overrides the primary; ACAT-O is then still
+        # reported (acat_o_pvalue) but not corrected (#210).
+        include_acat_v = getattr(self._config, "acat_o_exclude", None) != "acat_v"
+        write_acat_o = len(self._tests) > 1 or ("skat" in self._tests and include_acat_v)
         acat_o_results: dict[str, TestResult] = {}
-        correction_results: dict[str, TestResult]
         if write_acat_o:
             acat_o_results = self._compute_acat_o(results_by_test, sorted_data)
             results_by_test["acat_o"] = acat_o_results
-            correction_results = acat_o_results
-            primary_result_id = "acat_o"
-        else:
-            correction_results = results_by_test[primary_result_id]
+        primary_result_id = self._primary_override or (
+            "acat_o" if write_acat_o else next(iter(self._tests))
+        )
+        acat_o_primary = primary_result_id == "acat_o"
+        correction_results: dict[str, TestResult] = results_by_test[primary_result_id]
 
         gene_order = [d.get("GENE", "") for d in sorted_data]
         testable_genes = [
@@ -468,8 +472,12 @@ class AssociationEngine:
             # also expose a test-specific q-value such as fisher_qvalue.
             primary_res = correction_results.get(gene)
             primary_output_id = primary_result_id
-            if not write_acat_o:
-                primary_output_id = _single_test_output_id(primary_result_id, primary_res)
+            if not acat_o_primary:
+                primary_output_id = (
+                    "skat_o"
+                    if self._primary_override == "skat"
+                    else _single_test_output_id(primary_result_id, primary_res)
+                )
                 row[f"{primary_output_id}_qvalue"] = (
                     primary_res.corrected_p_value if primary_res is not None else None
                 )
@@ -490,15 +498,19 @@ class AssociationEngine:
                 row["primary_weighted_qvalue"] = weighted_corrected_by_gene.get(gene)
                 row["primary_unweighted_qvalue"] = unweighted_corrected_by_gene.get(gene)
 
-            # ACAT-O columns are only emitted when ACAT-O is a real primary
-            # result, not for single-test pass-throughs such as Fisher-only.
+            # ACAT-O columns are only emitted when ACAT-O is a real combination,
+            # not for single-test pass-throughs such as Fisher-only; its q-values
+            # only when it is the primary (the corrected family).
             if write_acat_o:
                 acat_res = acat_o_results.get(gene)
                 row["acat_o_pvalue"] = acat_res.p_value if acat_res is not None else None
-                row["acat_o_qvalue"] = acat_res.corrected_p_value if acat_res is not None else None
-                if weighted_corrected_by_gene:
-                    row["acat_o_weighted_qvalue"] = weighted_corrected_by_gene.get(gene)
-                    row["acat_o_unweighted_qvalue"] = unweighted_corrected_by_gene.get(gene)
+                if acat_o_primary:
+                    row["acat_o_qvalue"] = (
+                        acat_res.corrected_p_value if acat_res is not None else None
+                    )
+                    if weighted_corrected_by_gene:
+                        row["acat_o_weighted_qvalue"] = weighted_corrected_by_gene.get(gene)
+                        row["acat_o_unweighted_qvalue"] = unweighted_corrected_by_gene.get(gene)
 
             # Phase 33: fdr_weight column — only added when weighted BH is active
             if fdr_weights_by_gene:
