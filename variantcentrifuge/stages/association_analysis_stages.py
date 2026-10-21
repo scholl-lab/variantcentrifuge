@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from ..association.aggregation import _aggregate_gene_burden_legacy
+from ..association.covariate_checks import check_convergence_failures, preflight_covariates
 from ..association.engine import AssociationEngine
 from ..association.gene_sets import add_gene_set_units, load_gene_sets, run_gene_and_set_units
 from ..association.gt_codes import aggregate_gene_counts, parse_genotype_codes
@@ -286,7 +287,7 @@ class AssociationAnalysisStage(Stage):
 
         with substep(timings, "covariates_phenotype"):
             raw_categorical: dict[str, Any] = {}
-            covariate_matrix, _covariate_col_names = _load_covariates_and_pcs(
+            covariate_matrix, covariate_col_names = _load_covariates_and_pcs(
                 assoc_config,
                 assigned_samples,
                 context.config.get("remove_sample_substring"),
@@ -312,6 +313,9 @@ class AssociationAnalysisStage(Stage):
                     f"Association analysis: phenotype vector built — "
                     f"{n_pv_cases} cases, {n_pv_controls} controls"
                 )
+            covariate_matrix, covariate_col_names = preflight_covariates(
+                covariate_matrix, covariate_col_names, phenotype_vector, binary=not quantitative
+            )
 
         gt_cols = _find_per_sample_gt_columns(df)
         # Samples whose genotypes are parsed: the assigned VCF samples, or (packed GT
@@ -422,6 +426,9 @@ class AssociationAnalysisStage(Stage):
             return context
 
         _merge_carrier_warnings(results_df, gene_data_by_gene, assoc_config, quantitative)
+        check_convergence_failures(
+            results_df, covariate_col_names, phenotype_vector, covariate_matrix
+        )
         _report_missingness_qc(results_df, gene_data_by_gene, assoc_config)
 
         assoc_output, compression = self._resolve_association_output(context)

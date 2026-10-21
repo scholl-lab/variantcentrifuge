@@ -11,6 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Per-stage table at pipeline end (wall, CPU user+sys including children, peak RSS as a process high-water mark; CPU of concurrently running stages overlaps), also written to `stage_summary.tsv` in `--diagnostics-output` when given. The chunked/non-chunked decision logs file size, estimated memory and thresholds for both outcomes, and each `parallel_safe=False` stage that runs sequentially logs why. Log only; results unchanged (#220).
 
+### Changed
+
+- The logistic burden fit centres and scales covariates when `[1, covariates]` has a condition number above 1e6; burden beta/SE/p do not depend on it, and well-conditioned inputs are fitted unchanged (bit-identical results on the benchmark presets) (#222).
+
+### Fixed
+
+- Ill-conditioned covariates no longer turn logistic burden results into a silent all-NA table. Covariates (including PCs) are checked once before the gene loop: a covariate with fewer than 5 non-modal values is dropped with a warning naming it; rank-deficient/collinear covariates (condition number > 1e8 after centring and scaling) and, for binary traits, a covariate that completely separates cases from controls stop the run with an error naming the columns. The check is shared by every test, so a dropped covariate also changes SKAT/SKAT-O, COAST, linear burden and score-artifact results, and collinear covariates that SKAT used to drop silently now stop the run. NA logistic burden genes record why Logit failed (`CONVERGENCE_SEPARATION`, `CONVERGENCE_MAX_ITER`, `CONVERGENCE_SINGULAR_HESSIAN`, `CONVERGENCE_FIT_ERROR`) in `warnings`; the stage logs the counts and fails when one reason hits more than 50 % of tested genes, naming suspect covariates (#222).
+
 ## [0.23.0] - 2026-10-21
 
 ### Added
