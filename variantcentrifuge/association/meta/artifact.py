@@ -132,16 +132,11 @@ def compute_gene_score(
 
     v_robust = None
     if robust:
-        from variantcentrifuge.association.spa import (
-            calibrated_variance,
-            null_arrays,
-            variant_pvalues,
-        )
+        from variantcentrifuge.association.spa import null_arrays, variant_pvalues
 
         v_robust = np.zeros(p)
         if not explained.all():
-            score, p_cal, _g1 = variant_pvalues(geno[:, ~explained], *null_arrays(null_model))
-            v_robust[~explained] = calibrated_variance(score, p_cal)
+            v_robust[~explained] = variant_pvalues(geno[:, ~explained], *null_arrays(null_model))[3]
 
     # AC/AN from the PRE-IMPUTATION dosage (never the imputed matrix)
     raw = np.asarray(raw_dosage, dtype=np.float64)

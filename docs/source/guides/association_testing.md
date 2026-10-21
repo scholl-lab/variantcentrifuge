@@ -593,7 +593,7 @@ config-file key `skat_robust: true`) switches binary SKAT/SKAT-O to a port of R
 
 - each variant's score is tested with the normal approximation; where |z| > 2 the p-value is
   replaced by a saddlepoint p-value (MAC ≥ 10) or an exact p-value from enumerating the
-  carriers' case/control labels (MAC < 10, as R; mid-p);
+  carriers' case/control labels (MAC < 10, as R — not ≤ 10; mid-p);
 - each variant's score variance is recalibrated to `V~ = S² / qchisq(1 − p~, 1)`, the score
   covariance is rescaled to these variances, and the burden direction is recalibrated with a
   saddlepoint burden p-value;
@@ -608,8 +608,13 @@ default; the default output is unchanged.
 
 **Agreement with R.** On synthetic 1:9 and 8:1 cohorts, the per-variant saddlepoint/exact
 p-values and the calibrated score/covariance match `SKATBinary_Robust` (SKAT 2.2.5, SPAtest
-3.1.2) to 1e-11 relative; gene p-values differ only through the mixture tail, where R's Davies
-runs at 1e-6 absolute accuracy (`scripts/generate_skat_robust_parity.R`).
+3.1.2) to 1e-11 relative. Gene SKAT p-values agree with R's Davies at 1e-12 accuracy
+on R's own calibrated statistics (R's printed p differs only where its 1e-6 absolute Davies
+falls back to Liu). Gene SKAT-O p-values use the same SKAT-O omnibus as the default path;
+they differ from R's printed p by up to 4.7e-4 absolute (relative up to 6e-3 observed, at
+p ≈ 1e-4, where the difference is below 1e-6 absolute),
+which comes from R's SKAT-O integration (Davies at 1e-6 absolute inside the integrand),
+not from the calibration (`scripts/generate_skat_robust_parity.R`).
 
 ### CLI Example
 

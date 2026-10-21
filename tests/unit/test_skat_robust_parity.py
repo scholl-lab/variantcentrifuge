@@ -13,8 +13,14 @@ Tolerances:
 - gene SKAT p-values: against R's Davies at acc = 1e-12 on R's own (Score, Phi), at the
   backend's Davies relative budget (rel 1e-4) or that absolute accuracy (2e-12);
 - gene p-values as printed by SKATBinary_Robust: R runs qfc at acc = 1e-6 absolute (and
-  falls back to Liu below it), so they are matched at abs 1e-6 / SKAT-O rel 1e-3, the
-  repository's SKAT-O convention.
+  falls back to Liu below it), so they are matched at abs 1e-6 / rel 1e-3 (the
+  repository's SKAT-O convention; observed here: SKAT-O rel 5.7e-3 at abs 5.6e-7). The
+  bound holds on these fixtures only: SKAT-O is
+  evaluated by the repository's SKAT-O omnibus (equal to the default-path SKAT-O to 1e-12
+  on identical (Score, Phi)), and R's ``SKAT_META_Optimal`` integration runs Davies at
+  acc = 1e-6 inside the integrand. On other synthetic genes the review measured SKAT-O
+  differences from R's printed p up to rel 2.9e-3 (abs 4.7e-4 at p = 0.33), the same on
+  R's own captured (Score, Phi), i.e. from R's integration, not from the port.
 """
 
 from __future__ import annotations
@@ -72,7 +78,7 @@ for _r in _rows("r_moments.csv"):
 @pytest.mark.parametrize("cohort", COHORTS)
 def test_variant_pvalues_match_r(cohort, gene):
     geno, _w, y, mu, design = _load(cohort, gene)
-    _score, p, _g1 = variant_pvalues(geno, y, mu, design)
+    _score, p, _g1, _v = variant_pvalues(geno, y, mu, design)
     np.testing.assert_allclose(p, SINGLE[(cohort, gene)], rtol=1e-9, atol=0)
 
 
@@ -187,3 +193,19 @@ def test_cancelling_burden_returns_robust_burden_p():
     geno[30, 1] = 1.0  # one control carrier
     p, rho = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKATO")
     assert (p, rho) == (1.0, None)
+
+
+def test_unadjusted_variants_keep_the_exact_score_variance():
+    # |z| <= 2: p~ is the normal p, so V~ = S^2 / qchisq(p~, 1) is the variance itself;
+    # it is returned directly, without the qchisq round-off (large at a near-zero score).
+    n = 400
+    y = np.zeros(n)
+    y[:40] = 1.0
+    mu = np.full(n, 0.1)
+    geno = np.zeros((n, 2))
+    geno[[0, 50, 60, 70, 80, 90, 100, 110, 120, 130], 0] = 1.0  # score ~ 0
+    geno[[1, 2, 3, 200, 210, 220, 230, 240, 250, 260, 270, 280], 1] = 1.0
+    score, p, g1, v = variant_pvalues(geno, y, mu, np.ones((n, 1)))
+    var = (g1**2 * (mu * (1 - mu))[:, None]).sum(axis=0)
+    assert abs(score[0]) < 1e-12 and p[0] > 0.999  # 1 case carrier of 10 at mu = 0.1
+    np.testing.assert_allclose(v, var, rtol=1e-13)  # old S^2/qchisq form: 19% off here

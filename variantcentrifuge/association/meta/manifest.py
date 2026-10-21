@@ -130,7 +130,10 @@ def _check_missing_policy(artifacts: list[ScoreCovarianceArtifact]) -> None:
 
 
 def _drop_mixed_robust(artifacts: list[ScoreCovarianceArtifact]) -> None:
-    """Mixed --skat-robust and default strata: warn once, use the uncalibrated V (#223)."""
+    """Mixed --skat-robust and default strata: warn once, use the uncalibrated V (#223).
+
+    When every stratum is robust, log once that the calibrated variances are used.
+    """
     robust = {
         a.stratum_id: any(g.v_robust is not None for g in a.genes.values()) for a in artifacts
     }
@@ -144,6 +147,12 @@ def _drop_mixed_robust(artifacts: list[ScoreCovarianceArtifact]) -> None:
         for art in artifacts:
             for gs in art.genes.values():
                 gs.v_robust = None
+    elif all(robust.values()):
+        logger.info(
+            "All %d strata carry --skat-robust calibrated variances; meta-analysis uses "
+            "the calibrated covariance V~.",
+            len(artifacts),
+        )
 
 
 def validate_comparability(

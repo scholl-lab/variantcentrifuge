@@ -175,13 +175,14 @@ def exact_pvalue(geno_col: np.ndarray, y: np.ndarray, mu: np.ndarray) -> float:
 
 def variant_pvalues(
     geno: np.ndarray, y: np.ndarray, mu: np.ndarray, design: np.ndarray
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Per-variant robust p-values (R ``SPA_ER_kernel``).
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Per-variant robust p-values and calibrated variances (R ``SPA_ER_kernel``).
 
     Columns with MAF > 0.5 are flipped to the minor allele first, as in R. Returns
-    ``(score, p, g1)``: the projected scores ``G1'(y - mu)``, the SPA/ER-calibrated
-    p-values and the projected genotypes ``G1 = G - X (X'WX)^-1 X'W G``, all in the
-    flipped orientation (two-sided p-values are orientation-invariant).
+    ``(score, p, g1, v_cal)``: the projected scores ``G1'(y - mu)``, the SPA/ER-calibrated
+    p-values, the projected genotypes ``G1 = G - X (X'WX)^-1 X'W G`` (all in the flipped
+    orientation; two-sided p-values are orientation-invariant) and the calibrated
+    variances ``V~`` (:func:`calibrated_variance`).
     """
     geno = np.where(geno.mean(axis=0) / 2.0 > 0.5, 2.0 - geno, geno)
     xv = design * (mu * (1.0 - mu))[:, np.newaxis]
@@ -190,7 +191,8 @@ def variant_pvalues(
     g = g1 / np.sqrt(mac)
     q = g.T @ y
     m1 = mu @ g
-    stat = (q - m1) ** 2 / ((mu * (1.0 - mu)) @ g**2)
+    var1 = (mu * (1.0 - mu)) @ g**2
+    stat = (q - m1) ** 2 / var1
     p = scipy.stats.chi2.sf(stat, 1)
     spa = (stat > _CUTOFF**2) & (mac >= _ER_MAC)
     if spa.any():
@@ -198,7 +200,11 @@ def variant_pvalues(
         p[spa] = np.where(ps != 0, ps, p[spa])
     for col in np.flatnonzero((stat > _CUTOFF**2) & (mac < _ER_MAC)):
         p[col] = exact_pvalue(geno[:, col], y, mu)
-    return (q - m1) * np.sqrt(mac), p, g1
+    score = (q - m1) * np.sqrt(mac)
+    # |z| <= 2 keeps the normal p, where V~ is exactly the score variance: return it
+    # directly instead of S^2 / qchisq(chi2.sf(z^2)) (round-off at near-zero scores).
+    v_cal = np.where(stat > _CUTOFF**2, calibrated_variance(score, p), var1 * mac)
+    return score, p, g1, v_cal
 
 
 def calibrated_variance(score: np.ndarray, p: np.ndarray) -> np.ndarray:
@@ -224,8 +230,7 @@ def robust_moments(
     are R's ``Score`` / ``Phi``. ``cov`` is None where R falls back to the robust
     burden p-value ``p_burden`` (degenerate burden recalibration).
     """
-    score, p, g1 = variant_pvalues(geno, y, mu, design)
-    v_cal = calibrated_variance(score, p)
+    score, p, g1, v_cal = variant_pvalues(geno, y, mu, design)
     score = np.where(v_cal > 0, score, 0.0)
     cov = g1.T @ (g1 * (mu * (1.0 - mu))[:, np.newaxis])
     d = np.sqrt(v_cal / np.diag(cov))

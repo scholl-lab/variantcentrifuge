@@ -6,6 +6,7 @@ against the R references of tests/fixtures/skat_robust_parity via the kernel.
 
 from __future__ import annotations
 
+import json
 import logging
 import pathlib
 
@@ -46,13 +47,16 @@ def test_v_robust_round_trips_and_default_artifacts_have_no_key(tmp_path):
     art = _with_v_robust(make_stratum("a", seed=1, gene_keys=KEYS))
     save_artifact(art, str(tmp_path / "a"))
     back = load_artifact(str(tmp_path / "a"))
-    assert back.schema_version == 3
+    assert back.schema_version == 3  # v_robust present
     for gene, gs in art.genes.items():
         np.testing.assert_array_equal(back.genes[gene].v_robust, gs.v_robust)
     plain = make_stratum("b", seed=2, gene_keys=KEYS)
     save_artifact(plain, str(tmp_path / "b"))
     with np.load(tmp_path / "b.npz") as data:
         assert not [k for k in data.files if k.endswith("::v_robust")]
+    # Without v_robust the artifact is a v0.23.0 (schema 2) artifact, readable there
+    assert json.loads((tmp_path / "b.meta.json").read_text())["schema_version"] == 2
+    assert load_artifact(str(tmp_path / "b")).schema_version == 2
 
 
 @pytest.mark.parametrize(("cohort", "gene"), [("r19", "mixed"), ("r81", "le10")])
@@ -119,9 +123,11 @@ def test_mixed_strata_warn_once_and_fall_back(caplog):
 def test_all_robust_strata_keep_v_robust(caplog):
     a = _with_v_robust(make_stratum("a", seed=1, gene_keys=KEYS))
     b = _with_v_robust(make_stratum("b", seed=2, gene_keys=KEYS))
-    with caplog.at_level(logging.WARNING, logger="variantcentrifuge"):
+    with caplog.at_level(logging.INFO, logger="variantcentrifuge"):
         validate_comparability([a, b])
-    assert not [r for r in caplog.records if "--skat-robust" in r.getMessage()]
+    assert not [r for r in caplog.records if "Strata mix" in r.getMessage()]
+    info = [r for r in caplog.records if "calibrated variances" in r.getMessage()]
+    assert len(info) == 1 and info[0].levelno == logging.INFO
     assert all(isinstance(gs, GeneScore) and gs.v_robust is not None for gs in b.genes.values())
 
 

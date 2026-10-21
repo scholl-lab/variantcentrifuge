@@ -173,7 +173,7 @@ def test_artifact_records_policy_and_full_an_with_missing_as_ref(tmp_path):
     policy = {"imputation": "missing_as_ref", "site_threshold": 0.2, "sample_threshold": 0.8}
     assert art.missing_policy == policy
     meta = json.loads((tmp_path / "s1.meta.json").read_text())
-    assert meta["schema_version"] == 3
+    assert meta["schema_version"] == 2
     assert meta["missing_policy"] == policy
     assert load_artifact(str(tmp_path / "s1")).missing_policy == policy
 
@@ -195,7 +195,7 @@ def test_unknown_future_schema_refused(tmp_path):
     path = str(tmp_path / "new")
     save_artifact(make_stratum("new", seed=1, gene_keys={"G": ["1:100:A:G"]}), path)
     meta_file = tmp_path / "new.meta.json"
-    text = meta_file.read_text().replace('"schema_version": 3', '"schema_version": 4')
+    text = meta_file.read_text().replace('"schema_version": 2', '"schema_version": 4')
     meta_file.write_text(text)
     with pytest.raises(ValueError, match="schema_version 4"):
         load_artifact(path)

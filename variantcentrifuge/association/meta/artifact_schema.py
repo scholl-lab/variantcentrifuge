@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 
 SCHEMA_VERSION = 3  # 3 adds the optional per-gene v_robust array (#223)
+# Artifacts without v_robust are written as schema 2: identical to, and readable by, v0.23.0.
 # v1 artifacts predate the recorded policy: they always used bestguess imputation (#200).
 V1_MISSING_POLICY = {"imputation": "bestguess", "site_threshold": None, "sample_threshold": None}
 
@@ -75,7 +76,10 @@ class ScoreCovarianceArtifact:
 
 
 def save_artifact(artifact: ScoreCovarianceArtifact, path: str) -> None:
-    """Serialise to ``<path>`` (arrays, .npz) + ``<path>.meta.json`` (metadata)."""
+    """Serialise to ``<path>`` (arrays, .npz) + ``<path>.meta.json`` (metadata).
+
+    Written as schema 3 only when some gene has ``v_robust``; otherwise as schema 2.
+    """
     arrays: dict[str, np.ndarray] = {}
     gene_meta: dict[str, dict] = {}
     for gene, gs in artifact.genes.items():
@@ -91,8 +95,9 @@ def save_artifact(artifact: ScoreCovarianceArtifact, path: str) -> None:
             "n_carriers": gs.n_carriers,
         }
     np.savez_compressed(path, **arrays)  # type: ignore[arg-type]
+    robust = any(gs.v_robust is not None for gs in artifact.genes.values())
     meta = {
-        "schema_version": artifact.schema_version,
+        "schema_version": SCHEMA_VERSION if robust else min(artifact.schema_version, 2),
         "stratum_id": artifact.stratum_id,
         "genome_build": artifact.genome_build,
         "annotation_version": artifact.annotation_version,
