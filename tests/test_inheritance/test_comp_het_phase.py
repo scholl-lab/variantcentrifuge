@@ -178,16 +178,16 @@ def test_end_to_end_patterns():
 
 # --- review r1: phase blocks declared in the header but not extracted -------------
 def _hdr(*format_ids):
-    from variantcentrifuge.vcf_header_parser import AnnotationField
-
-    return [AnnotationField(i, "1", "String", "", "FORMAT") for i in ("GT", *format_ids)]
+    return "\n".join(
+        f'##FORMAT=<ID={i},Number=1,Type=String,Description="x">' for i in ("GT", *format_ids)
+    )
 
 
 def _usable(header, fields):
     from variantcentrifuge.vcf_header_parser import comp_het_phase_usable
 
     cfg = {"vcf_file": "in.vcf.gz", "fields_to_extract": fields}
-    with patch("variantcentrifuge.vcf_header_parser.parse_vcf_header", return_value=header):
+    with patch("variantcentrifuge.vcf_header_parser._read_phase_header", return_value=header):
         return comp_het_phase_usable(cfg), cfg
 
 
@@ -202,11 +202,39 @@ def test_header_ps_not_extracted_turns_phase_off(caplog):
     msgs = [r.getMessage() for r in caplog.records if "phase" in r.getMessage()]
     assert len(msgs) == 1 and "GEN[*].PS" in msgs[0]
     # cached: second call neither re-reads the header nor logs again
-    with patch("variantcentrifuge.vcf_header_parser.parse_vcf_header") as hdr:
+    with patch("variantcentrifuge.vcf_header_parser._read_phase_header") as hdr:
         from variantcentrifuge.vcf_header_parser import comp_het_phase_usable
 
         assert comp_het_phase_usable(cfg) is False
         hdr.assert_not_called()
+
+
+def test_unreadable_header_fails_closed(caplog):
+    import subprocess
+
+    from variantcentrifuge.vcf_header_parser import comp_het_phase_usable
+
+    err = subprocess.CalledProcessError(255, ["bcftools"], stderr="cannot open")
+    cfg = {"vcf_file": "missing.vcf.gz", "fields_to_extract": "CHROM GEN[*].GT"}
+    with (
+        caplog.at_level(logging.INFO, logger="variantcentrifuge"),
+        patch("variantcentrifuge.vcf_header_parser._read_phase_header", side_effect=err),
+    ):
+        assert comp_het_phase_usable(cfg) is False
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
+    assert any(r.levelno == logging.WARNING and "phase" in r.getMessage() for r in caplog.records)
+    # PS extracted: a missing header no longer matters for PS blocks
+    cfg = {"vcf_file": "missing.vcf.gz", "fields_to_extract": "GEN[*].GT GEN[*].PS"}
+    with patch("variantcentrifuge.vcf_header_parser._read_phase_header", side_effect=err):
+        assert comp_het_phase_usable(cfg) is True
+
+
+def test_compound_het_description_unchanged():
+    from variantcentrifuge.inheritance.prioritizer import get_pattern_description
+
+    assert get_pattern_description("compound_heterozygous") == (
+        "Two different mutations in the same gene, one from each parent"
+    )
 
 
 def test_header_pid_not_extracted_turns_phase_off():
@@ -252,7 +280,7 @@ def test_stage_reads_header_and_passes_use_phase():
     )
     for s in ("dataframe_loading", "sample_config_loading", "pedigree_loading"):
         ctx.mark_complete(s)
-    with patch("variantcentrifuge.vcf_header_parser.parse_vcf_header", return_value=_hdr("PS")):
+    with patch("variantcentrifuge.vcf_header_parser._read_phase_header", return_value=_hdr("PS")):
         out = InheritanceAnalysisStage()._process(ctx)
     assert out.current_dataframe["Inheritance_Pattern"].tolist() == [NO_PED] * 2
 
@@ -269,10 +297,3 @@ def test_chunk_path_passes_use_phase():
     }
     out = apply_chunk_inheritance_analysis(_gene(["0|1", "0|1"]), ctx)
     assert out["Inheritance_Pattern"].tolist() == [NO_PED] * 2
-
-
-def test_compound_het_description_mentions_phase():
-    from variantcentrifuge.inheritance.prioritizer import get_pattern_description
-
-    text = get_pattern_description("compound_heterozygous")
-    assert "one from each parent" not in text and "phase" in text
