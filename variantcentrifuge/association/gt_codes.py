@@ -16,7 +16,7 @@ Packed rows list only non-reference samples; unlisted samples are ``0/0``.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 
 import numpy as np
 import pandas as pd
@@ -26,6 +26,7 @@ import pyarrow.compute as pc  # type: ignore[import-untyped]
 from ..genotype_utils import is_missing
 from ..gt_reconstruction import gt_columns_match_samples
 from .aggregation import _gt_to_dosage
+from .engine_workers import fork_available, fork_map
 from .genotype_matrix import _classify_gt_vocabulary, _factorize_gt_block, _multiallelic_error
 
 logger = logging.getLogger("variantcentrifuge")
@@ -103,13 +104,15 @@ def parse_genotype_codes(
     samples: list[str],
     vcf_samples: list[str] | None,
     gt_columns: list[str],
+    workers: int = 1,
 ) -> GenotypeCodes:
     """Parse per-sample GT columns (preferred) or the packed ``GT`` for *samples* once.
 
     Columns are used only when they are exactly ``GEN[0..n-1].GT`` for the n VCF samples,
     in order (``gt_columns[i]`` holds ``vcf_samples[i]``). They win over packed GT because
     every sample ID survives in them, while IDs containing ``(``/``;`` or edge whitespace
-    cannot round-trip through ``Name(GT);...``.
+    cannot round-trip through ``Name(GT);...``. ``workers`` > 1 parses packed GT in
+    forked processes; the result is the same for any worker count.
     """
     vocab = _Vocab()
     codes = np.zeros((len(df), len(samples)), dtype=np.int8)
@@ -136,7 +139,7 @@ def parse_genotype_codes(
                 bad,
                 len(ids),
             )
-        codes = _parse_packed(df["GT"], samples, vcf_samples, codes, vocab)
+        codes = _parse_packed(df["GT"], samples, vcf_samples, codes, vocab, workers)
         labels = list(samples)
     else:
         col_of = dict(zip(vcf_samples or [], gt_columns, strict=True))
@@ -162,40 +165,74 @@ def _parse_columns(
     return codes
 
 
+def _char_batches(text: np.ndarray) -> Iterator[tuple[int, int]]:
+    """Row ranges of about ``_BATCH_CHARS`` characters of GT text (at least one row)."""
+    ends = np.cumsum(np.fromiter(map(len, text), dtype=np.int64, count=len(text)))
+    lo = 0
+    while lo < len(text):
+        start = int(ends[lo - 1]) if lo else 0
+        hi = max(lo + 1, int(np.searchsorted(ends, start + _BATCH_CHARS, side="right")))
+        yield lo, hi
+        lo = hi
+
+
+def _parse_packed_rows(
+    state: tuple[np.ndarray, pa.Array], lo: int, hi: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str], np.ndarray]:
+    """Parse packed GT rows text[lo:hi] (a ``fork_map`` task; also the sequential path).
+
+    Arrow work runs in batches of about ``_BATCH_CHARS`` characters. Returns (rows naming
+    a sample, then for entries of wanted samples: absolute row, sample column, the
+    distinct GT strings in order of appearance and each entry's index into them).
+    """
+    text, wanted = state
+    local = _Vocab()
+    parts: list[tuple[np.ndarray, ...]] = []
+    for b_lo, b_hi in _char_batches(text[lo:hi]):
+        chunk = pa.array(text[lo + b_lo : lo + b_hi], type=pa.large_string())
+        named = pc.match_substring(chunk, "(").to_numpy(False)
+        lists = pc.split_pattern(chunk, ";")
+        rows = pc.list_parent_indices(lists).to_numpy() + lo + b_lo
+        entries = pc.extract_regex(pc.list_flatten(lists), _ENTRY)
+        cols = pc.fill_null(pc.index_in(entries.field("name"), value_set=wanted), -1)
+        cols = cols.to_numpy(zero_copy_only=False)
+        keep = cols >= 0
+        enc = pc.dictionary_encode(pc.filter(entries.field("gt"), pa.array(keep)))
+        enc = enc.combine_chunks() if isinstance(enc, pa.ChunkedArray) else enc
+        lut = local.lut(enc.dictionary.to_pylist())
+        parts.append((named, rows[keep], cols[keep], lut[enc.indices.to_numpy()]))
+    named, rows, cols, idx = (np.concatenate(p) for p in zip(*parts, strict=True))
+    return named, rows, cols, local.items, idx
+
+
 def _parse_packed(
     gt: pd.Series,
     samples: list[str],
     vcf_samples: list[str] | None,
     codes: np.ndarray,
     vocab: _Vocab,
+    workers: int = 1,
 ) -> np.ndarray:
-    """Encode a packed GT column for *samples* (unlisted samples stay ``0/0``)."""
+    """Encode a packed GT column for *samples* (unlisted samples stay ``0/0``).
+
+    With ``workers`` > 1 the rows are parsed in forked processes (``fork_map``);
+    only the wanted entries come back, merged here in row order.
+    """
     if isinstance(gt.dtype, pd.CategoricalDtype):
         gt = gt.astype(object)
     text = gt.fillna("").astype(str).to_numpy(dtype=object)
-    wanted = pa.array(samples, type=pa.large_string())
+    state = (text, pa.array(samples, type=pa.large_string()))
     named = np.zeros(len(text), dtype=bool)
-    ends = np.cumsum(np.fromiter(map(len, text), dtype=np.int64, count=len(text)))
-    lo = 0
-    while lo < len(text):
-        start = int(ends[lo - 1]) if lo else 0
-        hi = max(lo + 1, int(np.searchsorted(ends, start + _BATCH_CHARS, side="right")))
-        chunk = pa.array(text[lo:hi], type=pa.large_string())
-        named[lo:hi] = pc.match_substring(chunk, "(").to_numpy(False)
-        lists = pc.split_pattern(chunk, ";")
-        rows = pc.list_parent_indices(lists).to_numpy() + lo
-        lo = hi
-        entries = pc.extract_regex(pc.list_flatten(lists), _ENTRY)
-        cols = pc.fill_null(pc.index_in(entries.field("name"), value_set=wanted), -1)
-        cols = cols.to_numpy(zero_copy_only=False)
-        keep = cols >= 0
-        if not keep.any():
-            continue
-        enc = pc.dictionary_encode(pc.filter(entries.field("gt"), pa.array(keep)))
-        enc = enc.combine_chunks() if isinstance(enc, pa.ChunkedArray) else enc
-        lut = vocab.lut(enc.dictionary.to_pylist())
+    if workers > 1 and len(text) > 1 and fork_available():
+        parts = fork_map(_parse_packed_rows, state, len(text), workers)
+    else:
+        # One batch per call, merged as it comes: no run-wide list of entries.
+        parts = ((lo, hi, _parse_packed_rows(state, lo, hi)) for lo, hi in _char_batches(text))
+    for lo, hi, (row_named, rows, cols, gts, idx) in parts:
+        named[lo:hi] = row_named
+        lut = vocab.lut(gts)
         codes = _store(codes, vocab)
-        codes[rows[keep], cols[keep]] = lut[enc.indices.to_numpy()]
+        codes[rows, cols] = lut[idx]
     positional = ~named & ~np.isin(text, list(_EMPTY_ROWS))
     if positional.any() and vcf_samples:
         # Positional rows list every VCF sample in order; absent trailing calls are ./.
@@ -218,16 +255,28 @@ def aggregate_gene_counts(
     case_mask: np.ndarray,
     control_mask: np.ndarray,
     missing_as_ref: bool = False,
+    workers: int = 1,
 ) -> list[dict]:
     """Per-gene case/control collapsing counts (Fisher / burden tables) from the codes.
 
     Complete-case by default: a sample with any missing call in the gene is not counted;
     ``missing_as_ref`` counts missing calls as reference (#200). A called sample is
-    haploid when its calls vote haploid and none votes diploid.
+    haploid when its calls vote haploid and none votes diploid. ``workers`` > 1 counts
+    gene ranges in forked processes; the result is the same for any worker count.
     """
+    state = (genotypes, list(gene_rows.items()), case_mask, control_mask, missing_as_ref)
+    n = len(state[1])
+    if workers > 1 and n > 1 and fork_available():
+        return [row for _lo, _hi, part in fork_map(_count_genes, state, n, workers) for row in part]
+    return _count_genes(state, 0, n)
+
+
+def _count_genes(state: tuple, lo: int, hi: int) -> list[dict]:
+    """Counts for genes[lo:hi] (a ``fork_map`` task; also the sequential loop)."""
+    genotypes, items, case_mask, control_mask, missing_as_ref = state
     out = []
     n_cases, n_controls = int(case_mask.sum()), int(control_mask.sum())
-    for gene, rows in gene_rows.items():
+    for gene, rows in items[lo:hi]:
         sub = genotypes.codes[rows]
         called = (
             np.ones(sub.shape[1], dtype=bool)

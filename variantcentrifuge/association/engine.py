@@ -8,7 +8,6 @@ applies multiple testing correction, and returns wide-format DataFrames.
 from __future__ import annotations
 
 import logging
-import os
 from collections import Counter
 from typing import Any
 
@@ -25,6 +24,7 @@ from variantcentrifuge.association.engine_workers import (
     _discard_per_gene_matrix_payload,
     _single_test_output_id,
     _worker_initializer,
+    available_cpus,
     dispatch_parallel_genes,
     run_sequential_genes,
     single_blas_thread,
@@ -192,6 +192,14 @@ class AssociationEngine:
         exclude = getattr(self._config, "acat_o_exclude", None)
         return compute_acat_o(results_by_test, sorted_data, list(self._tests), exclude)
 
+    def runs_parallel(self, n_units: int) -> bool:
+        """Whether a loop over *n_units* forks workers (the stage's set-up uses it too)."""
+        return (
+            self._config.association_workers != 1
+            and all(getattr(t, "parallel_safe", False) for t in self._tests.values())
+            and n_units >= MIN_GENES_FOR_PARALLEL
+        )
+
     def run_all(
         self, gene_burden_data: list[dict[str, Any]], gene_hook: GeneHook | None = None
     ) -> pd.DataFrame:
@@ -237,6 +245,9 @@ class AssociationEngine:
             f"tests on {len(sorted_data)} genes"
         )
 
+        # run_all consumes the matrix builders; permutation rebuilds its few genes (#195)
+        perm = getattr(self._config, "permutations", 0)
+        builders = {d["GENE"]: d.get("_genotype_matrix_builder") for d in sorted_data if perm}
         # Collect results: results_by_test[test_name][gene] = TestResult
         results_by_test: dict[str, dict[str, TestResult]] = {name: {} for name in self._tests}
 
@@ -249,9 +260,7 @@ class AssociationEngine:
         all_parallel_safe = all(
             getattr(test, "parallel_safe", False) for test in self._tests.values()
         )
-        use_parallel = (
-            n_workers != 1 and all_parallel_safe and len(sorted_data) >= MIN_GENES_FOR_PARALLEL
-        )
+        use_parallel = self.runs_parallel(len(sorted_data))
 
         if n_workers != 1 and not all_parallel_safe:
             logger.warning(
@@ -293,7 +302,7 @@ class AssociationEngine:
                 # Dispatch remaining genes to worker processes
                 remaining = sorted_data[done:]
                 if remaining:
-                    actual_workers = (os.cpu_count() or 1) if n_workers == -1 else n_workers
+                    actual_workers = available_cpus() if n_workers == -1 else n_workers
                     # Don't over-provision workers for small remaining panels
                     if len(remaining) < actual_workers * 2:
                         actual_workers = max(1, len(remaining) // 2)
@@ -556,6 +565,12 @@ class AssociationEngine:
             return pd.DataFrame()
 
         result_df = pd.DataFrame(rows)
+        if perm:
+            from variantcentrifuge.association.permutation import add_empirical_p
+
+            result_df = add_empirical_p(
+                result_df, builders, list(self._tests), self._config, primary_result_id
+            )
         n_sig = (result_df.get("primary_qvalue", pd.Series(dtype=float)) < 0.05).sum()
         logger.info(
             f"Association analysis complete: {len(result_df)} genes tested, "

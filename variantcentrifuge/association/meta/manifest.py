@@ -129,6 +129,32 @@ def _check_missing_policy(artifacts: list[ScoreCovarianceArtifact]) -> None:
             logger.warning("Strata use different missingness %s (%s).", key, listing)
 
 
+def _drop_mixed_robust(artifacts: list[ScoreCovarianceArtifact]) -> None:
+    """Mixed --skat-robust and default strata: warn once, use the uncalibrated V (#223).
+
+    When every stratum is robust, log once that the calibrated variances are used.
+    """
+    robust = {
+        a.stratum_id: any(g.v_robust is not None for g in a.genes.values()) for a in artifacts
+    }
+    if len(set(robust.values())) > 1:
+        listing = ", ".join(f"{s}={'robust' if r else 'default'}" for s, r in robust.items())
+        logger.warning(
+            "Strata mix --skat-robust and default score artifacts (%s); meta-analysis uses "
+            "the uncalibrated covariance V for all strata.",
+            listing,
+        )
+        for art in artifacts:
+            for gs in art.genes.values():
+                gs.v_robust = None
+    elif all(robust.values()):
+        logger.info(
+            "All %d strata carry --skat-robust calibrated variances; meta-analysis uses "
+            "the calibrated covariance V~.",
+            len(artifacts),
+        )
+
+
 def validate_comparability(
     artifacts: list[ScoreCovarianceArtifact], allow_annotation_mismatch: bool = False
 ) -> None:
@@ -137,7 +163,8 @@ def validate_comparability(
     Checks: identical genome_build, annotation_version, mask_hash, trait_type,
     missing-genotype imputation, annotation provenance (a mismatch only warns with
     ``allow_annotation_mismatch``; unknown values warn), and disjoint
-    sample_id_hashes across strata.
+    sample_id_hashes across strata. Calibrated variances are dropped (one warning)
+    unless every stratum has them.
     """
     if len(artifacts) < 2:
         raise MetaCompatibilityError("Need at least 2 strata to validate comparability.")
@@ -153,6 +180,7 @@ def validate_comparability(
     for attr in ("genome_build", "annotation_version", "mask_hash", "trait_type"):
         _uniform(attr)
     _check_missing_policy(artifacts)
+    _drop_mixed_robust(artifacts)
     check_provenance(artifacts, allow_annotation_mismatch, MetaCompatibilityError)
 
     # Sample-hash overlap check (independence of covariances).

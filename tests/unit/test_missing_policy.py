@@ -195,9 +195,9 @@ def test_unknown_future_schema_refused(tmp_path):
     path = str(tmp_path / "new")
     save_artifact(make_stratum("new", seed=1, gene_keys={"G": ["1:100:A:G"]}), path)
     meta_file = tmp_path / "new.meta.json"
-    text = meta_file.read_text().replace('"schema_version": 2', '"schema_version": 3')
+    text = meta_file.read_text().replace('"schema_version": 2', '"schema_version": 4')
     meta_file.write_text(text)
-    with pytest.raises(ValueError, match="schema_version 3"):
+    with pytest.raises(ValueError, match="schema_version 4"):
         load_artifact(path)
 
 

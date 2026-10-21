@@ -330,3 +330,31 @@ def log_runner_summary(
         active_logger.info("-" * 60)
         active_logger.info(f"Peak RSS: {peak_mb:.1f} MB")
         active_logger.info("=" * 60)
+
+
+def log_stage_table(
+    rows: dict[str, tuple[float, float, float]],
+    log: logging.Logger | None = None,
+    out_dir: str | None = None,
+) -> None:
+    """Log (and optionally write ``stage_summary.tsv``) wall, CPU and peak-RSS per stage.
+
+    ``rows`` maps stage -> (wall s, CPU user+sys s incl. children, peak RSS MiB). RSS is the
+    process high-water mark at stage end; CPU of concurrently running stages overlaps.
+    """
+    if not rows:
+        return
+    active_logger = log or logger
+    active_logger.info(
+        f"{'Stage':<30} {'Wall(s)':>9} {'CPU(s)':>9} {'PeakRSS(MiB, high-water)':>25}"
+    )
+    for name, (wall, cpu, rss) in rows.items():
+        active_logger.info(f"{name:<30} {wall:>9.2f} {cpu:>9.2f} {rss:>25.0f}")
+    if out_dir:
+        from pathlib import Path
+
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        with open(Path(out_dir) / "stage_summary.tsv", "w", encoding="utf-8") as fh:
+            fh.write("stage\twall_s\tcpu_s\tpeak_rss_mib\n")
+            for name, (wall, cpu, rss) in rows.items():
+                fh.write(f"{name}\t{wall:.3f}\t{cpu:.3f}\t{rss:.1f}\n")

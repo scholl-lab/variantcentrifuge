@@ -9,8 +9,9 @@ preserved so burden direction and kernel (SKAT) evidence are retained.
 
 > **Scope.** This is an analysis-engine feature for **binary traits**. Study-specific
 > phenotype eligibility, covariate choice, and QC remain caller responsibilities.
-> Quantitative traits, a mixed-model/GRM null, and a genotype-level saddlepoint
-> (SPA) for *severe* imbalance are deferred (see *Limitations*).
+> Quantitative traits and a mixed-model/GRM null are deferred. For *severe*
+> case:control imbalance, strata run with `--skat-robust` carry saddlepoint/exact
+> calibrated variances that the meta uses (see *Calibration and limitations*).
 
 ## How it works
 
@@ -69,11 +70,16 @@ as build and annotation version, a hash of the variant selection (`--filters`,
 sample IDs for the overlap check. Run every cohort with the same reference and
 filters, or the meta step will refuse to pool them.
 
-The artifact (schema version 2) also records the missing-genotype policy as
+The artifact (schema version 2; 3 when it carries `v_robust`, see below) also records the missing-genotype policy as
 `missing_policy`: the imputation mode (`bestguess`, or `missing_as_ref` with
 `--missing-as-ref`) and the site and sample missingness thresholds. Version 1 artifacts
 still load. They are read as `bestguess` with unknown thresholds, which is what they used.
 With `--missing-as-ref`, the stored `AN` counts every sample.
+
+With `--skat-robust`, each gene additionally stores `v_robust` (array key
+`<gene>::v_robust`): the per-variant score variance recalibrated from the
+saddlepoint/exact p-value, `V~ = U² / qchisq(1 − p~, 1)` (R `SKATBinary_Robust`).
+Artifacts written without the flag have no such key; schema 1 and 2 artifacts still load.
 
 `--mask-label NAME` stores a readable name for the mask (e.g. `pLoF`) next to its
 hash. The artifact also records annotation provenance: the snpEff version
@@ -153,6 +159,10 @@ variantcentrifuge meta \
   --min-mac 5 \
   --diagnostics-output meta_diagnostics/
 ```
+
+`--workers N` combines genes in N forked processes (`-1`: CPUs available to the job, respecting SLURM/cgroup affinity; default 1,
+Linux only, otherwise sequential); the output is byte-identical for any N. A progress
+line (genes done/total, rate, ETA) is logged at most every 30 s.
 
 Only `beta:a,b` and `uniform` weights are supported (the only schemes reproducible
 from the artifact). `--weights` takes several schemes, e.g.
@@ -251,10 +261,24 @@ gate that ties the meta engine to the validated backend.
 The common-effect score meta uses a normal/Davies approximation that is well
 calibrated under **moderate** imbalance. Under **severe** case:control imbalance the
 per-variant/burden normal approximation is anti-conservative in the tail; a
-calibrated result there requires a genotype-level saddlepoint (SPA) backend, which
-is **deferred**. The artifact stores the raw `U`/`V`, so an SPA meta path can be
-added without changing the schema. Likewise, `V` is stored as a full matrix, so a
-future relatedness-aware (GLMM/GRM) null drops in without a schema change.
+calibrated result there needs the genotype-level saddlepoint: run every stratum with
+`--skat-robust`. When **every** stratum's artifact carries `v_robust`, each stratum's
+covariance is rescaled to the calibrated variances, `V~ = D V D` with
+`D = sqrt(v_robust / diag V)`, before the burden, SKAT and SKAT-O meta p-values (and the
+leave-one-out p-values) are computed. `V~` calibrates null p-values only: the burden effect
+`meta_burden_beta` and the heterogeneity statistics (`het_q`, `het_p`, `het_i2`) use the raw
+`V`. If only some strata carry it,
+the meta warns once and uses the uncalibrated `V` for all strata. Unlike the
+single-cohort `--skat-robust` test, the meta does not recalibrate the burden direction
+(that step needs genotypes), so its burden component is calibrated per variant only.
+In a synthetic null (strata of 5,000 samples at 1:9 and 900 at 8:1, genes of 10 variants
+with MAC 1–10, 1e5 tests), the meta with calibrated variances rejected 1.06–1.13x the
+nominal rate at α = 1e-2 and 9–11 of 10 expected at 1e-4 (burden, SKAT, SKAT-O); the
+uncalibrated meta rejected 1.3–1.5x at 1e-2 and up to 3.9x (SKAT) at 1e-4.
+Permutation (`--permutations`) is single-cohort only: it needs the genotypes of every
+stratum, which artifacts do not carry (#195).
+`V` is stored as a full matrix, so a future relatedness-aware (GLMM/GRM) null drops in
+without a schema change.
 
 The meta engine is cross-validated against R MetaSKAT 0.90 (`MetaSKAT_wZ`,
 `combined.weight=TRUE`, `weights.beta=c(1,25)`): burden and SKAT agree to ~1e-15 and

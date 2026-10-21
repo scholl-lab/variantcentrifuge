@@ -289,6 +289,32 @@ variantcentrifuge \
 analysis raises a validation error at startup.
 :::
 
+### Covariate Pre-flight Checks
+
+Before the gene loop, the covariates (including `--pca-file` PCs) are checked once whenever a
+covariate-using test (logistic/linear burden, SKAT/SKAT-O, COAST) or `--score-artifact` runs;
+Fisher-only runs ignore covariates and skip the check:
+
+- A covariate with fewer than 5 values that differ from its most common value (for example an
+  indicator equal to 1 in a single sample) is **dropped** with a warning naming it and its count.
+  Such a column carries almost no information and can separate the phenotype by itself, which
+  used to make every logistic burden fit fail.
+- Fewer samples than design columns plus one (intercept + covariates; no residual degrees of
+  freedom) **stops the run**.
+- Rank-deficient or collinear covariates (condition number above 1e8 after centring and scaling)
+  **stop the run** with an error naming the columns involved.
+- For binary traits, a covariate whose case and control values do not overlap or touch (it
+  completely separates the phenotype, so no logistic model has a finite estimate) **stops the run**
+  with an error naming it. So do covariates that separate it only jointly (the covariates-only
+  logistic null fit predicts every sample, e.g. `y = (x1 + x2 > 0)`). Quasi-separation, such as
+  a batch with controls only, is left to the
+  Firth fallback (and to the batch warning of `--diagnostics-output`).
+
+Well-conditioned covariates pass through unchanged. For the logistic burden fit only, covariates
+are centred and scaled when `[1, covariates]` has a condition number above 1e6 (for example
+values in very different units); the burden beta, SE and p-value do not depend on this, so beta
+stays on the dosage scale.
+
 ---
 
 ## Setup: PCA
@@ -478,6 +504,13 @@ SKAT/SAIGE-GENE convention.
 **Separation warning codes:** `PERFECT_SEPARATION`, `QUASI_SEPARATION`, `FIRTH_CONVERGE_FAIL`,
 `ZERO_CARRIERS_ONE_GROUP`, `LOW_CARRIER_COUNT`. These appear in the `warnings` column.
 
+**Convergence failures:** a gene where both Logit and Firth fail is reported as NA with
+`FIRTH_CONVERGE_FAIL` plus the reason Logit failed: `CONVERGENCE_SEPARATION` (BSE > 100),
+`CONVERGENCE_MAX_ITER`, `CONVERGENCE_SINGULAR_HESSIAN` or `CONVERGENCE_FIT_ERROR`. The stage logs
+the count per reason, and **fails** (non-zero exit, no results table) when one reason hits more
+than 50 % of the tested genes, listing the reason counts and the covariates whose null-model
+standard error exceeds 100.
+
 ### Linear Burden Test (Quantitative Traits)
 
 The linear burden test fits an OLS regression with the weighted burden score (plus optional
@@ -555,6 +588,64 @@ the deep tail and in some edge cases (Davies at R's 1e-6 absolute accuracy, R's
 R itself is less accurate, and results can differ from R by more than 10%. These discrepancies
 were checked against independent references (importance sampling, high-accuracy Davies, a fine
 grid of R's own integrand), which agree with VariantCentrifuge.
+
+### Imbalance-Robust SKAT (`--skat-robust`)
+
+With few cases or few controls and ultra-rare variants, the asymptotic SKAT/SKAT-O null is
+anti-conservative for binary traits (Zhao et al. 2020, AJHG). `--skat-robust` (or the
+config-file key `skat_robust: true`) switches binary SKAT/SKAT-O to a port of R
+`SKAT::SKATBinary_Robust`:
+
+- each variant's score is tested with the normal approximation; where |z| > 2 the p-value is
+  replaced by a saddlepoint p-value (MAC ≥ 10) or an exact p-value from enumerating the
+  carriers' case/control labels (MAC < 10, as R — not ≤ 10; mid-p);
+- each variant's score variance is recalibrated to `V~ = S² / qchisq(1 − p~, 1)`, the score
+  covariance is rescaled to these variances, and the burden direction is recalibrated with a
+  saddlepoint burden p-value;
+- SKAT or SKAT-O is then computed from the calibrated score and covariance, with the same
+  Davies / SKAT-O integration as the default path.
+
+Results are reported in the usual `skat_*` columns with `skat_p_method = spa_er`. Genes with a
+single informative variant get a p-value (R behaviour) instead of being skipped. ACAT-V
+(and through it the default ACAT-O primary) combines the same calibrated per-variant
+saddlepoint/exact p-values instead of the normal score p-values, so an ultra-rare variant
+cannot bring back the inflation through ACAT-V. When opposing variants cancel the burden
+score, the burden recalibration uses the exact normal-approximation variance instead of the
+round-off-prone `S² / qchisq(1 − p, 1)`, also for an exactly zero burden score, and every
+variant enters the burden sum, also one with an exactly zero score. This differs from R where
+R's own round-off decides: R drops variants with p~ = 1 from the burden, and returns the
+robust burden p-value (1) for an exactly zero burden score, while a score of 1e-13 gives
+about 1e-21 in R. The port uses the analytic variance, so p is continuous in the score. The option
+needs `--trait-type binary`, `skat` in `--association-tests`, the Python backend and
+`--skat-method SKAT` or `SKATO`; other combinations fail before extraction. It is off by
+default; the default output is unchanged.
+
+**Calibration (synthetic null, 1e5 tests per cell).** Genes of 10 ultra-rare variants
+(MAC 1–10), case labels permuted, no covariates. Rejections observed / expected:
+
+| cohort | test | α = 1e-2 | α = 1e-4 | α = 2.5e-6 |
+|---|---|---|---|---|
+| 5,000 samples, 1:9 | SKAT-O default | 2103 / 1000 | 130 / 10 | 24 / 0.25 |
+| 5,000 samples, 1:9 | SKAT-O `--skat-robust` | 1446 / 1000 | 25 / 10 | 0 / 0.25 |
+| 900 samples, 8:1 | SKAT-O default | 1888 / 1000 | 133 / 10 | 19 / 0.25 |
+| 900 samples, 8:1 | SKAT-O `--skat-robust` | 1301 / 1000 | 38 / 10 | 1 / 0.25 |
+
+`--skat-robust` removes most, but not all, of the inflation: in this all-ultra-rare
+design it remains about 1.3–1.5x at 1e-2 and 2.5–3.8x at 1e-4 (SKAT behaves alike). R's
+own `SKATBinary_Robust` rejects at the same rate on the same data (147 vs 147 of 10,000 at
+1e-2), so this is a property of the method, not of the port. 1e5 tests cannot estimate
+the rate at 2.5e-6. Treat robust p-values near exome-wide significance with ultra-rare
+variants as approximate.
+
+**Agreement with R.** On synthetic 1:9 and 8:1 cohorts, the per-variant saddlepoint/exact
+p-values and the calibrated score/covariance match `SKATBinary_Robust` (SKAT 2.2.5, SPAtest
+3.1.2) to 1e-11 relative. Gene SKAT p-values agree with R's Davies at 1e-12 accuracy
+on R's own calibrated statistics (R's printed p differs only where its 1e-6 absolute Davies
+falls back to Liu). Gene SKAT-O p-values use the same SKAT-O omnibus as the default path;
+they differ from R's printed p by up to 4.7e-4 absolute (relative up to 6e-3 observed, at
+p ≈ 1e-4, where the difference is below 1e-6 absolute),
+which comes from R's SKAT-O integration (Davies at 1e-6 absolute inside the integrand),
+not from the calibration (`scripts/generate_skat_robust_parity.R`).
 
 ### CLI Example
 
@@ -755,6 +846,46 @@ section as `"primary_test"` and `"acat_o_exclude"` (the CLI wins). A config-file
 `"acat_o_exclude"` can only be removed in the config file; there is no CLI value that unsets it. They do not affect
 `--score-artifact` files or meta-analysis, which has its own primary (SKAT-O, else burden).
 Defaults reproduce earlier output exactly.
+
+### Empirical p-values (`--permutations`)
+
+`--permutations N --permute-below-p P` (default off; `P` defaults to `1e-4`) gives an empirical
+p-value to every gene whose p for the permuted statistic is below `P`: `skat_pvalue` when SKAT Q
+is permuted (under `--skat-method SKATO` or `--skat-robust`, SKAT Q's own standard analytic p,
+computed internally and not written, so every SKAT mode selects the same genes),
+`logistic_burden_pvalue` when the burden score is. Binary traits, single cohort.
+
+- **Null:** a parametric bootstrap from the fitted covariate null model: case labels are
+  redrawn as `y* ~ Bernoulli(mu_hat)`, so covariate strata keep their case rates. The null
+  model is fitted once and never refitted; each replicate's residuals are projected off
+  the covariates, so replicate scores have the same null covariance as the observed score.
+  One matrix product per batch of replicates gives every variant score of that batch.
+- **Statistic:** SKAT Q for a SKAT primary and the weighted burden score for a burden
+  primary. ACAT-O and SKAT-O cannot be rebuilt cheaply from the scores, so with those
+  primaries the empirical p is for SKAT Q (burden score if SKAT is not run), and the run
+  logs a warning naming the statistic used. Genes are then selected on the SKAT (or burden)
+  p, not on the primary p, and a large `empirical_p` does not refute a small ACAT-O p that
+  another component drove.
+- **Skipped genes:** a gene the permuted test gave no p (e.g. SKAT `rank_deficient`) is not
+  permuted; `permutation_method` is `skipped_<skip reason>` (`skipped_no_pvalue` without one).
+  Samples with a fitted probability of exactly 0 or 1 have zero null weight and contribute
+  nothing; if a statistic is still not finite, the gene gets no `empirical_p` and
+  `permutation_method` is `skipped_nonfinite`.
+- **Stopping:** Besag–Clifford: stop at the 10th replicate at least as extreme as the
+  observed statistic, `p = 10 / replicates`; otherwise `p = (exceedances + 1) / (N + 1)`.
+  The p-value is never 0, and the smallest reachable value is `1 / (N + 1)`.
+- **Output:** `empirical_p`, `n_permutations` (replicates used) and `permutation_method`
+  (`bootstrap_skat_q` or `bootstrap_burden_score`); empty for the other genes.
+- **Reproducible:** `--seed S` (default 0). Each gene's random stream comes from the seed
+  and the gene name, so the output is identical for any `--association-workers`.
+
+The options are checked before extraction (binary trait, `skat` or `logistic_burden` in
+`--association-tests`). Config-file keys: `"permutations"`, `"permute_below_p"`, `"seed"`.
+In a synthetic null with covariates (5,000 samples at 1:9 and 900 at 8:1, 4,000 genes,
+N = 1,000) the empirical p was uniform: Kolmogorov–Smirnov p 0.097–0.49 for SKAT Q and burden,
+and 4.7–5.5 % of genes at p ≤ 0.05.
+A gene that runs all N = 10,000 replicates at 5,000 samples takes about 0.4 s on one core.
+Meta-analysis permutation needs genotypes from every cohort and is not supported (#195).
 
 ### Pass-Through Behaviour
 
@@ -1193,7 +1324,7 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 }
 ```
 
-### All 29 Valid Keys
+### All 37 Valid Keys
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -1226,8 +1357,14 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `missing_as_ref` | bool | `false` | Treat missing genotypes as reference before missingness QC (`--missing-as-ref`) |
 | `skat_method` | str | `"SKAT"` | SKAT variant: `"SKAT"` (default), `"Burden"`, or `"SKATO"` (omnibus) |
 | `confidence_interval_method` | str | `"normal_approx"` | Odds ratio CI method: tries score → normal → logit in sequence |
-| `association_workers` | int | `0` | Worker processes for the per-gene tests (`--association-workers`). `0` = one per `--threads`, `-1` = all cores, `1` = sequential. Each worker uses one BLAS thread; panels under 50 genes and R backends run sequentially. Parallel runs need Linux (fork); elsewhere genes run sequentially. Results are identical for any worker count |
+| `association_workers` | int | `0` | Worker processes for the per-gene tests (`--association-workers`). `0` = one per `--threads`, `-1` = CPUs available to the job (respects SLURM/cgroup affinity), `1` = sequential. Each worker uses one BLAS thread; panels under 50 genes and R backends run sequentially. Parallel runs need Linux (fork); elsewhere genes run sequentially. Results are identical for any worker count |
 | `firth_max_iter` | int | `25` | Newton-Raphson iterations for Firth penalised likelihood |
+| `primary_test` | str | `"acat_o"` | Test whose p-value drives the primary FDR and ranking: `"acat_o"`, `"skato"` or `"burden"` (`--primary-test`) |
+| `acat_o_exclude` | str or null | `null` | `"acat_v"` drops ACAT-V from the ACAT-O combination (`--acat-o-exclude`) |
+| `skat_robust` | bool | `false` | Imbalance-robust binary SKAT/SKAT-O (`--skat-robust`); binary traits, python backend, `skat_method` SKAT or SKATO |
+| `permutations` | int | `0` | Maximum permutation replicates per gene for empirical p-values (`--permutations`); `0` = off |
+| `permute_below_p` | float | `1e-4` | Genes whose permuted test's p is below this get an empirical p (`--permute-below-p`) |
+| `seed` | int | `0` | Random seed for permutations (`--seed`) |
 
 ### Precedence
 

@@ -11,7 +11,9 @@ import numpy as np
 import pandas as pd
 
 from ..association.aggregation import _aggregate_gene_burden_legacy
+from ..association.covariate_checks import check_convergence_failures, preflight_covariates
 from ..association.engine import AssociationEngine
+from ..association.engine_workers import available_cpus
 from ..association.gene_sets import add_gene_set_units, load_gene_sets, run_gene_and_set_units
 from ..association.gt_codes import aggregate_gene_counts, parse_genotype_codes
 from ..association.timing import log_stage_summary, substep
@@ -286,7 +288,7 @@ class AssociationAnalysisStage(Stage):
 
         with substep(timings, "covariates_phenotype"):
             raw_categorical: dict[str, Any] = {}
-            covariate_matrix, _covariate_col_names = _load_covariates_and_pcs(
+            covariate_matrix, covariate_col_names = _load_covariates_and_pcs(
                 assoc_config,
                 assigned_samples,
                 context.config.get("remove_sample_substring"),
@@ -312,6 +314,10 @@ class AssociationAnalysisStage(Stage):
                     f"Association analysis: phenotype vector built — "
                     f"{n_pv_cases} cases, {n_pv_controls} controls"
                 )
+            if needs_regression:  # Fisher ignores covariates; only their consumers are checked
+                covariate_matrix, covariate_col_names = preflight_covariates(
+                    covariate_matrix, covariate_col_names, phenotype_vector, binary=not quantitative
+                )
 
         gt_cols = _find_per_sample_gt_columns(df)
         # Samples whose genotypes are parsed: the assigned VCF samples, or (packed GT
@@ -321,12 +327,24 @@ class AssociationAnalysisStage(Stage):
             if vcf_samples_list
             else list(dict.fromkeys([*case_samples, *control_samples]))
         )
+        # Set-up forks only where an engine loop (genes, or gene sets) does; never with R tests.
+        n_workers, n_sets = assoc_config.association_workers, len(set_ids)
+        setup_workers = (
+            (available_cpus() if n_workers == -1 else n_workers)
+            if engine.runs_parallel(df["GENE"].nunique() - n_sets) or engine.runs_parallel(n_sets)
+            else 1
+        )
         genotypes = None
         if "GT" in df.columns or (gt_cols and vcf_samples_list):
             with substep(timings, "gt_parse"):  # once per run, assigned samples only (#219)
-                genotypes = parse_genotype_codes(df, samples, vcf_samples_list, gt_cols)
+                genotypes = parse_genotype_codes(
+                    df, samples, vcf_samples_list, gt_cols, setup_workers
+                )
             # Per-sample GEN[i].* columns are no longer needed: keep only annotations.
-            df = df.drop(columns=[c for c in df.columns if _PER_SAMPLE_COLUMN.match(c)])
+            # Packed GT too: genotypes come from the codes from here on.
+            df = df.drop(
+                columns=[c for c in df.columns if c == "GT" or _PER_SAMPLE_COLUMN.match(c)]
+            )
 
         with substep(timings, "aggregation"):
             gene_rows = df.groupby("GENE", observed=True).indices
@@ -341,6 +359,7 @@ class AssociationAnalysisStage(Stage):
                     np.array([s in case_set for s in samples], dtype=bool),
                     np.array([s in control_set for s in samples], dtype=bool),
                     assoc_config.missing_as_ref,
+                    setup_workers,
                 )
             else:
                 logger.info(
@@ -362,9 +381,13 @@ class AssociationAnalysisStage(Stage):
                 else None
             )
             with substep(timings, "matrix_builders"):
-                for gene_data in gene_burden_data:
-                    rows = gene_rows[gene_data["GENE"]]
-                    gene_df = df.iloc[rows]
+                # One take in gene order, then a contiguous slice per gene: the same rows
+                # and index labels as df.iloc[rows], without a pandas take per gene.
+                ordered_rows = [gene_rows[d["GENE"]] for d in gene_burden_data]
+                by_gene = df.take(np.concatenate(ordered_rows))
+                ends = np.cumsum([len(r) for r in ordered_rows])
+                for gene_data, rows, end in zip(gene_burden_data, ordered_rows, ends, strict=True):
+                    gene_df = by_gene.iloc[end - len(rows) : end]
                     gene_data["_genotype_matrix_builder"] = _GenotypeMatrixBuilder(
                         gene_df=gene_df,
                         vcf_samples=assigned_samples,
@@ -395,7 +418,11 @@ class AssociationAnalysisStage(Stage):
             for d in gene_burden_data
             if score_artifact and "_genotype_matrix_builder" in d
         }
-        gene_hook = _score_artifact_hook(artifact_builders) if artifact_builders else None
+        gene_hook = (
+            _score_artifact_hook(artifact_builders, assoc_config.skat_robust)
+            if artifact_builders
+            else None
+        )
 
         with substep(timings, "engine"):
             results_df = (
@@ -412,6 +439,7 @@ class AssociationAnalysisStage(Stage):
                     score_artifact,
                     artifact_builders,
                     getattr(engine, "gene_hook_results", None),
+                    assoc_config.skat_robust,
                 )
             if not regression_tests:  # matrices were built only for the artifact
                 for d in gene_burden_data:
@@ -422,6 +450,9 @@ class AssociationAnalysisStage(Stage):
             return context
 
         _merge_carrier_warnings(results_df, gene_data_by_gene, assoc_config, quantitative)
+        check_convergence_failures(
+            results_df, covariate_col_names, phenotype_vector, covariate_matrix
+        )
         _report_missingness_qc(results_df, gene_data_by_gene, assoc_config)
 
         assoc_output, compression = self._resolve_association_output(context)

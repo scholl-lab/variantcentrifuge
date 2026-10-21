@@ -207,7 +207,7 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         help=(
             "Number of parallel worker processes for association analysis. "
             "Default: 0 (auto — uses --threads value). Set to 1 for sequential, "
-            "-1 for all cores. "
+            "-1 for the CPUs available to the job (respects SLURM/cgroup affinity). "
             "Only effective with Python backends (R backend is not parallel-safe)."
         ),
     )
@@ -232,6 +232,47 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
             "'skato': SKAT-O (needs skat and --skat-method SKATO). 'burden': "
             "logistic_burden (binary) or linear_burden (quantitative)."
         ),
+    )
+    stats_group.add_argument(
+        "--skat-robust",
+        action="store_true",
+        default=None,
+        help=(
+            "Imbalance-robust binary SKAT/SKAT-O (port of R SKAT::SKATBinary_Robust): "
+            "saddlepoint p-values for variants with MAC >= 10, exact for MAC < 10, "
+            "calibrated variance. Binary traits, python SKAT backend, --skat-method "
+            "SKAT or SKATO."
+        ),
+    )
+    # #195: None = not set on the CLI, so the JSON "association" section can provide it.
+    stats_group.add_argument(
+        "--permutations",
+        type=int,
+        default=None,
+        help=(
+            "Empirical p-values for the top genes: up to N parametric-bootstrap replicates "
+            "per gene from the fixed covariate null model, with adaptive stopping. The "
+            "statistic is SKAT Q (burden score for a burden primary or without SKAT), "
+            "also when the primary is ACAT-O/SKAT-O. "
+            "Binary traits, single cohort. Default: off."
+        ),
+    )
+    stats_group.add_argument(
+        "--permute-below-p",
+        type=float,
+        default=None,
+        help=(
+            "Genes whose p from the permuted test is below this get an empirical p: the "
+            "standard analytic SKAT Q p (skat_pvalue; computed internally under SKATO or "
+            "--skat-robust) when SKAT Q is permuted, else the logistic_burden p. "
+            "Default: 1e-4."
+        ),
+    )
+    stats_group.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for --permutations (default 0); results do not depend on workers.",
     )
     stats_group.add_argument(
         "--acat-o-exclude",

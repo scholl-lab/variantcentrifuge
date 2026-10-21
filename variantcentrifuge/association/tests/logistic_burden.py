@@ -38,6 +38,10 @@ Structured codes added to ``TestResult.extra["warnings"]``:
     Firth fallback attempted and failed to converge.
 ``NO_GENOTYPE_MATRIX``
     ``genotype_matrix`` key not found in ``contingency_data``.
+``CONVERGENCE_SEPARATION`` / ``CONVERGENCE_MAX_ITER`` / ``CONVERGENCE_SINGULAR_HESSIAN`` /
+``CONVERGENCE_FIT_ERROR``
+    Why Logit failed (BSE > 100, iteration limit, singular Hessian, other error) for a
+    gene reported as NA because Firth failed too (#222).
 """
 
 from __future__ import annotations
@@ -56,6 +60,22 @@ logger = logging.getLogger("variantcentrifuge")
 _SEPARATION_BSE_THRESHOLD = 100.0
 # Newton decrement below which a rejected step means "at the optimum" (gain < 5e-9)
 _FIRTH_DECREMENT_TOL = 1e-8
+# Above this condition number of [1, covariates] (the Logit Hessian's is its square, losing
+# > 12 of 16 digits) covariates are centred and scaled for the fit (#222).
+_SCALE_CONDITION = 1e6
+
+
+def _fit_covariates(covariates: np.ndarray) -> np.ndarray:
+    """Return ``covariates``, centred and scaled if ``[1, covariates]`` is ill-conditioned.
+
+    The burden coefficient is invariant to affine covariate transforms (the design has an
+    intercept), so beta stays on the dosage scale; well-conditioned inputs are untouched.
+    """
+    if np.linalg.cond(np.column_stack([np.ones(len(covariates)), covariates])) <= _SCALE_CONDITION:
+        return covariates
+    sd = covariates.std(axis=0)
+    scaled: np.ndarray = (covariates - covariates.mean(axis=0)) / np.where(sd > 0, sd, 1.0)
+    return scaled
 
 
 def _firth_loglik(beta: np.ndarray, y: np.ndarray, x: np.ndarray) -> float:
@@ -262,6 +282,9 @@ class LogisticBurdenTest(AssociationTest):
 
     parallel_safe: bool = True  # Thread-safe -- pure statsmodels, no R
 
+    def __init__(self) -> None:
+        self._fit_cov_cache: tuple[np.ndarray, np.ndarray] | None = None
+
     @property
     def name(self) -> str:
         """Short identifier for test registry and output column prefixes."""
@@ -375,7 +398,12 @@ class LogisticBurdenTest(AssociationTest):
         )
         if has_covariates:
             assert covariate_matrix is not None
-            design = np.column_stack([design, covariate_matrix])
+            # Same matrix for every gene (unless a sample mask applies): check once.
+            cached = self._fit_cov_cache
+            if cached is None or cached[0] is not covariate_matrix:
+                cached = (covariate_matrix, _fit_covariates(covariate_matrix))
+                self._fit_cov_cache = cached  # one tuple: atomic for threads
+            design = np.column_stack([design, cached[1]])
 
         # Carrier statistics
         carriers = burden > 0
@@ -407,11 +435,21 @@ class LogisticBurdenTest(AssociationTest):
             converged = bool(fit_result.mle_retvals.get("converged", True))
             bse_max = float(fit_result.bse.max())
             needs_firth = (not converged) or (bse_max > _SEPARATION_BSE_THRESHOLD)
+            logit_failure = (
+                "CONVERGENCE_SEPARATION"
+                if bse_max > _SEPARATION_BSE_THRESHOLD
+                else "CONVERGENCE_MAX_ITER"
+            )
 
         except Exception as exc:
             logger.debug(f"Gene {gene}: Logit.fit() raised {type(exc).__name__}: {exc}")
             needs_firth = True
             fit_result = None
+            logit_failure = (
+                "CONVERGENCE_SINGULAR_HESSIAN"
+                if isinstance(exc, np.linalg.LinAlgError)
+                else "CONVERGENCE_FIT_ERROR"
+            )
 
         if needs_firth:
             no_sep_warning = (
@@ -423,7 +461,7 @@ class LogisticBurdenTest(AssociationTest):
             logger.debug(f"Gene {gene}: Logit non-convergence/separation — trying Firth fallback")
             firth_result = _firth_logistic(phenotype, design, max_iter=config.firth_max_iter)
             if firth_result is None:
-                warning_codes.append("FIRTH_CONVERGE_FAIL")
+                warning_codes += ["FIRTH_CONVERGE_FAIL", logit_failure]
                 logger.warning(
                     f"Gene {gene}: Both Logit and Firth failed to converge — reporting NA"
                 )

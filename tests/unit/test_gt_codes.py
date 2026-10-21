@@ -11,6 +11,7 @@ from variantcentrifuge.association.aggregation import (
     _aggregate_gene_burden_from_columns,
     _aggregate_gene_burden_from_gt,
 )
+from variantcentrifuge.association.engine_workers import fork_available
 from variantcentrifuge.association.gt_codes import aggregate_gene_counts, parse_genotype_codes
 from variantcentrifuge.gt_reconstruction import _find_per_sample_gt_columns
 from variantcentrifuge.stages.genotype_matrix_builder import _GenotypeMatrixBuilder
@@ -149,6 +150,8 @@ def test_counts_match_base_column_and_packed_aggregation(missing_as_ref):
     assert got == by_col == by_gt
     packed_gc = parse_genotype_codes(df.assign(GT=packed), samples, samples, [])
     assert aggregate_gene_counts(packed_gc, rows, is_case, ~is_case, missing_as_ref) == got
+    # Gene ranges in forked workers (sequential where fork is unavailable): same counts.
+    assert aggregate_gene_counts(gc, rows, is_case, ~is_case, missing_as_ref, workers=2) == got
 
 
 def _builder(gc, gene_df, rows, samples):
@@ -339,3 +342,15 @@ def test_packed_parse_batches_by_text_length(monkeypatch):
     batched = parse_genotype_codes(df, ["A", "B"], ["A", "B"], [])
     assert _cells(batched) == _cells(whole)
     assert _cells(whole)[-1] == ["0/1", "1/1"]
+
+
+@pytest.mark.skipif(not fork_available(), reason="fork_map needs fork (Linux)")
+def test_packed_parse_in_workers_equals_sequential():
+    # Named, positional, empty, unknown-sample and no-wanted-sample rows across many chunks.
+    rows = [" A ( 0/1:12:3,9); B(./.:0) ;Z(1/1)", "0/1,./.,1|1", "NA", "Z(0/1)", "C(1)"]
+    gt = pd.Series([rows[i % len(rows)] if i % 7 else f"B({i % 3}/1)" for i in range(400)])
+    df = pd.DataFrame({"GT": gt})
+    seq = parse_genotype_codes(df, ["A", "C", "B"], ["A", "B", "C"], [])
+    par = parse_genotype_codes(df, ["A", "C", "B"], ["A", "B", "C"], [], workers=3)
+    assert _cells(par) == _cells(seq)
+    assert par.codes.dtype == seq.codes.dtype

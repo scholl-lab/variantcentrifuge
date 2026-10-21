@@ -12,7 +12,7 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def _score_artifact_hook(builders: dict[str, Any]) -> Any:
+def _score_artifact_hook(builders: dict[str, Any], robust: bool = False) -> Any:
     """Engine gene hook computing each gene's artifact entry from the tests' matrix (#212).
 
     Validates the phenotype up front and fits the all-samples null model here, in the
@@ -33,13 +33,17 @@ def _score_artifact_hook(builders: dict[str, Any]) -> Any:
     def hook(gene: str, builder: Any, built: dict[str, Any]) -> Any:
         if builder.gene_df.empty:
             return None
-        return gene_score_record(gene, builder, built, pheno_all, nulls)
+        return gene_score_record(gene, builder, built, pheno_all, nulls, robust)
 
     return hook
 
 
 def _emit_score_artifact(
-    config: dict, path: str, builders: dict[str, Any], records: dict[str, Any] | None = None
+    config: dict,
+    path: str,
+    builders: dict[str, Any],
+    records: dict[str, Any] | None = None,
+    robust: bool = False,
 ) -> None:
     """Write the meta-analysis score artifact from this run's per-gene matrix builders.
 
@@ -72,6 +76,7 @@ def _emit_score_artifact(
             **collect_provenance(config),
             "sample_subset_sha256": config.get("sample_subset_sha256") or "none",
         },
+        robust=robust,
     )
 
 

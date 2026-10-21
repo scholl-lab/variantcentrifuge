@@ -156,6 +156,18 @@ class AssociationConfig:
     acat_o_exclude: str | None = None
     """ACAT-O component to leave out: None or "acat_v" (#210)."""
 
+    skat_robust: bool = False
+    """Binary SKAT/SKAT-O with SPA/exact calibration (port of SKATBinary_Robust, #223)."""
+
+    permutations: int = 0
+    """Maximum bootstrap replicates per gene for an empirical p; 0 = off (#195)."""
+
+    permute_below_p: float = 1e-4
+    """Genes whose primary p-value is below this get an empirical p (#195)."""
+
+    seed: int = 0
+    """Random seed of the permutation bootstrap (#195)."""
+
     # Phase 22: ACAT-O + diagnostics fields
     min_cases: int = 200
     """Cohort-level warning threshold: warn if n_cases < this value."""
@@ -205,7 +217,8 @@ class AssociationConfig:
     association_workers: int = 1
     """Number of parallel worker processes for gene-level association analysis.
     Default: 1 (sequential). Set > 1 for parallel execution via ProcessPoolExecutor.
-    Set -1 for os.cpu_count(). Only effective when all registered tests have parallel_safe=True."""
+    Set -1 for the CPUs available to the job (respects SLURM/cgroup affinity).
+    Only effective when all registered tests have parallel_safe=True."""
 
 
 class AssociationTest(ABC):

@@ -3,13 +3,13 @@ Association configuration validation and resolution helpers for analysis stages.
 """
 
 import logging
-import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
 from ..association.base import AssociationConfig
+from ..association.engine_workers import available_cpus
 
 if TYPE_CHECKING:
     from ..pipeline_core import PipelineContext
@@ -53,6 +53,10 @@ VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
         "gene_prior_weight_column",
         "primary_test",
         "acat_o_exclude",
+        "skat_robust",
+        "permutations",
+        "permute_below_p",
+        "seed",
     }
 )
 
@@ -109,6 +113,8 @@ def _validate_association_config_dict(d: dict) -> None:
         "min_case_carriers",
         "firth_max_iter",
         "association_workers",
+        "permutations",
+        "seed",
     }
     float_keys = {
         "max_case_control_ratio",
@@ -116,6 +122,7 @@ def _validate_association_config_dict(d: dict) -> None:
         "continuity_correction",
         "missing_site_threshold",
         "missing_sample_threshold",
+        "permute_below_p",
     }
     list_str_keys = {"covariate_columns", "categorical_covariates", "association_tests"}
     list_float_keys = {"coast_weights"}
@@ -151,9 +158,13 @@ def _validate_association_config_dict(d: dict) -> None:
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0.0 <= v <= 1.0:
             errors.append(f"'{key}' must be a number between 0 and 1, got {v!r}")
 
-    if "missing_as_ref" in d and not isinstance(d["missing_as_ref"], bool):
-        got = type(d["missing_as_ref"]).__name__
-        errors.append(f"'missing_as_ref' must be a boolean, got {got}")
+    for key in ("permutations", "seed", "permute_below_p"):  # bool is an int
+        if isinstance(d.get(key), bool):
+            errors.append(f"'{key}' must be a number, got bool")
+
+    for key in ("missing_as_ref", "skat_robust"):
+        if key in d and not isinstance(d[key], bool):
+            errors.append(f"'{key}' must be a boolean, got {type(d[key]).__name__}")
 
     # Enum-like value validation
     if "correction_method" in d and d["correction_method"] not in ("fdr", "bonferroni"):
@@ -183,7 +194,7 @@ def _validate_association_config_dict(d: dict) -> None:
 def _resolve_association_workers(cfg: dict[str, Any], _get: Callable[..., Any]) -> int:
     """Resolve association_workers from CLI/JSON/auto.
 
-    0 (default) means auto-allocate from --threads. -1 means all CPU cores.
+    0 (default) means auto-allocate from --threads. -1 means the CPUs available to the job.
     Explicit positive values are used directly.
     """
     raw = _get("association_workers", default=0, nullable=False)
@@ -193,7 +204,7 @@ def _resolve_association_workers(cfg: dict[str, Any], _get: Callable[..., Any]) 
         logger.info(f"Association workers auto-allocated from --threads: {threads}")
         return threads
     if raw == -1:
-        cpus = os.cpu_count() or 1
+        cpus = available_cpus()
         logger.info(f"Association workers auto-detected: {cpus} CPU cores")
         return cpus
     return int(raw)
@@ -306,6 +317,10 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         skat_method=_get("skat_method", default="SKAT", nullable=False),
         primary_test=_get("primary_test", default="acat_o", nullable=True),
         acat_o_exclude=_get("acat_o_exclude", default=None, nullable=True),
+        skat_robust=bool(_get("skat_robust", default=False, nullable=True)),
+        permutations=_get("permutations", default=0, nullable=True),
+        permute_below_p=_get("permute_below_p", default=1e-4, nullable=True),
+        seed=_get("seed", default=0, nullable=True),
         coast_backend=_get("coast_backend", default="python", nullable=False),
         min_cases=_get("association_min_cases", json_key="min_cases", default=200, nullable=False),
         max_case_control_ratio=_get(
