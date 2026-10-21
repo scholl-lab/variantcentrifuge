@@ -62,9 +62,14 @@ def preflight_covariates(
         if not keep:
             return None, []
 
+    n, k = covariates.shape
+    if n <= k + 1:  # thin SVD would show only n singular values and hide the rank loss
+        raise ValueError(
+            f"Covariates leave no residual degrees of freedom: {n} samples for {k + 1} "
+            f"design columns (intercept + {k} covariates). Use fewer covariates."
+        )
     centred = covariates - covariates.mean(axis=0)
     scaled = centred / np.linalg.norm(centred, axis=0)
-    n = len(scaled)
     _u, sv, vt = np.linalg.svd(np.column_stack([np.full(n, n**-0.5), scaled]), full_matrices=False)
     condition = sv[0] / sv[-1] if sv[-1] > 0 else np.inf
     if condition > MAX_CONDITION:

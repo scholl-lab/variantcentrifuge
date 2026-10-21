@@ -299,6 +299,8 @@ Fisher-only runs ignore covariates and skip the check:
   indicator equal to 1 in a single sample) is **dropped** with a warning naming it and its count.
   Such a column carries almost no information and can separate the phenotype by itself, which
   used to make every logistic burden fit fail.
+- Fewer samples than design columns plus one (intercept + covariates; no residual degrees of
+  freedom) **stops the run**.
 - Rank-deficient or collinear covariates (condition number above 1e8 after centring and scaling)
   **stop the run** with an error naming the columns involved.
 - For binary traits, a covariate whose case and control values do not overlap or touch (it

@@ -341,3 +341,13 @@ def test_na_gene_records_logit_failure_reason(monkeypatch, fit, code):
     res = _logistic(None, np.r_[np.ones(10), np.zeros(10)], geno)
     assert res.p_value is None
     assert res.extra["warnings"][-2:] == ["FIRTH_CONVERGE_FAIL", code]
+
+
+def test_preflight_wide_design_without_residual_df_fails():
+    """8 samples, 10 independent covariates: thin SVD shows 8 positive values (v0.24 dev passed)."""
+    rng = np.random.default_rng(0)
+    y = np.array([0, 1] * 4, dtype=float)
+    with pytest.raises(ValueError, match="no residual degrees of freedom: 8 samples for 11"):
+        preflight_covariates(rng.normal(size=(8, 10)), [f"c{j}" for j in range(10)], y, True)
+    ok = rng.normal(size=(8, 6))  # 7 design columns, 1 residual df: passes
+    assert preflight_covariates(ok, [f"c{j}" for j in range(6)], y, binary=False)[0] is ok
