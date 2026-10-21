@@ -19,7 +19,8 @@ logger = logging.getLogger("variantcentrifuge")
 
 # VCF meta-information lines (INFO / FORMAT); keys may come in any order.
 HEADER_RE = re.compile(r"##(?P<source>INFO|FORMAT)=<(?P<body>.*)>\s*$")
-HEADER_KEY_RE = re.compile(r'(\w+)=("(?:[^"\\]|\\.)*"|[^,]*)')
+# One attribute, matched only at the start of the body or right after a separator comma.
+HEADER_ATTR_RE = re.compile(r'([^=,"]+)=("(?:[^"\\]|\\.)*"|[^,"]*)(?:,|$)')
 TUMOR_SAMPLE_RE = re.compile(r"^##tumor_sample=(?P<sample>\S+)\s*$")
 NORMAL_SAMPLE_RE = re.compile(r"^##normal_sample=(?P<sample>\S+)\s*$")
 
@@ -75,7 +76,11 @@ def _header_fields(header_text: str) -> list[AnnotationField]:
         m = HEADER_RE.match(line)
         if not m:
             continue
-        kv = {k: v.strip('"') for k, v in HEADER_KEY_RE.findall(m.group("body"))}
+        kv, body, pos = {}, m.group("body"), 0
+        while pos < len(body) and (a := HEADER_ATTR_RE.match(body, pos)):
+            value = a.group(2)
+            kv[a.group(1)] = value[1:-1] if value.startswith('"') else value  # the quote pair only
+            pos = a.end()
         if {"ID", "Number", "Type", "Description"} <= kv.keys():
             fields.append(
                 AnnotationField(kv["ID"], kv["Number"], kv["Type"], kv["Description"], m["source"])
@@ -279,7 +284,11 @@ def comp_het_phase_usable(config: dict) -> bool:
         fields = str(config.get("fields_to_extract") or "")
         if config.get("append_extra_sample_fields") and config.get("extra_sample_fields"):
             fields = ensure_fields_in_extract(fields, config["extra_sample_fields"])
-        extracted = set(re.findall(r"GEN\[[^\]]*\]\.(PS|PID)\b", fields))
+        extracted = {
+            t.rsplit(".", 1)[1]
+            for t in fields.split()
+            if re.fullmatch(r"GEN\[[^\]]*\]\.(PS|PID)", t)
+        }
         missing = sorted(declared - extracted)
         if missing:
             logger.info(

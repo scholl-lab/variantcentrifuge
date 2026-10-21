@@ -379,3 +379,59 @@ def test_analyze_variants_passes_use_phase():
         list(av.analyze_variants(iter([tsv]), cfg))
     usable.assert_called_once_with(cfg)
     assert ai.call_args.kwargs["use_phase"] is False
+
+
+# --- B3b codex re-review: attribute boundaries, exact field tokens, quote pair ---------
+DOTTED_AFTER = (
+    '##FORMAT=<ID=PS,Number=1,Type=Integer,Description="Phase set, cutoff=3 > 1",'
+    "Original.ID=phase_set>\n"
+    '##FORMAT=<ID=PID,Number=1,Type=String,Description="Phasing ID",Original.ID=pid_x>\n'
+    '##INFO=<ID=AF,Number=A,Type=Float,Description="AF",Original.ID=af_raw>\n'
+)
+DOTTED_BEFORE = (
+    '##FORMAT=<Original.ID=phase_set,ID=PS,Number=1,Type=Integer,Description="Phase set">\n'
+    '##FORMAT=<Original.ID=pid_x,ID=PID,Number=1,Type=String,Description="Phasing ID">\n'
+    '##INFO=<Original.ID=af_raw,ID=AF,Number=A,Type=Float,Description="AF">\n'
+)
+
+
+def _parsed(text):
+    from variantcentrifuge.vcf_header_parser import parse_vcf_header
+
+    with patch("variantcentrifuge.vcf_header_parser._read_header", return_value=text):
+        return {(f.source, f.id): f for f in parse_vcf_header("x")}
+
+
+def test_dotted_attributes_do_not_overwrite_id():
+    for text in (DOTTED_AFTER, DOTTED_BEFORE):
+        got = _parsed(text)
+        assert {("FORMAT", "PS"), ("FORMAT", "PID"), ("INFO", "AF")} == set(got)
+        assert _usable(text, "CHROM GEN[*].GT")[0] is False
+    assert _parsed(DOTTED_AFTER)[("FORMAT", "PS")].description == "Phase set, cutoff=3 > 1"
+
+
+def test_description_keeps_escaped_quotes():
+    text = (
+        '##INFO=<ID=X,Number=1,Type=String,Description="a, b=c > d said \\"PASS\\"">\n'
+        '##INFO=<ID=Y,Number=1,Type=String,Description="\\"q\\" first">\n'
+    )
+    got = _parsed(text)
+    assert got[("INFO", "X")].description == 'a, b=c > d said \\"PASS\\"'
+    assert got[("INFO", "Y")].description == '\\"q\\" first'
+
+
+def test_appended_ps_aux_does_not_count_as_ps():
+    from variantcentrifuge.vcf_header_parser import comp_het_phase_usable
+
+    cfg = {
+        "vcf_file": "in.vcf.gz",
+        "fields_to_extract": "CHROM GEN[*].GT",
+        "append_extra_sample_fields": True,
+        "extra_sample_fields": ["GEN[*].PS.AUX"],
+    }
+    with patch("variantcentrifuge.vcf_header_parser._read_phase_header", return_value=_hdr("PS")):
+        use_phase = comp_het_phase_usable(cfg)
+    assert use_phase is False
+    df = _gene(["0|1", "0|1"], **{"GEN[0].PS.AUX": ["100", "200"]})
+    res = analyze_gene_for_compound_het_vectorized(df, {}, ["child"], use_phase=use_phase)
+    assert res[K1]["child"]["comp_het_type"] == NO_PED
