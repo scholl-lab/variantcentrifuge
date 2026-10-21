@@ -18,6 +18,14 @@ logger = logging.getLogger("variantcentrifuge")
 GT_PATTERN = re.compile(r"([^()]+)\(([^)]+)\)")
 
 
+def _carries_alt(gt: str) -> bool:
+    """True if any allele is non-reference; also for split multi-allelic Mutect2 calls (``0/1/0``)."""
+    alleles = re.split(r"[/|]", gt.strip())
+    return is_variant(gt) or (
+        len(alleles) > 2 and all(a.isdigit() for a in alleles) and any(a != "0" for a in alleles)
+    )
+
+
 def _generate_single_igv_report(
     task_data: tuple[
         str, str, str, str, str, str, str, str, int, str | None, str | None, str | None
@@ -305,7 +313,7 @@ def generate_igv_report(
                         sample_id = m.group(1).strip()
                         genotype = m.group(2).strip()
                         # If the sample carries the variant (not reference or missing)
-                        if is_variant(re.split(r"[:,;\s]", genotype, maxsplit=1)[0]):
+                        if _carries_alt(re.split(r"[:,;\s]", genotype, maxsplit=1)[0]):
                             if sample_id not in bam_mapping:
                                 logger.warning(f"No BAM found for sample {sample_id}, skipping.")
                                 continue

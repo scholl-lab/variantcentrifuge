@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Parallel chunk processing now writes all its temporary files (bcftools view/query, SnpSift and its Java temp dir) under `--temp-dir` instead of the system temp dir, and no longer starts a `multiprocessing.Manager`, whose socket lived in `TMPDIR` and failed on long paths ("AF_UNIX path too long"); the snpEff gene BED temp file is created in the BED cache dir (#226).
 
+## [0.24.1] - 2026-10-21
+
+### Fixed
+
+- IGV reports: carriers of split multi-allelic Mutect2 calls (`GT` such as `0/1/0` or `0/1/0/0`) are no longer skipped. `genotype_utils.is_variant` accepts only diploid or haploid genotypes, so these rows got no IGV report, and multi-allelic sites are typical at force-called hotspots. The IGV step now uses `_carries_alt`; `is_variant` and the association genotype parsing are unchanged.
+
 ## [0.24.0] - 2026-10-21
 
 ### Added
