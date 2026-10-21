@@ -16,7 +16,7 @@ _HELPERS_DIR = Path(__file__).resolve().parents[2] / "workflow" / "rules"
 if str(_HELPERS_DIR) not in sys.path:
     sys.path.insert(0, str(_HELPERS_DIR))
 
-from helpers import build_vc_flags, get_samples, get_vcf_path
+from helpers import build_vc_flags, get_samples, get_snpeff_db, get_vcf_path
 
 
 # ---------------------------------------------------------------------------
@@ -168,3 +168,11 @@ class TestBuildVcFlags:
         assert "--transcript-file /path/to/tx.txt" in flags
         assert "--final-filter 'AF >= 0.05'" in flags
         assert "--fail-on-empty" in flags
+
+
+def test_get_snpeff_db_prefers_workflow_reference_then_json(tmp_path: Path) -> None:
+    cfg = tmp_path / "vc.json"
+    cfg.write_text('{"reference": "GRCh38.p14"}', encoding="utf-8")
+    assert get_snpeff_db({"reference": "GRCh37.75", "config_file": str(cfg)}) == "GRCh37.75"
+    assert get_snpeff_db({"reference": None, "config_file": str(cfg)}) == "GRCh38.p14"
+    assert get_snpeff_db({"reference": None}) is None

@@ -11,6 +11,9 @@ dependencies:
   - snpeff=5.2=hdfd78af_1
   - snpsift=5.2=hdfd78af_0
   - pandas=2.2.3=py312hf9745cd_1
+  - pyarrow=25.0.0
+  - xlsxwriter=3.2.9
+  - cffi=2.1.0
   - scipy=1.14.1=py312h62794b6_2
   - statsmodels=0.14.4=py312hc0a28a1_0
   - openpyxl=3.1.5=py312h710cb58_1

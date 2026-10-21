@@ -2,7 +2,7 @@
   "title": "VariantCentrifuge",
   "description": "VariantCentrifuge is a research-use command-line pipeline for filtering, extracting, and prioritizing genetic variants from VCF files. It combines gene-centric region extraction, multi-tier filtering, inheritance analysis, configurable scoring, association testing, and report generation.",
   "upload_type": "software",
-  "version": "0.23.0",
+  "version": "0.23.3",
   "access_right": "open",
   "license": "MIT",
   "creators": [

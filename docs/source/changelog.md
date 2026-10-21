@@ -26,6 +26,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A worker count of `-1` (`--association-workers`, `variantcentrifuge meta --workers`, permutations, association set-up) now means the CPUs available to the job (`os.sched_getaffinity`, which respects SLURM/cgroup affinity) instead of every core on the node, and `meta --workers N` is capped at that number; a 4-CPU job on a 64-core node no longer starts 64 workers. `meta --workers` still defaults to 1.
 - `--resume` now stops with a configuration-mismatch error ("Cannot resume") when a result-affecting association option changes (`--association-tests`, `--skat-method`, `--primary-test`, `--acat-o-exclude`, covariates, `--pca`/`--pca-sites`, variant weights, case/carrier and missingness thresholds, correction method, COAST/gene-prior settings, or the JSON `association` section); before, the stale results were reused. Worker count, diagnostics and score-artifact paths do not invalidate. Non-association checkpoints are unaffected.
 
+## [0.23.3] - 2026-10-21
+
+### Fixed
+
+- Snakemake workflow: the snpEff database is downloaded once (new rule `snpeff_download_db`, marker `<output_folder>/<log_subdir>/snpeff_db.<reference>.done`) before any `run_variantcentrifuge` job. Before, every parallel job auto-downloaded it into the shared env, and jobs read it half-written: `snpEff genes2bed` returned, and `bed_cache/` kept, a truncated gene BED (1–90 regions instead of the full gene set for `genes: all`), so the lists were silently incomplete. The reference comes from `variantcentrifuge.reference` or, if unset, `reference` in the JSON `config_file` (`get_snpeff_db`). A read-only, pre-populated cache falls back to a load check.
+
+## [0.23.2] - 2026-10-21
+
+### Fixed
+
+- Snakemake workflow env and `conda/environment.yml` now include `xlsxwriter` and `cffi` (pinned as in `conda/environment-docker.yml`). Without `xlsxwriter`, the `excel_report` stage failed with `No module named 'xlsxwriter'` after the TSV, HTML and IGV reports were written.
+- New unit test `tests/unit/test_workflow_env_deps.py` fails when a `pyproject.toml` runtime dependency is missing from `workflow/envs/variantcentrifuge.yml`.
+
+## [0.23.1] - 2026-10-21
+
+### Fixed
+
+- Snakemake workflow env (`workflow/envs/variantcentrifuge.yml`) and `conda/environment.yml` now include `pyarrow` (pinned as in `conda/environment-docker.yml`). `pyproject.toml` already required it; since 0.23.0, `association.gt_codes` imports it at module load, so `variantcentrifuge` failed to start in the workflow conda env with `ModuleNotFoundError: No module named 'pyarrow'`.
+
 ## [0.23.0] - 2026-10-21
 
 ### Added
