@@ -456,14 +456,14 @@ def test_resource_allocation_no_snpsift_allows_sub_4gb(
 
         def submit(self, fn, *args, **kwargs):
             fut = Future()
-            fut.set_result(Path(args[4]) / f"{args[3]}.chunk_{args[0]}.extracted.tsv")
+            fut.set_result((Path(args[4]) / f"{args[3]}.chunk_{args[0]}.extracted.tsv", {}))
             return fut
 
     pp_mod = "variantcentrifuge.stages.parallel_processing_stage"
     with (
         patch(f"{pp_mod}.ProcessPoolExecutor", InlineExecutor),
         patch.object(stage, "_validate_chunk_tsv", return_value=False),
-        patch.object(stage, "_process_single_chunk", return_value=tmp_path / "out.tsv"),
+        patch.object(stage, "_process_single_chunk", return_value=(tmp_path / "out.tsv", {})),
     ):
         result = stage._process_chunks_parallel(mock_context, bed_chunks)
         assert len(result) == 2
@@ -475,7 +475,7 @@ def test_resource_allocation_no_snpsift_allows_sub_4gb(
     with (
         patch(f"{pp_mod}.ProcessPoolExecutor", InlineExecutor),
         patch.object(stage, "_validate_chunk_tsv", return_value=False),
-        patch.object(stage, "_process_single_chunk", return_value=tmp_path / "out.tsv"),
+        patch.object(stage, "_process_single_chunk", return_value=(tmp_path / "out.tsv", {})),
     ):
         result = stage._process_chunks_parallel(mock_context, bed_chunks)
         assert len(result) == 2

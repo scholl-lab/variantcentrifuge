@@ -228,7 +228,7 @@ def get_gene_bed(
         return cached_file
 
     # Generate BED using snpEff genes2bed
-    bed_fd, bed_path = tempfile.mkstemp(suffix=".bed")
+    bed_fd, bed_path = tempfile.mkstemp(suffix=".bed", dir=cache_dir)
     os.close(bed_fd)
 
     try:
