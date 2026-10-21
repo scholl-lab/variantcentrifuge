@@ -206,15 +206,20 @@ def _task_bounds(
     """``fork_map``'s ``(lo, hi)`` tasks in submission order.
 
     Without ``costs``: ~8 chunks per worker in item order. With ``costs`` (e.g. variants
-    per gene): tasks of at most 8 items, the costliest first, so a huge gene starts early
-    instead of leaving one worker busy at the end (audit 0.25 fix 5).
+    per gene): tasks of at most 8 items; tasks costing over twice the mean go first (costliest
+    first), so a huge gene starts early instead of leaving one worker busy at the end
+    (audit 0.25 fix 5).
     """
     chunk = max(1, n_items // (workers * 8))
     if costs is not None:
         chunk = min(chunk, 8)
     bounds = [(lo, min(lo + chunk, n_items)) for lo in range(0, n_items, chunk)]
-    if costs is not None:
-        bounds.sort(key=lambda b: -sum(costs[b[0] : b[1]]))  # stable: ties keep item order
+    if costs is not None and bounds:
+        task_costs = {b: sum(costs[b[0] : b[1]]) for b in bounds}
+        big = 2 * sum(task_costs.values()) / len(bounds)
+        # Only costly tasks jump the queue; the rest keep item order so the in-order
+        # results (progress, early errors) keep flowing during the run (review P3-r1).
+        bounds.sort(key=lambda b: -task_costs[b] if task_costs[b] > big else 0)
     return bounds
 
 
@@ -229,7 +234,7 @@ def fork_map(
 
     Runs in forked worker processes (one BLAS thread each) that inherit ``state``; ``task``
     must be a module-level function. Tasks are planned by ``_task_bounds`` (``costs``:
-    small tasks, costliest first); results are still yielded in item order.
+    small tasks, costly ones first); results are still yielded in item order.
     Linux only: callers check ``fork_available()`` first.
     """
     global _FORK_STATE

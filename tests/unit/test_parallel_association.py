@@ -600,6 +600,35 @@ def test_task_plan_small_tasks_largest_first_shorter_span() -> None:
     assert _span(new, costs, 4) == 2000 + 5 * (new[0][1] - new[0][0] - 1)  # tail-free
 
 
+def _yield_times(plan: list[tuple[int, int]], costs: list[int], workers: int) -> list[int]:
+    """When fork_map can yield each task (item order): it waits for all earlier tasks too."""
+    free, done = [0] * workers, {}
+    for lo, hi in plan:
+        i = free.index(min(free))
+        free[i] += sum(costs[lo:hi])
+        done[lo] = free[i]
+    out, latest = [], 0
+    for lo in sorted(done):
+        latest = max(latest, done[lo])
+        out.append(latest)
+    return out
+
+
+@pytest.mark.unit
+def test_task_plan_keeps_progress_flowing() -> None:
+    """Review P3-r1: only costly tasks jump the queue, so in-order results keep coming."""
+    from variantcentrifuge.association.engine_workers import _task_bounds
+
+    costs = [1 + (i * 37) % 97 for i in range(800)]  # uneven, costly genes not first
+    costs[600] = 2000
+    plan = _task_bounds(len(costs), 4, costs)
+    times = _yield_times(plan, costs, 4)
+    assert times[len(times) // 10] < 0.25 * times[-1]  # 10 % of genes reported early
+    assert times[len(times) // 2] < 0.6 * times[-1]
+    assert plan[0][0] <= 600 < plan[0][1]
+    assert plan[1:] == sorted(plan[1:])  # cheap tasks keep gene order
+
+
 def _hook(gene: str, builder: Any, result: dict[str, Any]) -> tuple[str, int]:
     return gene, int(result["genotype_matrix"].shape[1])
 
