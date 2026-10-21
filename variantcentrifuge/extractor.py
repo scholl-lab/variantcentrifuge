@@ -98,7 +98,7 @@ def build_bcftools_format_string(
         elif field.startswith(("LOF[0].", "NMD[0].")):
             # LOF/NMD subfield - extract the raw INFO tag once (#234)
             tag = field[:3]
-            if tag not in seen_lof_nmd:
+            if tag not in seen_lof_nmd and tag not in fields:  # a bare tag adds its own column
                 format_parts.append(f"%INFO/{tag}")
                 column_names.append(tag)
                 seen_lof_nmd.add(tag)

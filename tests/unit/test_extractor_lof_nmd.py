@@ -71,3 +71,19 @@ def test_snpsift_extracts_every_lof_and_nmd_subfield(tmp_path):
     df = pd.read_csv(out, sep="\t", dtype=str, keep_default_na=False)
     for tag, values in EXPECTED.items():
         assert df.loc[0, [f"{tag}_{s}" for s in SUBFIELDS]].tolist() == values
+
+
+@pytest.mark.skipif(not shutil.which("bcftools"), reason="bcftools required")
+@pytest.mark.parametrize("tag", ["LOF", "NMD"])
+def test_bare_tag_plus_subfield_adds_raw_column_once(tmp_path, tag):
+    fields = ["CHROM", tag, f"{tag}[0].PERC"]
+    assert build_bcftools_format_string(fields)[1] == ["CHROM", tag]
+    assert get_expected_extraction_columns(fields) == fields
+    vcf = tmp_path / "in.vcf"
+    _write_vcf(vcf)
+    out = tmp_path / "out.tsv"
+    extract_fields_bcftools(str(vcf), " ".join(fields), {"temp_dir": str(tmp_path)}, str(out))
+    df = pd.read_csv(out, sep="\t", dtype=str, keep_default_na=False)
+    assert list(df.columns) == fields
+    raw = {"LOF": "(GENE_A|ENSGA|1|0.75),(GENE_B|ENSGB|2|0.50)", "NMD": "(GENE_N|ENSGN|4|0.25)"}
+    assert df.loc[0].tolist() == ["chr1", raw[tag], EXPECTED[tag][3]]

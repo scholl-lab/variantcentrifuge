@@ -140,7 +140,7 @@ def parse_nmd_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
         DataFrame with subfields added and raw LOF/NMD columns removed
     """
     for tag in LOF_NMD_TAGS:
-        if tag not in df.columns or tag in fields:  # a bare LOF/NMD field keeps its raw column
+        if tag not in df.columns:
             continue
         # Take the first annotation and strip SnpEff's parentheses: (GENE|GENEID|NUMTR|PERC)
         first = df[tag].fillna("").str.split(",", n=1).str[0]
@@ -151,5 +151,6 @@ def parse_nmd_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
                 pos = LOF_NMD_SUBFIELD_POSITIONS.get(field.split(".", 1)[1])
                 if pos is not None:
                     df[field] = split[pos].fillna("NA") if pos < split.shape[1] else "NA"
-        df = df.drop(columns=[tag])
+        if tag not in fields:  # a bare LOF/NMD field keeps its raw column
+            df = df.drop(columns=[tag])
     return df
