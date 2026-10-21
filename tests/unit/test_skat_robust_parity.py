@@ -230,7 +230,7 @@ def test_opposing_variants_keep_their_signal(seed):
     weights.beta = c(1, 1)) prints SKAT p 2.5e-21 in sample order and 1.3e-16 after a
     permutation (its own round-off: r = VarQ / VarQ_2 = 0.91 / 0.70); with the exact
     normal-branch variance (r = 1) the port gives 5.1e-23 in every order (v0.24 dev: 0.905
-    and 0.968). The exact-zero case keeps R's robust burden p (test above).
+    and 0.968).
     """
     n = 1000
     y = np.r_[np.ones(500), np.zeros(500)]
