@@ -137,6 +137,7 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
         )
     npz_path = path if path.endswith(".npz") else f"{path}.npz"
     with np.load(npz_path) as data:
+        files = set(data.files)  # data.files is a list: one scan per gene was quadratic
         genes: dict[str, GeneScore] = {}
         for gene, gmeta in meta["genes"].items():
             genes[gene] = GeneScore(
@@ -147,7 +148,7 @@ def load_artifact(path: str) -> ScoreCovarianceArtifact:
                 an=data[f"{gene}::an"],
                 null_converged=bool(gmeta["null_converged"]),
                 n_carriers=gmeta.get("n_carriers"),
-                v_robust=data[f"{gene}::v_robust"] if f"{gene}::v_robust" in data.files else None,
+                v_robust=data[f"{gene}::v_robust"] if f"{gene}::v_robust" in files else None,
             )
     return ScoreCovarianceArtifact(
         stratum_id=meta["stratum_id"],
