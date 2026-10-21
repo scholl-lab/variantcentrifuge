@@ -152,7 +152,9 @@ Compound heterozygous variants are two heterozygous variants in the same gene in
 ### Phased Genotypes Without Parents
 
 When one or both parents are missing, read-backed or statistical phase decides the pair where it can
-(on by default, no option):
+(on by default, no option). Phase is applied only to pairs that pass the existing candidate rules: with
+one parent present, a pair still needs one variant seen in that parent and one not; phase cannot add a
+pair those rules reject.
 
 - Phased `GT` (`0|1`, `1|0`) from WhatsHap, Beagle or similar: two hets on the same haplotype are
   **cis** and the pair is dropped; on opposite haplotypes they are **trans** and the pair is called
@@ -160,9 +162,13 @@ When one or both parents are missing, read-backed or statistical phase decides t
   need the same phase set. A VCF whose header declares no `FORMAT/PS` or `FORMAT/PID` (e.g. Beagle or
   SHAPEIT output) counts as one phase set.
 - GATK `PGT`/`PID`: extract `GEN[*].PGT GEN[*].PID`; two hets with the same `PID` are compared on `PGT`.
+  When a `PID` column is extracted, a phased `GT` counts only together with an extracted `PS`; it is
+  never compared across the whole file.
 - If the header declares `FORMAT/PS` or `FORMAT/PID` (WhatsHap, GATK HaplotypeCaller, DRAGEN) but that
   field is not extracted, phase blocks cannot be told apart: phase is ignored for every pair and one
-  INFO line says so. Add `GEN[*].PS` (and `GEN[*].PGT GEN[*].PID` when declared) to `--fields` to use it.
+  INFO line says so. Add `GEN[*].PS` (and `GEN[*].PGT GEN[*].PID` when declared) to `--fields` or
+  `--append-extra-sample-fields` to use it. An unreadable header counts as declaring `FORMAT/PS`, and
+  `--from-tsv` runs (no VCF header) do not use phase.
 - Statistical phase of rare variants is trusted as given; switch errors can mislabel such pairs.
 - Unphased pairs, or pairs in different phase sets, keep the old labels
   (`compound_heterozygous_possible_no_pedigree` / `_missing_parents`). With both parents present

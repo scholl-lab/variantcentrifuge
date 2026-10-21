@@ -297,3 +297,141 @@ def test_chunk_path_passes_use_phase():
     }
     out = apply_chunk_inheritance_analysis(_gene(["0|1", "0|1"]), ctx)
     assert out["Inheritance_Pattern"].tolist() == [NO_PED] * 2
+
+
+# --- whole-branch review: header key order, PID without PGT, effective fields, no VCF ---
+REORDERED = (
+    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+    '##FORMAT=<ID=PS,Type=Integer,Number=1,Description="Phase set">\n'
+    '##FORMAT=<Type=String,ID=PID,Number=1,Description="Physical phasing ID, a, b">\n'
+    '##INFO=<Description="Allele frequency",Number=A,Type=Float,ID=AF>\n'
+)
+
+
+def test_reordered_header_keys_are_parsed():
+    from variantcentrifuge.vcf_header_parser import parse_vcf_header
+
+    with patch("variantcentrifuge.vcf_header_parser._read_header", return_value=REORDERED):
+        got = {(f.source, f.id, f.number, f.type, f.description) for f in parse_vcf_header("x")}
+    assert ("FORMAT", "PS", "1", "Integer", "Phase set") in got
+    assert ("FORMAT", "PID", "1", "String", "Physical phasing ID, a, b") in got
+    assert ("INFO", "AF", "A", "Float", "Allele frequency") in got
+
+
+def test_reordered_ps_header_turns_phase_off():
+    assert _usable(REORDERED, "CHROM GEN[*].GT")[0] is False
+    assert _usable(REORDERED, "CHROM GEN[*].GT GEN[*].PS GEN[*].PID")[0] is True
+
+
+def test_pid_without_pgt_never_uses_global_block():
+    # PID extracted, PGT not: phased GT without PS must stay unknown (old label)
+    res = _run(_gene(["0|1", "0|1"], **{"GEN[0].PID": ["100_A_T", "300_G_A"]}))
+    assert res[K1]["child"]["comp_het_type"] == NO_PED
+    # PGT present but missing for these records, no PS: unknown as well
+    df = _gene(["0|1", "1|0"], **{"GEN[0].PID": [".", "."], "GEN[0].PGT": [".", "."]})
+    assert _run(df)[K1]["child"]["comp_het_type"] == NO_PED
+    # GT with an extracted PS still proves phase even when PID is present
+    df = _gene(["0|1", "1|0"], **{"GEN[0].PID": [".", "."], "GEN[0].PS": ["7", "7"]})
+    assert _run(df)[K1]["child"]["comp_het_type"] == "compound_heterozygous"
+
+
+def test_appended_extra_sample_fields_count_as_extracted():
+    from variantcentrifuge.vcf_header_parser import comp_het_phase_usable
+
+    cfg = {
+        "vcf_file": "in.vcf.gz",
+        "fields_to_extract": "CHROM GEN[*].GT",
+        "append_extra_sample_fields": True,
+        "extra_sample_fields": ["PS"],
+    }
+    with patch("variantcentrifuge.vcf_header_parser._read_phase_header", return_value=_hdr("PS")):
+        assert comp_het_phase_usable(cfg) is True
+
+
+def test_no_vcf_returns_false_without_bcftools_or_warning(caplog):
+    from variantcentrifuge.vcf_header_parser import comp_het_phase_usable
+
+    with (
+        caplog.at_level(logging.INFO, logger="variantcentrifuge"),
+        patch("variantcentrifuge.vcf_header_parser._read_phase_header") as rd,
+    ):
+        assert comp_het_phase_usable({"fields_to_extract": "GEN[*].GT GEN[*].PS"}) is False
+    rd.assert_not_called()
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+
+def test_analyze_variants_passes_use_phase():
+    import variantcentrifuge.analyze_variants as av
+
+    tsv = "CHROM\tPOS\tREF\tALT\tGENE\tGT\n1\t100\tA\tT\tG1\tchild(0|1)\n"
+    cfg = {
+        "calculate_inheritance": True,
+        "pedigree_data": {},
+        "sample_list": "child",
+        "no_stats": True,
+    }
+    with (
+        patch(
+            "variantcentrifuge.inheritance.analyze_inheritance", side_effect=lambda df, *a, **k: df
+        ) as ai,
+        patch.object(av, "comp_het_phase_usable", return_value=False) as usable,
+    ):
+        list(av.analyze_variants(iter([tsv]), cfg))
+    usable.assert_called_once_with(cfg)
+    assert ai.call_args.kwargs["use_phase"] is False
+
+
+# --- B3b codex re-review: attribute boundaries, exact field tokens, quote pair ---------
+DOTTED_AFTER = (
+    '##FORMAT=<ID=PS,Number=1,Type=Integer,Description="Phase set, cutoff=3 > 1",'
+    "Original.ID=phase_set>\n"
+    '##FORMAT=<ID=PID,Number=1,Type=String,Description="Phasing ID",Original.ID=pid_x>\n'
+    '##INFO=<ID=AF,Number=A,Type=Float,Description="AF",Original.ID=af_raw>\n'
+)
+DOTTED_BEFORE = (
+    '##FORMAT=<Original.ID=phase_set,ID=PS,Number=1,Type=Integer,Description="Phase set">\n'
+    '##FORMAT=<Original.ID=pid_x,ID=PID,Number=1,Type=String,Description="Phasing ID">\n'
+    '##INFO=<Original.ID=af_raw,ID=AF,Number=A,Type=Float,Description="AF">\n'
+)
+
+
+def _parsed(text):
+    from variantcentrifuge.vcf_header_parser import parse_vcf_header
+
+    with patch("variantcentrifuge.vcf_header_parser._read_header", return_value=text):
+        return {(f.source, f.id): f for f in parse_vcf_header("x")}
+
+
+def test_dotted_attributes_do_not_overwrite_id():
+    for text in (DOTTED_AFTER, DOTTED_BEFORE):
+        got = _parsed(text)
+        assert {("FORMAT", "PS"), ("FORMAT", "PID"), ("INFO", "AF")} == set(got)
+        assert _usable(text, "CHROM GEN[*].GT")[0] is False
+    assert _parsed(DOTTED_AFTER)[("FORMAT", "PS")].description == "Phase set, cutoff=3 > 1"
+
+
+def test_description_keeps_escaped_quotes():
+    text = (
+        '##INFO=<ID=X,Number=1,Type=String,Description="a, b=c > d said \\"PASS\\"">\n'
+        '##INFO=<ID=Y,Number=1,Type=String,Description="\\"q\\" first">\n'
+    )
+    got = _parsed(text)
+    assert got[("INFO", "X")].description == 'a, b=c > d said \\"PASS\\"'
+    assert got[("INFO", "Y")].description == '\\"q\\" first'
+
+
+def test_appended_ps_aux_does_not_count_as_ps():
+    from variantcentrifuge.vcf_header_parser import comp_het_phase_usable
+
+    cfg = {
+        "vcf_file": "in.vcf.gz",
+        "fields_to_extract": "CHROM GEN[*].GT",
+        "append_extra_sample_fields": True,
+        "extra_sample_fields": ["GEN[*].PS.AUX"],
+    }
+    with patch("variantcentrifuge.vcf_header_parser._read_phase_header", return_value=_hdr("PS")):
+        use_phase = comp_het_phase_usable(cfg)
+    assert use_phase is False
+    df = _gene(["0|1", "0|1"], **{"GEN[0].PS.AUX": ["100", "200"]})
+    res = analyze_gene_for_compound_het_vectorized(df, {}, ["child"], use_phase=use_phase)
+    assert res[K1]["child"]["comp_het_type"] == NO_PED
