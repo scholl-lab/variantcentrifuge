@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- SKAT-O (single-cohort, COAST and meta): the Davies evaluation at rho = 0.999 is skipped when its exact lower bound P[λmax·χ²₁ > q] shows it cannot be the minimum (about 56 % of genes), and Davies is called once with its term limit raised to 1e6 instead of a 1e4 attempt plus retry. Results are byte-identical; burden + SKAT-O about 15 % and meta about 35 % less time per gene on synthetic 20,000-gene runs. A skipped rho is treated as converged; at DEBUG level the per-rho line notes that the rho = 0.999 entry may be a lower bound.
 - Association: each gene's nuisance projection is computed once per input array and shared by SKAT-O, ACAT-V and the score artifact; with `--skat-robust` and a score artifact the per-variant saddlepoint p-values are computed once per gene; the score artifact reads variant keys from run-level site columns instead of a pandas lookup per gene. Results are byte-identical.
 
 ### Fixed
