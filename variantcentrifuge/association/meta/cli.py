@@ -119,7 +119,10 @@ def main(argv: list[str] | None = None) -> int:
         logger.error("Meta-analysis refused (strata not comparable): %s", exc)
         return 2
     except (FileNotFoundError, ValueError) as exc:
-        logger.error("Meta-analysis failed: %s", exc)
+        # Notes name the failing gene (meta-analysis gene X)
+        logger.error(
+            "Meta-analysis failed: %s", "; ".join([str(exc), *getattr(exc, "__notes__", [])])
+        )
         return 1
 
     logger.info("Meta-analysis wrote %d gene rows to %s", len(df), args.output)

@@ -100,3 +100,16 @@ def test_sequential_fallback_without_fork_is_logged(monkeypatch, caplog):
     caplog.set_level(logging.INFO, logger="variantcentrifuge")
     meta_analyze_artifacts(_three_strata(), workers=2)
     assert "Parallel meta-analysis needs fork (Linux); running genes sequentially" in caplog.text
+
+
+def test_cli_error_log_names_the_gene(tmp_path, monkeypatch, caplog):
+    import variantcentrifuge.association.meta.runner as runner
+
+    def broken(gene, *a, **k):
+        raise ValueError("boom")
+
+    monkeypatch.setattr(runner, "_gene_row", broken)
+    manifest = _write(tmp_path, _two_mask_study(tmp_path))
+    caplog.set_level(logging.ERROR, logger="variantcentrifuge")
+    assert main(["--manifest", manifest, "--output", str(tmp_path / "o.tsv")]) == 1
+    assert "Meta-analysis failed: boom; meta-analysis gene NULLG" in caplog.text

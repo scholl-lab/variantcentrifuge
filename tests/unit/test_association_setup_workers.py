@@ -127,3 +127,31 @@ def test_parallel_task_keeps_batch_char_cap(monkeypatch):
     assert max(seen) <= 40 + max(map(len, text))
     assert named.all() and len(rows) == len(cols) == len(idx) == 100
     assert [gts[i] for i in idx[:4]] == ["0/1", "1/1", "1/1", "1/1"]
+
+
+@needs_fork
+@pytest.mark.parametrize("workers", [0, 1, -1, 2])
+@pytest.mark.parametrize("n_genes", [49, 50])
+def test_setup_and_engine_take_the_same_decision(tmp_path, monkeypatch, workers, n_genes):
+    import variantcentrifuge.stages.association_analysis_stages as stage_mod
+    from variantcentrifuge.association.engine import AssociationEngine
+
+    decisions, setup = [], []
+    real_decide, real_parse = AssociationEngine.runs_parallel, stage_mod.parse_genotype_codes
+
+    def decide(self, n_units):
+        decisions.append((n_units, real_decide(self, n_units)))
+        return decisions[-1][1]
+
+    def parse(*a):
+        setup.append(a[4])
+        return real_parse(*a)
+
+    monkeypatch.setattr(AssociationEngine, "runs_parallel", decide)
+    monkeypatch.setattr(stage_mod, "parse_genotype_codes", parse)
+    _stage(tmp_path, n_genes, workers)
+    # first call: the stage's gene count (then gene sets if needed); last: the engine's loop
+    (n_stage, stage_says), (n_engine, engine_says) = decisions[0], decisions[-1]
+    assert n_stage == n_engine == n_genes
+    assert stage_says == engine_says == (n_genes >= 50 and workers not in (0, 1))
+    assert (setup[0] > 1) == engine_says

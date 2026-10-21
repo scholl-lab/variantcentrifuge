@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any, cast
@@ -12,7 +13,7 @@ import pandas as pd
 
 from ..association.aggregation import _aggregate_gene_burden_legacy
 from ..association.covariate_checks import check_convergence_failures, preflight_covariates
-from ..association.engine import MIN_GENES_FOR_PARALLEL, AssociationEngine
+from ..association.engine import AssociationEngine
 from ..association.gene_sets import add_gene_set_units, load_gene_sets, run_gene_and_set_units
 from ..association.gt_codes import aggregate_gene_counts, parse_genotype_codes
 from ..association.timing import log_stage_summary, substep
@@ -325,12 +326,11 @@ class AssociationAnalysisStage(Stage):
             if vcf_samples_list
             else list(dict.fromkeys([*case_samples, *control_samples]))
         )
-        # Set-up forks only where the engine's gene loop does: all tests parallel-safe (R-backed
-        # tests keep the embedded-R parent single-process) and enough genes.
+        # Set-up forks only where an engine loop (genes, or gene sets) does; never with R tests.
+        n_workers, n_sets = assoc_config.association_workers, len(set_ids)
         setup_workers = (
-            assoc_config.association_workers
-            if all(getattr(t, "parallel_safe", False) for t in engine._tests.values())
-            and df["GENE"].nunique() >= MIN_GENES_FOR_PARALLEL
+            ((os.cpu_count() or 1) if n_workers == -1 else n_workers)
+            if engine.runs_parallel(df["GENE"].nunique() - n_sets) or engine.runs_parallel(n_sets)
             else 1
         )
         genotypes = None
