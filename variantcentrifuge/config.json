@@ -84,6 +84,7 @@
   "presets": {
     "pass": "(FILTER = 'PASS')",
     "not_artefact": "((AC[ANY] <= 513) & (QUAL[ANY] >= 100))",
+    "not_artefact_af5": "((AF[ANY] <= 0.05) & (QUAL[ANY] >= 100))",
     "not_benign": "(!(dbNSFP_clinvar_clnsig =~ '[Bb]enign') & !(ClinVar_CLNSIG =~ '[Bb]enign'))",
     "5percent_or_pathogenic": "(({{gnomad_af_below_or:0.05}}) | (((dbNSFP_clinvar_clnsig =~ '[Pp]athogenic') & !(dbNSFP_clinvar_clnsig =~ '[Cc]onflicting')) | ((ClinVar_CLNSIG =~ '[Pp]athogenic') & !(ClinVar_CLNSIG =~ '[Cc]onflicting'))))",
     "5percent": "({{gnomad_af_below:0.05}})",
