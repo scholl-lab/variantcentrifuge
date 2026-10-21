@@ -6,6 +6,7 @@ import argparse
 import logging
 import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -120,17 +121,19 @@ def resolve_presets_and_tumor_normal(
         filters = _expand_tumor_normal_vars(filters, tumor_normal_vars)
     # A missing path is reported later by validate_vcf_file; do not read its header here.
     uses_info_af = any(re.search(r"(?<![\w.])AF\[", e or "") for e in (filters, raw_final_filter))
-    if (
-        uses_info_af
-        and vcf_arg
-        and os.path.isfile(vcf_arg)
-        and not any(f.source == "INFO" and f.id == "AF" for f in parse_vcf_header(vcf_arg))
-    ):
-        logger.warning(
-            "A filter uses INFO/AF, but %s has no INFO/AF header; SnpSift would drop every "
-            "variant. Add it, e.g. bcftools +fill-tags -- -t AF,AN,AC.",
-            vcf_arg,
-        )
+    if uses_info_af and vcf_arg and os.path.isfile(vcf_arg):
+        try:
+            header = parse_vcf_header(vcf_arg)
+        except (OSError, subprocess.CalledProcessError) as exc:
+            # Advisory only: validate_vcf_file / tool checks report the real error later.
+            logger.debug("Skipping INFO/AF header check for %s: %s", vcf_arg, exc)
+            header = None
+        if header is not None and not any(f.source == "INFO" and f.id == "AF" for f in header):
+            logger.warning(
+                "A filter uses INFO/AF, but %s has no INFO/AF header; SnpSift would drop every "
+                "variant. Add it, e.g. bcftools +fill-tags -- -t AF,AN,AC.",
+                vcf_arg,
+            )
 
     return filters, tumor_normal_vars
 
