@@ -77,3 +77,18 @@ def test_af_in_filter_or_final_filter_warns_without_info_af(tmp_path, caplog, ki
     with caplog.at_level(logging.WARNING, logger="variantcentrifuge"):
         resolve_presets_and_tumor_normal(args, load_config(), expr if kind == "filter" else None)
     assert any("INFO/AF" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("case", ["corrupt", "no_bcftools"])
+def test_af_check_is_skipped_when_header_cannot_be_read(tmp_path, monkeypatch, caplog, case):
+    if case == "corrupt" and not shutil.which("bcftools"):
+        pytest.skip("bcftools required")
+    vcf = tmp_path / "bad.vcf.gz"
+    vcf.write_bytes(b"\x00not a vcf\xff" * 8)
+    if case == "no_bcftools":
+        monkeypatch.setenv("PATH", str(tmp_path))
+    with caplog.at_level(logging.DEBUG, logger="variantcentrifuge"):
+        filters, _ = _resolve(str(vcf), "not_artefact_af5")  # advisory check must not raise
+    assert "AF[ANY] <= 0.05" in filters
+    assert not any("has no INFO/AF" in r.getMessage() for r in caplog.records)
