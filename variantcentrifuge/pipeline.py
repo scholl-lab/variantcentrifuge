@@ -150,7 +150,9 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
         threads = resolve_threads(
             getattr(args, "threads", None) or config.get("threads", 1), config
         )
-        keep_gene = config.get("transcript_fallback") == "keep-gene"
+        keep_gene = (
+            getattr(args, "transcript_fallback", None) or config.get("transcript_fallback")
+        ) == "keep-gene"
         if threads > 1 and keep_gene:
             logger.info(
                 "--transcript-fallback keep-gene: using sequential processing stages, because the "

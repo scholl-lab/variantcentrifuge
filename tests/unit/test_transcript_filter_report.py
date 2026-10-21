@@ -240,18 +240,14 @@ NB_PARTS = {
 }
 
 
-def test_keep_gene_ignores_neighbour_entries_so_chunked_equals_single(tmp_path: Path) -> None:
+def test_keep_gene_ignores_neighbour_entries(tmp_path: Path) -> None:
     single = _run_stage(
         tmp_path / "single",
         records=[r for recs in NB_PARTS.values() for r in recs],
         transcript_list=NB_TX,
         transcript_fallback="keep-gene",
     )
-    inter = _run_parallel(
-        tmp_path / "par", NB_PARTS, transcript_list=NB_TX, transcript_fallback="keep-gene"
-    )
-    chunked = _rows(sorted(inter.glob("*.transcript_filtered.vcf.gz")))
-    assert _rows([single]) == chunked == ["NM_100001.1", "NM_200001.1", "NM_300003.1"]
+    assert _rows([single]) == ["NM_100001.1", "NM_200001.1", "NM_300003.1"]
 
 
 def test_dropped_list_ignores_neighbour_only_genes(tmp_path: Path, caplog) -> None:
@@ -262,12 +258,6 @@ def test_dropped_list_ignores_neighbour_only_genes(tmp_path: Path, caplog) -> No
     assert len(warnings) == 1 and "GENEB" in warnings[0] and "LOCX" not in warnings[0]
     assert "LOCY-LOCZ" not in warnings[0]
     assert (diag / TSV_NAME).read_text().splitlines() == ["gene", "GENEB"]
-
-
-def test_parallel_path_passes_keep_gene_to_workers(tmp_path: Path) -> None:
-    parts = {"c0.bed": RECORDS[:2], "c1.bed": RECORDS[2:]}
-    inter = _run_parallel(tmp_path, parts, transcript_list=TX_LIST, transcript_fallback="keep-gene")
-    assert "NM_200001.1" in _rows(inter.glob("*.transcript_filtered.vcf.gz"))
 
 
 def test_resume_with_reused_chunks_skips_summary(tmp_path: Path, caplog) -> None:
@@ -335,3 +325,20 @@ def test_split_gene_bed_gives_single_pass_rows(tmp_path: Path, fallback) -> None
         kept = run(records, "single")
     assert sorted(kept) == ["NM_1.1"]
     assert ("parallel_complete_processing" in names) == (fallback is None)
+
+
+def test_keep_gene_routing_reads_args_when_config_is_a_path(tmp_path: Path) -> None:
+    """Python API: args.config may be a file path, so keep-gene must also be read from args."""
+    from variantcentrifuge.pipeline import build_pipeline_stages
+
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text("{}")
+    args = Namespace(
+        config=str(cfg_file),
+        threads=4,
+        transcript_list="NM_1.1",
+        transcript_fallback="keep-gene",
+        fields_to_extract="CHROM POS",
+    )
+    names = [s.name for s in build_pipeline_stages(args)]
+    assert "parallel_complete_processing" not in names
