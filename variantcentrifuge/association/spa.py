@@ -186,7 +186,7 @@ def variant_pvalues(
 
     Per gene the score artifact and the robust test ask for the same columns under the
     same null (``--skat-robust`` with ``--score-artifact``): an input bit-identical to the
-    previous call returns that call's result (callers must not modify it).
+    previous call returns that call's (read-only) result.
     """
     geno = np.where(geno.mean(axis=0) / 2.0 > 0.5, 2.0 - geno, geno)
     key = (geno, y, mu, design)
@@ -194,6 +194,8 @@ def variant_pvalues(
         hit: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] = _last[1]
         return hit
     result = _variant_pvalues(geno, y, mu, design)
+    for arr in result:
+        arr.flags.writeable = False  # shared by the artifact hook and the robust test
     _last[:] = [tuple(np.array(a) for a in key), result]  # copies: null arrays may change
     return result
 

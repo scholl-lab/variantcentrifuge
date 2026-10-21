@@ -50,7 +50,8 @@ def compute_eigenvalues_filtered(
 
     Uses scipy.linalg.eigh(driver='evr') matching R's DSYEVR Lapack routine.
     Applies threshold = mean(positive_eigenvalues) / 100_000 (matches R SKAT),
-    floored at ``projection_noise_floor(...)**2 / 2`` (round-off of ``Z'PZ``).
+    floored at ``(bound * sigma_max(V^1/2 Z))**2 / 2`` (round-off of ``Z'PZ``; ``bound`` is
+    the per-column round-off bound of ``null_model._project``).
 
     Parameters
     ----------
@@ -79,7 +80,8 @@ def compute_eigenvalues_filtered(
         return np.array([], dtype=np.float64)
     # R's relative filter, floored at the round-off level of the unprojected kernel
     # (directions explained by covariates must not become noise eigenvalues).
-    # bound * sigma_max(z): null_model.projection_noise_floor from the same projection
+    # Singular-value round-off floor: bound * sigma_max of the UNprojected z (callers zero
+    # explained columns first, so they cannot inflate sigma_max).
     threshold = max(pos.mean() / 100_000.0, float(bound * np.linalg.norm(z, 2)) ** 2 / 2.0)
     return np.asarray(lambdas_all[lambdas_all > threshold], dtype=np.float64)
 

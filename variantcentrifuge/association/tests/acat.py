@@ -38,6 +38,7 @@ from variantcentrifuge.association.backends.null_model import (
     _project,
     classify_projected,
     full_rank_design,
+    project_out_nuisance,
 )
 
 logger = logging.getLogger("variantcentrifuge")
@@ -224,9 +225,9 @@ def compute_acat_v(
             return None  # ill-conditioned covariates: projections not trustworthy
         explained = ~tested
         explained[np.flatnonzero(tested)[explained_tested]] = True
-        g_ss = np.zeros(n_variants)
-        g_ss[tested] = np.sum(projection[0] ** 2, axis=0)
-        g_ss = np.where(explained, 0.0, g_ss)
+        # a column subset takes other BLAS kernels (last bits differ): reuse only the full set
+        z_adj = projection[0] if tested.all() else project_out_nuisance(geno, null_model)
+        g_ss = np.where(explained, 0.0, np.sum(z_adj**2, axis=0))
         var_vec = g_ss if null_model.trait_type == "binary" else sigma2 * g_ss
     else:
         if trait_type == "binary" and mu_hat is not None:

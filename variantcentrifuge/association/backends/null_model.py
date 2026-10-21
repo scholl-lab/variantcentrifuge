@@ -252,18 +252,6 @@ def project_out_nuisance(geno_weighted: np.ndarray, null_model: NullModelResult)
     return adjusted if geno_weighted.ndim == 2 else adjusted[:, 0]
 
 
-def projection_noise_floor(geno_weighted: np.ndarray, null_model: NullModelResult) -> float:
-    """
-    Singular-value floor below which ``project_out_nuisance`` output is round-off.
-
-    The per-column round-off bound of :func:`_project` times ``sigma_max`` of the
-    UNprojected (variance-weighted) matrix.  Use after :func:`explained_columns`
-    has zeroed individually explained columns, so they cannot inflate ``sigma_max``.
-    """
-    _adjusted, z, bound = _project(geno_weighted, null_model)
-    return float(bound * np.linalg.norm(z, 2))
-
-
 def explained_columns(geno: np.ndarray, null_model: NullModelResult) -> np.ndarray | None:
     """
     Classify unweighted genotype columns against the nuisance (covariate) space.

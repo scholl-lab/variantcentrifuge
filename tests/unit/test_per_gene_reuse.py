@@ -11,6 +11,7 @@ from unittest.mock import PropertyMock, patch
 import numpy as np
 import pandas as pd
 import pytest
+from scipy.stats import norm
 
 from tests.unit.test_artifact_single_pass import _genes
 from variantcentrifuge.association import spa
@@ -22,6 +23,7 @@ from variantcentrifuge.association.meta.artifact import (
     compute_gene_score,
     fit_stratum_null,
 )
+from variantcentrifuge.association.tests.acat import cauchy_combination, compute_acat_v
 from variantcentrifuge.association.tests.skat_python import PurePythonSKATTest
 from variantcentrifuge.stages.association_stage_helpers import _score_artifact_hook
 from variantcentrifuge.stages.genotype_matrix_builder import _GenotypeMatrixBuilder
@@ -178,3 +180,78 @@ def test_artifact_site_index_gives_identical_records() -> None:
         with pytest.raises(ValueError, match="unique"):
             hook("DUP", builders["DUP"], _build_for_artifact(builders["DUP"]))
         assert hook("EMPTY", builders["EMPTY"], {}) is None
+
+
+def _acat_v0_24(geno, null, weights) -> float | None:
+    """v0.24.0 ACAT-V: variances from the projection of the FULL matrix (reference)."""
+    tested = weights != 0.0
+    explained_tested = nm.explained_columns(geno[:, tested], null)
+    if explained_tested is None:
+        return None
+    explained = ~tested
+    explained[np.flatnonzero(tested)[explained_tested]] = True
+    z_adj = nm.project_out_nuisance(geno, null)
+    g_ss = np.where(explained, 0.0, np.sum(z_adj**2, axis=0))
+    score = geno.T @ null.extra["residuals"]
+    p, w = [], []
+    for j in range(geno.shape[1]):
+        if g_ss[j] <= 1e-12 or g_ss[j] <= 0.0:
+            continue
+        p.append(2.0 * float(norm.sf(abs(score[j] / np.sqrt(g_ss[j])))))
+        w.append(float(weights[j]))
+    return cauchy_combination(p, w) if p else None
+
+
+@pytest.mark.unit
+def test_acat_v_with_zero_weights_is_bit_identical_to_v0_24() -> None:
+    """Zero weights (score-column floor): ACAT-V keeps the full-matrix projection's bits."""
+    rng = np.random.default_rng(11)
+    pheno = np.r_[np.ones(80), np.zeros(N - 80)]
+    null = fit_stratum_null(pheno, rng.normal(size=(N, 3)), "binary")
+    args = (null.extra["residuals"], "binary", 1.0, null.extra["mu_hat"])
+    for gene in range(120):
+        p = int(rng.integers(2, 12))
+        geno = np.asfortranarray(rng.binomial(2, rng.uniform(0.01, 0.2, p), size=(N, p)), float)
+        weights = rng.uniform(0.1, 5.0, p)
+        if gene % 3 == 0:
+            weights[1:] = 0.0  # one tested column
+        else:
+            weights[rng.random(p) < 0.4] = 0.0
+        got = compute_acat_v(geno, *args, weights, null_model=null)
+        assert got == _acat_v0_24(geno, null, weights), gene
+
+
+@pytest.mark.unit
+def test_spa_cache_key_covers_mu_and_design() -> None:
+    """Same genotypes under another null (y, mu or design) are recomputed, not reused."""
+    geno, pheno, cov = _gene()
+    minor = np.where(geno.mean(0) / 2 > 0.5, 2 - geno, geno)
+    y, mu, design = spa.null_arrays(fit_stratum_null(pheno, cov, "binary"))
+    other = design.copy()
+    other[:, -1] = np.random.default_rng(3).normal(size=N)
+    refit = spa.null_arrays(fit_stratum_null(pheno, cov[:, :1], "binary"))
+    cases = [(y, mu, design), (y, mu, other), (y, np.full(N, 0.2), design)]
+    cases += [(1.0 - y, mu, design), refit]
+    for y2, mu2, d2 in cases:
+        before = spa.variant_pvalues(geno, y, mu, design)[1].tobytes()
+        got = spa.variant_pvalues(geno, y2, mu2, d2)
+        fresh = spa._variant_pvalues(minor, y2, mu2, d2)
+        assert all(a.tobytes() == b.tobytes() for a, b in zip(got, fresh, strict=True))
+        assert (got[1].tobytes() == before) == (y2 is y and mu2 is mu and d2 is design)
+
+
+@pytest.mark.unit
+def test_cached_spa_results_are_read_only() -> None:
+    geno, pheno, cov = _gene()
+    result = spa.variant_pvalues(geno, *spa.null_arrays(fit_stratum_null(pheno, cov, "binary")))
+    assert not any(a.flags.writeable for a in result)
+
+
+@pytest.mark.unit
+def test_spa_cache_key_covers_genotypes() -> None:
+    geno, pheno, cov = _gene()
+    y, mu, design = spa.null_arrays(fit_stratum_null(pheno, cov, "binary"))
+    first = spa.variant_pvalues(geno, y, mu, design)[1].tobytes()
+    other = geno.copy()
+    other[:40, 0] = 1.0
+    assert spa.variant_pvalues(other, y, mu, design)[1].tobytes() != first
