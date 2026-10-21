@@ -89,7 +89,7 @@ flowchart TD
 | `--output-dir DIR` | `output` | Directory for intermediate and final output |
 | `--xlsx` | `false` | Also produce Excel output |
 | `--keep-intermediates` | `false` | Keep all intermediate files after run |
-| `--temp-dir DIR` | `<output-dir>/intermediate` | Create the temporary directory under `DIR` (also used for bulk temp files, SnpSift's JVM tmp dir and `sort -T`). Use a large scratch filesystem when `/tmp` or the output disk is small |
+| `--temp-dir DIR` | `<output-dir>/intermediate` | Create the temporary directory under `DIR` (also used for bulk temp files, SnpSift's JVM tmp dir, `sort -T` and the parallel chunk workers' bcftools/SnpSift temp files). Use a large scratch filesystem when `/tmp` or the output disk is small |
 | `--archive-results` | `false` | Create timestamped `.tar.gz` archive of results |
 
 #### Re-running Analysis and Reporting from an Existing TSV (`--from-tsv`)
@@ -123,6 +123,7 @@ variantcentrifuge \
 | `-G` / `--gene-file PATH` | — | File with gene names, one per line |
 | `--transcript-list IDS` | — | Comma-separated transcript IDs. Matching `ANN` entries are retained and become `ANN[0]` for extraction |
 | `--transcript-file PATH` | — | File with transcript IDs, one per line. Use GRCh38 MANE Select lists for GRCh38 VCFs; use GRCh37 RefSeq Select lists for hg19/GRCh37 RefSeq VCFs |
+| `--transcript-fallback MODE` | `none` | For a gene none of whose transcripts is in the list: `none` drops it (reported as a WARNING), `keep-gene` keeps all of its transcripts. See [Transcript-Specific Extraction](guides/annotation_strategies.md) |
 
 ### Filtering Options
 
@@ -263,7 +264,7 @@ For modular rare variant association testing beyond the basic Fisher's exact tes
 | `--variant-weights SCHEME` | `beta:1,25` | Variant weight scheme: `beta:a,b`, `uniform`, `cadd`, `revel`, `combined` |
 | `--variant-weight-params JSON` | — | JSON string of weight scheme parameters (e.g., `'{"cadd_cap": 30}'`) |
 | `--coast-weights WEIGHTS` | — | COAST category weights as comma-separated floats (BMV,DMV,PTV) |
-| `--diagnostics-output DIR` | — | Directory for diagnostics output: `lambda_gc.tsv`, `qq_data.tsv`, `summary.txt`, `covariate_case_control.tsv` (with categorical covariates), `stage_summary.tsv` (wall, CPU and peak-RSS high-water per pipeline stage) |
+| `--diagnostics-output DIR` | — | Directory for diagnostics output: `lambda_gc.tsv`, `qq_data.tsv`, `summary.txt`, `covariate_case_control.tsv` (with categorical covariates), `stage_summary.tsv` (wall, CPU and peak-RSS high-water per pipeline stage), `transcript_filter_dropped_genes.tsv` (genes dropped by `--transcript-list`/`--transcript-file`) |
 
 For detailed usage, test selection guidance, and examples, see the [Association Testing Guide](guides/association_testing.md).
 

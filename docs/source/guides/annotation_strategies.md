@@ -390,6 +390,22 @@ restrict annotation with `-onlyTr` or `-tag MANE_Select`. VariantCentrifuge does
 infer MANE status from gene symbols alone; provide a transcript list that matches the
 VCF's annotation source.
 
+### Genes without a listed transcript
+
+A gene none of whose annotated transcripts is in the transcript list loses all its
+variants. After filtering, VariantCentrifuge logs one INFO summary (transcripts requested,
+matched exactly, matched with a different version, unmatched, and genes before -> after) and a
+WARNING naming the dropped genes (first 10). With `--diagnostics-output DIR` the full list is
+written to `DIR/transcript_filter_dropped_genes.tsv` (one column, `gene`). Only gene-body
+annotations count: a gene that appears only as an upstream, downstream or intergenic neighbour
+of a variant is neither reported nor kept.
+
+To keep such genes, add `--transcript-fallback keep-gene`: every annotation of a gene with no
+matched transcript is kept, so each of its transcripts becomes a row (readthrough genes without a
+listed transcript are kept too). Genes with at least one matched transcript are filtered as
+before. In parallel runs the counts are summed over the chunks; when a resumed run reuses chunk
+outputs, the summary and the dropped-gene list are skipped.
+
 ## Custom Gene Annotations with VariantCentrifuge
 
 In addition to standard VCF annotations, VariantCentrifuge provides built-in functionality to add custom annotations during analysis. These annotations are applied after variant extraction and are included in the final output.
