@@ -343,8 +343,11 @@ variantcentrifuge \
 
 The transcript file must match the transcript namespace present in `ANN[0].FEATUREID`.
 For SnpEff RefSeq annotations this is typically `NM_*`; for Ensembl/GENCODE annotations
-this is typically `ENST*`. Transcript versions matter: `NM_000059.4` and
-`NM_000059.3` are different IDs.
+this is typically `ENST*`. Version suffixes are matched leniently: an exact ID
+such as `NM_000059.4` is preferred, but if a variant has no annotation with that exact ID,
+annotations of the same accession with another version (for example `NM_000059.3`) are kept
+instead and reported as version-skewed matches in the INFO summary; an ID listed without a
+version matches any version.
 
 ### MANE transcript lists
 
