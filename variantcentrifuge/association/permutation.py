@@ -37,7 +37,7 @@ logger = logging.getLogger("variantcentrifuge")
 
 H_STOP = 10  # Besag-Clifford: stop at the 10th replicate statistic >= the observed one
 FIRST_BATCH = 128  # batches double up to MAX_BATCH: early stops stay cheap
-MAX_BATCH = 1024  # ponytail: n x 1024 float64 per batch (~50 MB at 6,000 samples)
+MAX_BATCH = 1024  # ponytail: 2 x n x 1024 float64 per batch (~100 MB at 6,000 samples)
 BURDEN_TESTS = ("logistic_burden", "linear_burden")
 
 _STATISTICS: dict[str, Callable[[np.ndarray], np.ndarray]] = {
@@ -66,6 +66,14 @@ def permutation_statistic(
     if "logistic_burden" in test_names:
         return "burden"
     raise ValueError("--permutations requires 'skat' or 'logistic_burden' in --association-tests")
+
+
+def source_pvalue_column(stat: str, test_names: Sequence[str], columns: Sequence[str]) -> str:
+    """Output column of the test whose statistic is permuted: genes are selected on it."""
+    if stat == "skat":
+        return "skat_o_pvalue" if "skat_o_pvalue" in columns else "skat_pvalue"
+    burden = [t for t in BURDEN_TESTS if t in test_names]
+    return f"{burden[0]}_pvalue" if burden else "skat_pvalue"  # else SKAT --skat-method Burden
 
 
 def is_primary_statistic(stat: str, primary_id: str, skat_method: str) -> bool:
@@ -161,10 +169,21 @@ def add_empirical_p(
     config: Any,
     primary_id: str,
 ) -> pd.DataFrame:
-    """Add empirical_p, n_permutations and permutation_method for genes below the threshold."""
+    """Add empirical_p, n_permutations and permutation_method for genes below the threshold.
+
+    Genes are selected on the p of the test whose statistic is permuted; a gene that
+    test gave no p is not permuted and ``permutation_method`` says why.
+    """
     stat = permutation_statistic(test_names, primary_id, config.skat_method, config.trait_type)
-    below = pd.to_numeric(result_df["primary_pvalue"], errors="coerce") < config.permute_below_p
+    column = source_pvalue_column(stat, test_names, list(result_df.columns))
+    source_p = pd.to_numeric(result_df[column], errors="coerce")
+    below = source_p < config.permute_below_p
     genes = [g for g in result_df.loc[below, "gene"] if builders.get(g) is not None]
+    reason = result_df.get("skat_skip_reason") if stat == "skat" else None
+    skipped = [
+        f"skipped_{r}" if isinstance(r, str) and r else "skipped_no_pvalue"
+        for r in (reason if reason is not None else [None] * len(result_df))
+    ]
     if not is_primary_statistic(stat, primary_id, config.skat_method):
         logger.warning(
             f"Permutation: primary result '{primary_id}' cannot be rebuilt from score "
@@ -183,7 +202,7 @@ def add_empirical_p(
     by_gene = {g: r for g, r in zip(genes, found, strict=True) if r is not None}
     elapsed = time.perf_counter() - t0
     logger.info(
-        f"Permutation: {len(by_gene)} of {len(genes)} genes with primary p < "
+        f"Permutation: {len(by_gene)} of {len(genes)} genes with {column} < "
         f"{config.permute_below_p:g} got an empirical p ({METHOD_LABEL[stat]}, N <= "
         f"{config.permutations}, seed {config.seed}) in {elapsed:.1f}s"
     )
@@ -193,5 +212,8 @@ def add_empirical_p(
         n_permutations=pd.array(
             [r[1] if isinstance(r, tuple) else None for r in hits], dtype="Int64"
         ),
-        permutation_method=[METHOD_LABEL[stat] if isinstance(r, tuple) else None for r in hits],
+        permutation_method=[
+            METHOD_LABEL[stat] if isinstance(r, tuple) else (skip if np.isnan(p) else None)
+            for r, p, skip in zip(hits, source_p, skipped, strict=True)
+        ],
     )

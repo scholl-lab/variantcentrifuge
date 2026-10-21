@@ -835,8 +835,10 @@ Defaults reproduce earlier output exactly.
 
 ### Empirical p-values (`--permutations`)
 
-`--permutations N --permute-below-p P` (default off; `P` defaults to `1e-4`) gives every gene
-whose `primary_pvalue` is below `P` an empirical p-value. Binary traits, single cohort.
+`--permutations N --permute-below-p P` (default off; `P` defaults to `1e-4`) gives an empirical
+p-value to every gene whose p from the permuted test is below `P`: `skat_pvalue` (or
+`skat_o_pvalue` under `--skat-method SKATO`) when SKAT Q is permuted, `logistic_burden_pvalue`
+when the burden score is. Binary traits, single cohort.
 
 - **Null:** a parametric bootstrap from the fitted covariate null model: case labels are
   redrawn as `y* ~ Bernoulli(mu_hat)`, so covariate strata keep their case rates. The null
@@ -846,7 +848,11 @@ whose `primary_pvalue` is below `P` an empirical p-value. Binary traits, single 
 - **Statistic:** SKAT Q for a SKAT primary and the weighted burden score for a burden
   primary. ACAT-O and SKAT-O cannot be rebuilt cheaply from the scores, so with those
   primaries the empirical p is for SKAT Q (burden score if SKAT is not run), and the run
-  logs a warning naming the statistic used.
+  logs a warning naming the statistic used. Genes are then selected on the SKAT (or burden)
+  p, not on the primary p, and a large `empirical_p` does not refute a small ACAT-O p that
+  another component drove.
+- **Skipped genes:** a gene the permuted test gave no p (e.g. SKAT `rank_deficient`) is not
+  permuted; `permutation_method` is `skipped_<skip reason>` (`skipped_no_pvalue` without one).
 - **Stopping:** Besag–Clifford: stop at the 10th replicate at least as extreme as the
   observed statistic, `p = 10 / replicates`; otherwise `p = (exceedances + 1) / (N + 1)`.
   The p-value is never 0, and the smallest reachable value is `1 / (N + 1)`.
@@ -858,7 +864,8 @@ whose `primary_pvalue` is below `P` an empirical p-value. Binary traits, single 
 The options are checked before extraction (binary trait, `skat` or `logistic_burden` in
 `--association-tests`). Config-file keys: `"permutations"`, `"permute_below_p"`, `"seed"`.
 In a synthetic null with covariates (5,000 samples at 1:9 and 900 at 8:1, 4,000 genes,
-N = 1,000) the empirical p was uniform (Kolmogorov–Smirnov p ≥ 0.1 for SKAT Q and burden).
+N = 1,000) the empirical p was uniform: Kolmogorov–Smirnov p 0.097–0.49 for SKAT Q and burden,
+and 4.7–5.5 % of genes at p ≤ 0.05.
 A gene that runs all N = 10,000 replicates at 5,000 samples takes about 0.4 s on one core.
 Meta-analysis permutation needs genotypes from every cohort and is not supported (#195).
 

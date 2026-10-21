@@ -55,6 +55,8 @@ class TestValidation:
             (["--permutations", "9", "--permute-below-p", "0"], ["skat"], None, "(0, 1]"),
             (["--permute-below-p", "0.01"], ["skat"], None, "require --permutations"),
             (["--seed", "3"], ["skat"], None, "require --permutations"),
+            (["--permutations", "9", "--seed", "-1"], ["skat"], None, "--seed must be >= 0"),
+            ([], ["skat"], {"permutations": 9, "seed": -2}, "--seed must be >= 0"),
             ([], ["fisher"], {"permutations": 9}, "'skat' or 'logistic_burden'"),
         ],
     )
@@ -206,7 +208,9 @@ class TestEngine:
         pd.testing.assert_frame_equal(one, _engine_run(1))
         other_seed = _engine_run(1, seed=1)
         assert not np.array_equal(one["empirical_p"], other_seed["empirical_p"], equal_nan=True)
-        below = pd.to_numeric(one["primary_pvalue"]) < 0.5
+        # selection is on the permuted statistic's own p (SKAT), not the ACAT-O primary
+        below = pd.to_numeric(one["skat_pvalue"]) < 0.5
+        assert (below != (pd.to_numeric(one["primary_pvalue"]) < 0.5)).any()
         assert one.loc[below, "empirical_p"].notna().all()
         assert one.loc[~below, "empirical_p"].isna().all()
         assert one.loc[~below, "n_permutations"].isna().all()
@@ -227,6 +231,23 @@ class TestEngine:
         assert set(df["permutation_method"]) == {"bootstrap_burden_score"}
         assert df.loc["G001", "empirical_p"] == 1 / 501
         assert df.loc["G001", "n_permutations"] == 500
+
+    def test_gene_without_permuted_test_p_is_not_permuted(self):
+        """A gene SKAT-O skips (one variant: rank_deficient) gets no SKAT-Q empirical p."""
+        genes = _gene_dicts(3, 400, 0.2, seed=4)
+        one_var = genes[0]["_genotype_matrix_builder"]()
+        one_var["genotype_matrix"] = one_var["genotype_matrix"][:, :1]
+        one_var["variant_mafs"] = one_var["variant_mafs"][:1]
+        genes[0]["_genotype_matrix_builder"] = lambda: dict(one_var)
+        config = AssociationConfig(
+            permutations=200, permute_below_p=1.0, skat_method="SKATO", association_workers=1
+        )
+        df = AssociationEngine.from_names(["logistic_burden", "skat"], config).run_all(genes)
+        row = df.set_index("gene").loc["G000"]
+        assert row["skat_skip_reason"] == "rank_deficient"
+        assert np.isnan(row["empirical_p"]) and pd.isna(row["n_permutations"])
+        assert row["permutation_method"] == "skipped_rank_deficient"
+        assert df.set_index("gene").loc["G001", "permutation_method"] == "bootstrap_skat_q"
 
     def test_untestable_genes_get_no_empirical_p(self):
         config = SimpleNamespace(

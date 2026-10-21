@@ -251,7 +251,9 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "Empirical p-values for the top genes: up to N parametric-bootstrap replicates "
-            "per gene from the fixed covariate null model, with adaptive stopping. "
+            "per gene from the fixed covariate null model, with adaptive stopping. The "
+            "statistic is SKAT Q (burden score for a burden primary or without SKAT), "
+            "also when the primary is ACAT-O/SKAT-O. "
             "Binary traits, single cohort. Default: off."
         ),
     )
@@ -259,7 +261,11 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         "--permute-below-p",
         type=float,
         default=None,
-        help="Genes whose primary p-value is below this get an empirical p. Default: 1e-4.",
+        help=(
+            "Genes whose p from the permuted test is below this get an empirical p: the "
+            "SKAT p (skat_pvalue / skat_o_pvalue) when SKAT Q is permuted, else the "
+            "logistic_burden p. Default: 1e-4."
+        ),
     )
     stats_group.add_argument(
         "--seed",

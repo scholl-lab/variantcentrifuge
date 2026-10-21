@@ -313,6 +313,8 @@ def validate_association_args(
         n_perm, below_p = perm["permutations"] or 0, perm["permute_below_p"]
         if n_perm < 0:
             _fail(f"--permutations must be >= 0, got {n_perm}")
+        elif (perm["seed"] or 0) < 0:
+            _fail(f"--seed must be >= 0, got {perm['seed']}")
         elif n_perm == 0:
             if below_p is not None or perm["seed"] is not None:
                 _fail("--permute-below-p and --seed require --permutations N (N > 0)")
