@@ -86,7 +86,7 @@ def filter_ann_value_by_transcripts(
         if not entries:
             return None
 
-    parsed: list[tuple[str, str, str, str]] = []
+    parsed: list[tuple[str, str, str, str | None]] = []
     for entry in entries:
         parts = entry.split("|")
         if len(parts) > ANN_FEATURE_ID_INDEX:
