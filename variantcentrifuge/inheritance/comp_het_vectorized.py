@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..genotype_utils import phase_format_columns, phased_alt_haplotypes
 from ..ped_reader import get_parents, is_affected
 
 logger = logging.getLogger(__name__)
@@ -176,6 +177,7 @@ def analyze_gene_for_compound_het_vectorized(
     else:
         candidate_samples = []
 
+    phase_cols = None  # per-sample phase FORMAT columns, looked up once per gene
     for sample_id in candidate_samples:
         # Handle missing pedigree data — callers (analyzer.py, parallel_analyzer.py)
         # pre-populate pedigree_data before calling this function; this fallback
@@ -247,6 +249,12 @@ def analyze_gene_for_compound_het_vectorized(
                     if len(partners) > 0:
                         partners_by_variant_idx[int(var_idx)] = partners.tolist()  # type: ignore[assignment]
 
+        if not (has_father and has_mother):
+            if phase_cols is None:
+                phase_cols = phase_format_columns(gene_df_unique.columns)
+            fmt = phase_cols.get(sample_list.index(sample_id), {}) if phase_cols else {}
+            haps = phased_alt_haplotypes(gene_df_unique, sample_id, het_indices, fmt)
+
         # Store results based on the new partner structure
         for result_var_idx, partner_indices in partners_by_variant_idx.items():
             if has_father and has_mother:
@@ -301,20 +309,35 @@ def analyze_gene_for_compound_het_vectorized(
                     inheritance_type = "ambiguous" if has_ambiguous else "unknown"
 
                 partner_indices = valid_partner_indices
-            elif has_father or has_mother:
-                comp_het_type = "compound_heterozygous_possible_missing_parents"
-                inheritance_type = "unknown"
-                partner_keys = [unique_keys[pidx] for pidx in partner_indices]
-                partner_types = dict.fromkeys(partner_keys, inheritance_type)
-                partner_comp_het_types = dict.fromkeys(partner_keys, comp_het_type)
-                all_comp_het_types = [comp_het_type]
             else:
-                comp_het_type = "compound_heterozygous_possible_no_pedigree"
-                inheritance_type = "unknown"
-                partner_keys = [unique_keys[pidx] for pidx in partner_indices]
-                partner_types = dict.fromkeys(partner_keys, inheritance_type)
-                partner_comp_het_types = dict.fromkeys(partner_keys, comp_het_type)
-                all_comp_het_types = [comp_het_type]
+                possible = "compound_heterozygous_possible_" + (
+                    "missing_parents" if has_father or has_mother else "no_pedigree"
+                )
+                # Read-backed phase (#236): drop proven-cis partners, call proven-trans ones
+                h1 = haps[result_var_idx]
+                rel = {}
+                for pidx in partner_indices:
+                    h2 = haps[pidx]
+                    if h1 is None or h2 is None or h1[0] != h2[0]:
+                        rel[pidx] = "unknown"
+                    else:
+                        rel[pidx] = "cis" if h1[1] == h2[1] else "trans"
+                partner_indices = [p for p in partner_indices if rel[p] != "cis"]
+                if not partner_indices:
+                    continue
+                partner_types = {
+                    unique_keys[p]: "trans_phased" if rel[p] == "trans" else "unknown"
+                    for p in partner_indices
+                }
+                partner_comp_het_types = {
+                    unique_keys[p]: "compound_heterozygous" if rel[p] == "trans" else possible
+                    for p in partner_indices
+                }
+                all_comp_het_types = list(dict.fromkeys(partner_comp_het_types.values()))
+                if "trans" in rel.values():
+                    comp_het_type, inheritance_type = "compound_heterozygous", "trans_phased"
+                else:
+                    comp_het_type, inheritance_type = possible, "unknown"
 
             var_key = unique_keys[result_var_idx]
 

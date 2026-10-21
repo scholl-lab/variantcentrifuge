@@ -149,6 +149,20 @@ Compound heterozygous variants are two heterozygous variants in the same gene in
 3. When parents are unavailable, variants are marked as `compound_het_possible`
 4. Multiple compound het pairs in a gene are ranked by variant impact and allele frequency
 
+### Phased Genotypes Without Parents
+
+When one or both parents are missing, read-backed or statistical phase decides the pair where it can
+(on by default, no option):
+
+- Phased `GT` (`0|1`, `1|0`) from WhatsHap, Beagle or similar: two hets on the same haplotype are
+  **cis** and the pair is dropped; on opposite haplotypes they are **trans** and the pair is called
+  `compound_heterozygous` (configuration `trans_phased`). If `GEN[*].PS` is extracted, both records
+  need the same phase set; without a PS column the whole VCF counts as one phase set.
+- GATK `PGT`/`PID`: extract `GEN[*].PGT GEN[*].PID`; two hets with the same `PID` are compared on `PGT`.
+- Unphased pairs, or pairs in different phase sets, keep the old labels
+  (`compound_heterozygous_possible_no_pedigree` / `_missing_parents`). With both parents present
+  the parental genotypes decide and phase is not used.
+
 ### Performance
 
 The default vectorized implementation is 10-50x faster than the original for genes with many variants:
@@ -247,7 +261,7 @@ variantcentrifuge \
 
 ### Compound het not detected
 - Need at least 2 heterozygous variants per gene per affected sample
-- Parent genotypes required to confirm trans configuration (without parents, `compound_het_possible` is reported)
+- Parent genotypes or phased genotypes are required to confirm trans configuration (otherwise `compound_het_possible` is reported); pairs proven cis by phase are not reported
 - Check that gene names are consistent between variants
 
 ## See Also
