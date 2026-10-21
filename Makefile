@@ -8,6 +8,8 @@ NC := \033[0m
 
 # Python
 PYTHON ?= $(if $(wildcard .venv/bin/python),.venv/bin/python,python)
+# xdist workers; lower under a memory cap, e.g. make ci-check PYTEST_WORKERS=8
+PYTEST_WORKERS ?= auto
 
 help: ## Show this help message
 	@echo "$(CYAN)Available targets:$(NC)"
@@ -74,7 +76,7 @@ $(DAVIES_EXT): variantcentrifuge/_davies_build.py variantcentrifuge/association/
 
 test: $(DAVIES_EXT) ## Run all tests with coverage (same as CI)
 	@echo "$(CYAN)Running tests with coverage...$(NC)"
-	$(PYTHON) -m pytest -n auto --dist worksteal tests/ \
+	$(PYTHON) -m pytest -n $(PYTEST_WORKERS) --dist worksteal tests/ \
 		--verbose \
 		--cov=variantcentrifuge \
 		--cov-report=xml \
@@ -82,13 +84,13 @@ test: $(DAVIES_EXT) ## Run all tests with coverage (same as CI)
 	@echo "$(GREEN)Tests passed$(NC)"
 
 test-unit: $(DAVIES_EXT) ## Run unit tests only
-	$(PYTHON) -m pytest -n auto --dist worksteal -m unit tests/ -v
+	$(PYTHON) -m pytest -n $(PYTEST_WORKERS) --dist worksteal -m unit tests/ -v
 
 test-integration: $(DAVIES_EXT) ## Run integration tests only
-	$(PYTHON) -m pytest -n auto --dist worksteal -m integration tests/ -v
+	$(PYTHON) -m pytest -n $(PYTEST_WORKERS) --dist worksteal -m integration tests/ -v
 
 test-fast: $(DAVIES_EXT) ## Run non-slow, non-integration tests
-	$(PYTHON) -m pytest -n auto --dist worksteal -m "not slow and not integration" tests/ --tb=short -q
+	$(PYTHON) -m pytest -n $(PYTEST_WORKERS) --dist worksteal -m "not slow and not integration" tests/ --tb=short -q
 
 # Real-data e2e: run inside the variantcentrifuge image (bcftools, snpEff, SnpSift).
 E2E_IMAGE ?= ghcr.io/scholl-lab/variantcentrifuge:latest
