@@ -114,3 +114,29 @@ def test_meta_skato_underflowed_rhos_keep_v024_p():
 
     u = [np.sqrt(5000.0) * np.array([1.0, -1.0])]
     assert meta_skato(u, [2.0 * np.eye(2)], np.ones(2)) == (0.11379218388721413, 0.0)
+
+
+def test_skato_debug_log_does_not_present_skipped_bound_as_p(monkeypatch, caplog):
+    """A skipped rho=0.999 entry is a lower bound; the per-rho DEBUG line must say so."""
+    import logging
+
+    from variantcentrifuge.association.backends import python_backend
+    from variantcentrifuge.association.backends.python_backend import (
+        _SKATO_RHO_GRID,
+        PythonSKATBackend,
+    )
+
+    rng = np.random.default_rng(200)
+    geno = rng.integers(0, 3, (60, 4)).astype(np.float64)
+    backend = PythonSKATBackend()
+    backend.detect_environment()
+    null = backend.fit_null_model(rng.integers(0, 2, 60).astype(np.float64), None, "binary")
+    rho = np.array(_SKATO_RHO_GRID)
+    # codex input: rho < 0.999 have small p, so rho=0.999 is skipped
+    monkeypatch.setattr(
+        python_backend, "compute_skato_q_and_z1", lambda *a: (5 * (1 - rho), np.eye(2))
+    )
+    with caplog.at_level(logging.DEBUG, logger="variantcentrifuge"):
+        backend.test_gene("G", geno, null, "SKATO", weights=np.ones(4))
+    lines = [r.getMessage() for r in caplog.records if "per-rho" in r.getMessage()]
+    assert lines and all("lower bound" in m for m in lines)

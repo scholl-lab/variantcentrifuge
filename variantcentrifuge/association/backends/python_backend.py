@@ -506,7 +506,8 @@ class PythonSKATBackend(SKATBackend):
 
         logger.debug(
             f"Gene {gene} SKAT-O: p={pvalue:.6e}, rho={best_rho}, "
-            f"per-rho: {[f'{p:.2e}' for p in pval_each]}"
+            f"per-rho: {[f'{p:.2e}' for p in pval_each]} "
+            "(rho=0.999 entry may be a lower bound when it is not the minimum)"
         )
 
         return {
