@@ -214,6 +214,16 @@ def _skato_each_q(
 
         # For optimal.adj: use Davies -> Liu chain (Get_PValue.Lambda)
         for j in range(n_q):
+            if 0 < i == n_rho - 1 and _rho >= 0.999 and len(lam) > 1 and q_all[j, i] > 0:
+                # P[lmax chi2_1 > q] <= P[Q > q]; above the other rhos' min by more than Davies'
+                # acc, rho=0.999 cannot be the min (pmin, pmin_q, argmin unchanged): skip Davies.
+                # ponytail: assumes its Davies would converge (else p_converged could differ)
+                bound = float(scipy.stats.chi2.sf(q_all[j, i] / lam.max(), df=1))
+                others = pval[j, :i]
+                # an underflowed p (<= 0) lets _skato_get_pvalue report the smallest positive one
+                if np.all(np.isfinite(others) & (others > 0)) and bound > others.min() + 1e-6:
+                    pval[j, i] = bound
+                    continue
             p_val, _method, conv = compute_pvalue(q_all[j, i], lam)
             pval[j, i] = p_val
             # Liu is exact for one eigenvalue or q <= 0 (R also counts these as converged)
@@ -273,26 +283,26 @@ def _skato_integrate_davies(
     acc_target = _SKATO_DAVIES_REL_ACC * pmin
     acc = float(np.clip(acc_target, _SKATO_DAVIES_MIN_ACC, 1e-6))
 
-    def surv(x: np.ndarray) -> np.ndarray:
+    def surv(x: float) -> float:
         """P[Q > g(x)] for the conditional statistic g(x) = (m(x) - mu_q)*sd1 + mu_q."""
-        min_q = np.min(a[None, :] - b[None, :] * x[:, None], axis=1)
+        min_q = float(np.min(a - b * x))
         z = (min_q - mu_q) * sd1 + mu_q
         if len(lambdas) == 1:
             # Rank one: exact scaled chi2(1); Davies' series fails near the support edge
-            return np.asarray(scipy.stats.chi2.sf(z / lambdas[0], df=1))
-        out = np.zeros(x.size)
-        for k in np.flatnonzero(min_q <= lambda_sum * 1e4):
-            # R's lim=10_000 hits ifault=1 near the support edge and R then discards the
-            # whole integral for Liu; the larger cap is identical where R converges.
-            p_dav, ifault = davies_pvalue(float(z[k]), lambdas, acc=acc, lim=_DAVIES_RETRY_LIM)
-            if ifault != 0 and acc < 1e-6:  # tighter accuracy not reachable here: R's acc
-                p_dav, ifault = davies_pvalue(float(z[k]), lambdas, acc=1e-6, lim=_DAVIES_RETRY_LIM)
-            if p_dav is None or ifault != 0:
-                raise _DaviesFailureError(f"ifault={ifault} at q={z[k]:.6g}")
-            out[k] = min(max(float(p_dav), 0.0), 1.0)  # Davies error is absolute
-            if acc > acc_target and out[k] * _SKATO_DAVIES_REL_ACC < acc and z[k] > lambda_sum:
-                # Davies' absolute error cannot meet the relative budget at this node
-                out[k] = _tilted_sf(float(z[k]), lambdas)
+            return float(scipy.stats.chi2.sf(z / lambdas[0], df=1))
+        if not min_q <= lambda_sum * 1e4:
+            return 0.0
+        # R's lim=10_000 hits ifault=1 near the support edge and R then discards the
+        # whole integral for Liu; the larger cap is identical where R converges.
+        p_dav, ifault = davies_pvalue(z, lambdas, acc=acc, lim=_DAVIES_RETRY_LIM)
+        if ifault != 0 and acc < 1e-6:  # tighter accuracy not reachable here: R's acc
+            p_dav, ifault = davies_pvalue(z, lambdas, acc=1e-6, lim=_DAVIES_RETRY_LIM)
+        if p_dav is None or ifault != 0:
+            raise _DaviesFailureError(f"ifault={ifault} at q={z:.6g}")
+        out = min(max(float(p_dav), 0.0), 1.0)  # Davies error is absolute
+        if acc > acc_target and out * _SKATO_DAVIES_REL_ACC < acc and z > lambda_sum:
+            # Davies' absolute error cannot meet the relative budget at this node
+            out = _tilted_sf(z, lambdas)
         return out
 
     # Survival form: p = int_0^edge f1(x) S(g(x)) dx + P[chi2_1 > edge], with g(x) <= 0
@@ -308,7 +318,7 @@ def _skato_integrate_davies(
         pvalue = 0.0
         for lo, hi in itertools.pairwise(cuts):
             v, err, *info = scipy.integrate.quad(
-                lambda t: float(np.exp(-t * t / 2) * surv(np.array([t * t]))[0]),
+                lambda t: float(np.exp(-t * t / 2) * surv(t * t)),
                 lo,
                 hi,
                 epsabs=tol / _SQRT_2_OVER_PI,
@@ -325,7 +335,7 @@ def _skato_integrate_davies(
         if tail_hi > _GL_B and scipy.stats.chi2.sf(_GL_B, 1) > _SKATO_DAVIES_REL_ACC * pvalue:
             pts = _skato_breakpoints(a, b, levels, tail_hi)
             tail, err, *info = scipy.integrate.quad(
-                lambda x: float(surv(np.array([x]))[0] * scipy.stats.chi2.pdf(x, df=1)),
+                lambda x: float(surv(x) * scipy.stats.chi2.pdf(x, df=1)),
                 _GL_B,
                 tail_hi,
                 points=pts[pts > _GL_B] if np.any(pts > _GL_B) else None,
