@@ -27,10 +27,7 @@ from variantcentrifuge.association.backends.null_model import (
     fit_glm_null_model,
     project_out_nuisance,
 )
-from variantcentrifuge.association.backends.skat_math import (
-    _SKATO_RHO_GRID,
-    compute_eigenvalues_filtered,
-)
+from variantcentrifuge.association.backends.skat_math import compute_eigenvalues_filtered
 from variantcentrifuge.association.engine_workers import (
     fork_available,
     fork_map,
@@ -190,10 +187,10 @@ def add_empirical_p(
     stat = permutation_statistic(test_names, primary_id, config.skat_method, config.trait_type)
     column = source_pvalue_column(stat, test_names, list(result_df.columns))
     source_p = pd.to_numeric(result_df[column], errors="coerce")
-    # Under SKAT-O the gene is selected on SKAT Q's own p, computed in the worker; the
-    # union bound p_SKATO <= len(grid) * p_Q pre-selects the candidates on skat_o_pvalue.
+    # Under SKAT-O the gene is selected on SKAT Q's own p, computed in the worker for every
+    # gene with a SKAT-O p (the reported SKAT-O p can be conservative, so it cannot pre-filter).
     q_below = config.permute_below_p if column == "skat_o_pvalue" else None
-    below = source_p < config.permute_below_p * (len(_SKATO_RHO_GRID) if q_below else 1)
+    below = source_p.notna() if q_below else source_p < config.permute_below_p
     genes = [g for g in result_df.loc[below, "gene"] if builders.get(g) is not None]
     reason = result_df.get("skat_skip_reason") if stat == "skat" else None
     skipped = [

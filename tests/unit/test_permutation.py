@@ -318,3 +318,18 @@ def test_skato_selects_on_skat_q_own_p():
     assert ((skato["skat_o_pvalue"] < 1e-3) & (skat["skat_pvalue"] >= 1e-3)).any()  # repro shape
     np.testing.assert_array_equal(skato["empirical_p"], skat["empirical_p"])
     assert skato["empirical_p"].notna().sum() == (skat["skat_pvalue"] < 1e-3).sum() > 0
+
+
+@pytest.mark.unit
+def test_skato_selection_ignores_reported_skato_p():
+    """A conservative reported SKAT-O p (> 7P) must not hide a gene whose SKAT Q p is < P."""
+    genes = _gene_dicts(3, 400, 0.2, seed=2, signal="G001")
+    builders = {d["GENE"]: d["_genotype_matrix_builder"] for d in genes}
+    frame = pd.DataFrame({"gene": list(builders), "skat_o_pvalue": [0.9, 0.9, np.nan]})
+    config = AssociationConfig(
+        permutations=300, permute_below_p=1e-2, skat_method="SKATO", association_workers=1
+    )
+    out = perm.add_empirical_p(frame, builders, ["skat"], config, "acat_o").set_index("gene")
+    assert out.loc["G001", "empirical_p"] > 0  # SKAT Q p 5e-4 < P: selected and permuted
+    assert np.isnan(out.loc["G000", "empirical_p"])  # null gene: SKAT Q p >= P
+    assert out.loc["G002", "permutation_method"] == "skipped_no_pvalue"
