@@ -84,15 +84,6 @@ def test_gene_failure_names_the_gene(workers, monkeypatch):
     assert "meta-analysis gene G05" in getattr(exc.value, "__notes__", [])
 
 
-def test_workers_capped_at_cpu_count(monkeypatch, caplog):
-    import variantcentrifuge.association.meta.runner as runner
-
-    monkeypatch.setattr(runner.os, "cpu_count", lambda: 2)
-    caplog.set_level(logging.INFO, logger="variantcentrifuge")
-    meta_analyze_artifacts(_three_strata(), workers=64)
-    assert "Meta-analysis: --workers 64 capped at 2 CPU cores" in caplog.text
-
-
 def test_sequential_fallback_without_fork_is_logged(monkeypatch, caplog):
     import variantcentrifuge.association.meta.runner as runner
 

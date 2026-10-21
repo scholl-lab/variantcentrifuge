@@ -74,7 +74,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=1,
         help="Worker processes for the per-gene combination (default: 1, sequential; "
-        "-1: all cores). Results are identical for any worker count.",
+        "-1: CPUs available to the job, respecting SLURM/cgroup affinity). "
+        "Results are identical for any worker count.",
     )
     parser.add_argument(
         "--log-level",
@@ -90,7 +91,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.workers == 0 or args.workers < -1:
-        parser.error(f"--workers must be >= 1 or -1 (all cores), got {args.workers}")
+        parser.error(
+            f"--workers must be >= 1 or -1 (CPUs available to the job), got {args.workers}"
+        )
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),

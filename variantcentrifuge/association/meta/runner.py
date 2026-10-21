@@ -24,6 +24,7 @@ import pandas as pd
 from variantcentrifuge.association.correction import apply_correction
 from variantcentrifuge.association.diagnostics import write_diagnostics
 from variantcentrifuge.association.engine_workers import (
+    available_cpus,
     fork_available,
     fork_map,
     single_blas_thread,
@@ -272,8 +273,9 @@ def meta_analyze_artifacts(
     stratum (``status=not_in_all_strata``) keep their p-values but stay outside the
     multiple-testing family, like the main engine's untestable genes.
 
-    ``workers`` > 1 (-1: all cores) combines genes in forked processes (Linux); rows,
-    order and floats are identical to the sequential loop (one BLAS thread either way).
+    ``workers`` > 1 (-1: CPUs available to the job) combines genes in forked processes
+    (Linux); rows, order and floats are identical to the sequential loop (one BLAS thread
+    either way).
     """
     if not (np.isfinite(min_mac) and min_mac >= 0):
         raise ValueError(f"min_mac must be a finite number >= 0, got {min_mac}")
@@ -287,7 +289,7 @@ def meta_analyze_artifacts(
 
     n_required = len(artifacts) if require_variants_in_all_strata else 0
     state = (all_genes, artifacts, mask_id, weight_scheme, min_mac, n_required)
-    cpus = os.cpu_count() or 1
+    cpus = available_cpus()
     n_workers = cpus if workers == -1 else min(workers, cpus)
     if workers > cpus:
         logger.info("Meta-analysis: --workers %d capped at %d CPU cores", workers, cpus)

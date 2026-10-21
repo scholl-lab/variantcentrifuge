@@ -1357,7 +1357,7 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `missing_as_ref` | bool | `false` | Treat missing genotypes as reference before missingness QC (`--missing-as-ref`) |
 | `skat_method` | str | `"SKAT"` | SKAT variant: `"SKAT"` (default), `"Burden"`, or `"SKATO"` (omnibus) |
 | `confidence_interval_method` | str | `"normal_approx"` | Odds ratio CI method: tries score → normal → logit in sequence |
-| `association_workers` | int | `0` | Worker processes for the per-gene tests (`--association-workers`). `0` = one per `--threads`, `-1` = all cores, `1` = sequential. Each worker uses one BLAS thread; panels under 50 genes and R backends run sequentially. Parallel runs need Linux (fork); elsewhere genes run sequentially. Results are identical for any worker count |
+| `association_workers` | int | `0` | Worker processes for the per-gene tests (`--association-workers`). `0` = one per `--threads`, `-1` = CPUs available to the job (respects SLURM/cgroup affinity), `1` = sequential. Each worker uses one BLAS thread; panels under 50 genes and R backends run sequentially. Parallel runs need Linux (fork); elsewhere genes run sequentially. Results are identical for any worker count |
 | `firth_max_iter` | int | `25` | Newton-Raphson iterations for Firth penalised likelihood |
 | `primary_test` | str | `"acat_o"` | Test whose p-value drives the primary FDR and ranking: `"acat_o"`, `"skato"` or `"burden"` (`--primary-test`) |
 | `acat_o_exclude` | str or null | `null` | `"acat_v"` drops ACAT-V from the ACAT-O combination (`--acat-o-exclude`) |

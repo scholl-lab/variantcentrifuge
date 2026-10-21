@@ -160,7 +160,7 @@ variantcentrifuge meta \
   --diagnostics-output meta_diagnostics/
 ```
 
-`--workers N` combines genes in N forked processes (`-1`: all cores; default 1,
+`--workers N` combines genes in N forked processes (`-1`: CPUs available to the job, respecting SLURM/cgroup affinity; default 1,
 Linux only, otherwise sequential); the output is byte-identical for any N. A progress
 line (genes done/total, rate, ETA) is logged at most every 30 s.
 
