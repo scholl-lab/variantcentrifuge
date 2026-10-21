@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Association set-up uses the association workers: packed `GT` rows are parsed and the per-gene collapsing counts computed in forked workers, and per-gene annotation frames are sliced from one gene-ordered copy instead of one pandas take per gene. On synthetic data (20,000 genes, ~500k variants, 6,000 samples, 16 workers) set-up drops from 24 to 13 s (stage 81 -> 63 s; parent peak RSS 4.5 -> 4.2 GB, summed PSS 5.5 -> 4.7 GB). Results are identical for any worker count (#212).
 - The logistic burden fit centres and scales covariates when `[1, covariates]` has a condition number above 1e6; burden beta/SE/p do not depend on it, and well-conditioned inputs are fitted unchanged (bit-identical results on the benchmark presets) (#222).
 
 ### Fixed
