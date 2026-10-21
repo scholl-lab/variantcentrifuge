@@ -217,11 +217,14 @@ def test_transcript_fallback_cli_choices() -> None:
     assert "readthrough" in parser.format_help()
 
 
-# GENEG matched in chunk 0; chunk 1 holds GENEG/LOCX only as neighbour (up/downstream) entries
-# of a GENEH variant, and GENEB whose only transcript is unlisted (#231 review).
+# GENEG matched in chunk 0, where GENEB appears only as an upstream entry; chunk 1 holds GENEG/LOCX
+# only as neighbour entries of a GENEH variant, GENEB whose only transcript is unlisted, and a
+# conserved_intergenic_variant between two genes (#231 review).
 NB_TX = "NM_100001.1,NM_300003.1"
 NB_PARTS = {
-    "c0.bed": [(100, [("GENEG", "NM_100001.1")])],
+    "c0.bed": [
+        (100, [("GENEG", "NM_100001.1"), ("GENEB", "NM_200009.1", "upstream_gene_variant")])
+    ],
     "c1.bed": [
         (
             5000,
@@ -232,6 +235,7 @@ NB_PARTS = {
             ],
         ),
         (6000, [("GENEB", "NM_200001.1")]),
+        (7000, [("LOCY-LOCZ", "NR_800001.1", "conserved_intergenic_variant")]),
     ],
 }
 
@@ -256,6 +260,7 @@ def test_dropped_list_ignores_neighbour_only_genes(tmp_path: Path, caplog) -> No
         _run_parallel(tmp_path, NB_PARTS, transcript_list=NB_TX, diagnostics_output=str(diag))
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 1 and "GENEB" in warnings[0] and "LOCX" not in warnings[0]
+    assert "LOCY-LOCZ" not in warnings[0]
     assert (diag / TSV_NAME).read_text().splitlines() == ["gene", "GENEB"]
 
 

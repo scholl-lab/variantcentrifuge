@@ -18,7 +18,12 @@ ANN_FEATURE_ID_INDEX = 6
 DROPPED_GENES_TSV = "transcript_filter_dropped_genes.tsv"
 # Entries snpEff adds for neighbouring genes; they may sit in another BED chunk than the gene body.
 NEIGHBOUR_EFFECTS = frozenset(
-    {"upstream_gene_variant", "downstream_gene_variant", "intergenic_region"}
+    {
+        "upstream_gene_variant",
+        "downstream_gene_variant",
+        "intergenic_region",
+        "conserved_intergenic_variant",
+    }
 )
 
 
