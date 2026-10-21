@@ -371,6 +371,11 @@ class PipelineRunner:
 
         return result
 
+    def _execute_stage_timed(self, stage: Stage, context: PipelineContext) -> tuple:
+        """Run a stage and return its timings too: a process-pool worker's runner is a copy."""
+        result = self._execute_stage(stage, context)
+        return result, self._execution_times[stage.name], self._stage_table[stage.name]
+
     def _execute_parallel_stages(
         self, stages: list[Stage], context: PipelineContext
     ) -> PipelineContext:
@@ -410,7 +415,7 @@ class PipelineRunner:
             for stage in stages:
                 # Each parallel stage gets a copy of context to avoid conflicts
                 # The context has thread-safe methods for updating shared state
-                future = executor.submit(self._execute_stage, stage, context)
+                future = executor.submit(self._execute_stage_timed, stage, context)
                 future_to_stage[future] = stage
 
             # Wait for all to complete and collect results
@@ -419,7 +424,9 @@ class PipelineRunner:
                 stage = future_to_stage[future]
                 try:
                     # Get the updated context from the stage execution
-                    updated_context = future.result()
+                    updated_context, elapsed, row = future.result()
+                    self._execution_times[stage.name] = elapsed
+                    self._stage_table[stage.name] = row
                     if context.checkpoint_state and updated_context.checkpoint_state:
                         step_info = updated_context.checkpoint_state.state.get("steps", {}).get(
                             stage.name

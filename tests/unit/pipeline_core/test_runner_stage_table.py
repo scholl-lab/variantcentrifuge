@@ -49,6 +49,26 @@ def test_stage_table_logged_and_written(tmp_path, caplog):
 
 
 @pytest.mark.unit
+def test_stage_table_includes_process_pool_stages(tmp_path):
+    diag = tmp_path / "diag"
+    ctx = _ctx(tmp_path, {"diagnostics_output": str(diag)})
+    runner = PipelineRunner(max_workers=2, executor_type="process")
+    runner.run([_S("root"), _S("p1", deps=["root"]), _S("p2", deps=["root"])], ctx)
+    rows = [ln.split("\t")[0] for ln in (diag / "stage_summary.tsv").read_text().splitlines()[1:]]
+    assert sorted(rows) == ["p1", "p2", "root"]
+    assert {"p1", "p2"} <= set(runner._execution_times)
+
+
+@pytest.mark.unit
+def test_stage_table_empty_is_noop(caplog):
+    from variantcentrifuge.pipeline_core.runner_planner import log_stage_table
+
+    with caplog.at_level(logging.INFO):
+        log_stage_table({})
+    assert "Wall(s)" not in caplog.text
+
+
+@pytest.mark.unit
 def test_stage_table_no_file_without_diagnostics(tmp_path, caplog):
     with caplog.at_level(logging.INFO):
         PipelineRunner().run([_S("a")], _ctx(tmp_path))
@@ -75,8 +95,9 @@ def _chunk_decision(tmp_path, size_mb, samples, caplog):
 
 @pytest.mark.unit
 @pytest.mark.parametrize(("size_mb", "on"), [(1, False), (600, True)])
-def test_chunk_decision_logged(tmp_path, caplog, size_mb, on):
-    assert _chunk_decision(tmp_path, size_mb, 10, caplog) is on
+@pytest.mark.parametrize("samples", [10, 0])
+def test_chunk_decision_logged(tmp_path, caplog, size_mb, on, samples):
+    assert _chunk_decision(tmp_path, size_mb, samples, caplog) is on
     msg = next(r.message for r in caplog.records if "Chunked processing" in r.message)
     assert ("ON" if on else "OFF") in msg
     assert "file size" in msg and "estimated memory" in msg and "threshold" in msg
