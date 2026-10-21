@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.1] - 2026-10-21
+
+### Fixed
+
+- Snakemake workflow env (`workflow/envs/variantcentrifuge.yml`) and `conda/environment.yml` now include `pyarrow` (pinned as in `conda/environment-docker.yml`). `pyproject.toml` already required it; since 0.23.0, `association.gt_codes` imports it at module load, so `variantcentrifuge` failed to start in the workflow conda env with `ModuleNotFoundError: No module named 'pyarrow'`.
+
 ## [0.23.0] - 2026-10-21
 
 ### Added

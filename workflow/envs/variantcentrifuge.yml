@@ -13,6 +13,7 @@ dependencies:
   - snpeff=5.2
   - snpsift=5.2
   - pandas=2.2
+  - pyarrow=25.0.0  # pyproject pyarrow>=14.0; association.gt_codes imports it at module load
   - scipy=1.14
   - statsmodels=0.14
   - openpyxl=3.1
