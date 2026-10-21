@@ -3,13 +3,13 @@ Association configuration validation and resolution helpers for analysis stages.
 """
 
 import logging
-import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
 from ..association.base import AssociationConfig
+from ..association.engine_workers import available_cpus
 
 if TYPE_CHECKING:
     from ..pipeline_core import PipelineContext
@@ -194,7 +194,7 @@ def _validate_association_config_dict(d: dict) -> None:
 def _resolve_association_workers(cfg: dict[str, Any], _get: Callable[..., Any]) -> int:
     """Resolve association_workers from CLI/JSON/auto.
 
-    0 (default) means auto-allocate from --threads. -1 means all CPU cores.
+    0 (default) means auto-allocate from --threads. -1 means the CPUs available to the job.
     Explicit positive values are used directly.
     """
     raw = _get("association_workers", default=0, nullable=False)
@@ -204,7 +204,7 @@ def _resolve_association_workers(cfg: dict[str, Any], _get: Callable[..., Any]) 
         logger.info(f"Association workers auto-allocated from --threads: {threads}")
         return threads
     if raw == -1:
-        cpus = os.cpu_count() or 1
+        cpus = available_cpus()
         logger.info(f"Association workers auto-detected: {cpus} CPU cores")
         return cpus
     return int(raw)

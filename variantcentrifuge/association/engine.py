@@ -8,7 +8,6 @@ applies multiple testing correction, and returns wide-format DataFrames.
 from __future__ import annotations
 
 import logging
-import os
 from collections import Counter
 from typing import Any
 
@@ -25,6 +24,7 @@ from variantcentrifuge.association.engine_workers import (
     _discard_per_gene_matrix_payload,
     _single_test_output_id,
     _worker_initializer,
+    available_cpus,
     dispatch_parallel_genes,
     run_sequential_genes,
     single_blas_thread,
@@ -302,7 +302,7 @@ class AssociationEngine:
                 # Dispatch remaining genes to worker processes
                 remaining = sorted_data[done:]
                 if remaining:
-                    actual_workers = (os.cpu_count() or 1) if n_workers == -1 else n_workers
+                    actual_workers = available_cpus() if n_workers == -1 else n_workers
                     # Don't over-provision workers for small remaining panels
                     if len(remaining) < actual_workers * 2:
                         actual_workers = max(1, len(remaining) // 2)

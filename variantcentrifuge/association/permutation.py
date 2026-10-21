@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import time
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -29,6 +28,7 @@ from variantcentrifuge.association.backends.null_model import (
 )
 from variantcentrifuge.association.backends.skat_math import compute_eigenvalues_filtered
 from variantcentrifuge.association.engine_workers import (
+    available_cpus,
     fork_available,
     fork_map,
     single_blas_thread,
@@ -226,7 +226,7 @@ def add_empirical_p(
         )
     state = (genes, builders, config, stat, q_below)
     workers = config.association_workers
-    workers = min((os.cpu_count() or 1) if workers == -1 else workers, len(genes))
+    workers = min(available_cpus() if workers == -1 else workers, len(genes))
     t0 = time.perf_counter()
     with single_blas_thread():  # identical floating point for any number of workers
         if workers > 1 and fork_available():

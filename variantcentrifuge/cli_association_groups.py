@@ -207,7 +207,7 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         help=(
             "Number of parallel worker processes for association analysis. "
             "Default: 0 (auto — uses --threads value). Set to 1 for sequential, "
-            "-1 for all cores. "
+            "-1 for the CPUs available to the job (respects SLURM/cgroup affinity). "
             "Only effective with Python backends (R backend is not parallel-safe)."
         ),
     )

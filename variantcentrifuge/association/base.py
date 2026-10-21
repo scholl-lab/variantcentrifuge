@@ -217,7 +217,8 @@ class AssociationConfig:
     association_workers: int = 1
     """Number of parallel worker processes for gene-level association analysis.
     Default: 1 (sequential). Set > 1 for parallel execution via ProcessPoolExecutor.
-    Set -1 for os.cpu_count(). Only effective when all registered tests have parallel_safe=True."""
+    Set -1 for the CPUs available to the job (respects SLURM/cgroup affinity).
+    Only effective when all registered tests have parallel_safe=True."""
 
 
 class AssociationTest(ABC):

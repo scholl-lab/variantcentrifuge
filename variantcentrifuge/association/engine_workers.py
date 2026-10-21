@@ -234,6 +234,13 @@ def fork_map(
             gc.unfreeze()
 
 
+def available_cpus() -> int:
+    """CPUs this process may use (SLURM/cgroup affinity), what every -1 worker count means."""
+    if hasattr(os, "sched_getaffinity"):
+        return len(os.sched_getaffinity(0))
+    return os.cpu_count() or 1
+
+
 def fork_available() -> bool:
     """Whether fork_map can run (fork start method with copy-on-write: Linux)."""
     return sys.platform.startswith("linux")
