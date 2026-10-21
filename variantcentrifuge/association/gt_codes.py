@@ -100,20 +100,17 @@ def _store(codes: np.ndarray, vocab: _Vocab) -> np.ndarray:
     return codes
 
 
-def _zeros(shape: tuple[int, int], workers: int) -> np.ndarray:
-    """``np.zeros(shape, int8)`` with its pages first touched by ``workers`` threads.
+def _prefault(codes: np.ndarray, workers: int) -> None:
+    """Touch the pages of a fresh ``np.zeros`` matrix from ``workers`` threads.
 
-    A run-level code matrix is gigabytes; touching it in one thread (the merge's scattered
-    writes) costs seconds of serial page faults, while threads fault pages in parallel.
-    Done before any fork: no thread is left running.
+    A run-level code matrix is gigabytes; first-touch page faults from the merge's
+    scattered writes cost seconds in one thread, and threads fault pages in parallel.
+    Call only once the parse workers are forked: pages populated before a fork would be
+    copied on write while the children live.
     """
-    if workers <= 1 or not fork_available():
-        return np.zeros(shape, dtype=np.int8)
-    codes = np.empty(shape, dtype=np.int8)
-    step = max(1, -(-shape[0] // (workers * 4)))
+    step = max(1, -(-codes.shape[0] // (workers * 4)))
     with ThreadPoolExecutor(workers) as pool:  # ndarray.fill releases the GIL
-        list(pool.map(lambda lo: codes[lo : lo + step].fill(0), range(0, shape[0], step)))
-    return codes
+        list(pool.map(lambda lo: codes[lo : lo + step].fill(0), range(0, codes.shape[0], step)))
 
 
 def parse_genotype_codes(
@@ -132,7 +129,7 @@ def parse_genotype_codes(
     forked processes; the result is the same for any worker count.
     """
     vocab = _Vocab()
-    codes = _zeros((len(df), len(samples)), workers)
+    codes = np.zeros((len(df), len(samples)), dtype=np.int8)
     columns_ok = gt_columns_match_samples(gt_columns, vcf_samples)
     if not columns_ok and "GT" not in df.columns:
         raise ValueError(
@@ -240,12 +237,15 @@ def _parse_packed(
     text = gt.fillna("").astype(str).to_numpy(dtype=object)
     state = (text, pa.array(samples, type=pa.large_string()))
     named = np.zeros(len(text), dtype=bool)
-    if workers > 1 and len(text) > 1 and fork_available():
+    forked = workers > 1 and len(text) > 1 and fork_available()
+    if forked:
         parts = fork_map(_parse_packed_rows, state, len(text), workers)
     else:
         # One batch per call, merged as it comes: no run-wide list of entries.
         parts = ((lo, hi, _parse_packed_rows(state, lo, hi)) for lo, hi in _char_batches(text))
     for lo, hi, (row_named, rows, cols, gts, idx) in parts:
+        if forked and lo == 0:  # first result: every worker is forked by now
+            _prefault(codes, workers)
         named[lo:hi] = row_named
         lut = vocab.lut(gts)
         codes = _store(codes, vocab)
