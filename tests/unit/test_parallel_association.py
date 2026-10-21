@@ -304,15 +304,15 @@ def test_parallel_vs_sequential_parity_with_real_builder() -> None:
     pd.testing.assert_frame_equal(df_seq, df_par, check_exact=False, rtol=1e-8)
 
 
-def _real_gene(name: str, seed: int, n_samples: int = 60) -> dict[str, Any]:
+def _real_gene(name: str, seed: int, n_samples: int = 60, n_var: int = 6) -> dict[str, Any]:
     """A gene with a real lazy builder, binary phenotype and two covariates."""
     from variantcentrifuge.stages.analysis_stages import _GenotypeMatrixBuilder
 
     rng = np.random.default_rng(seed)
     gt_cols = [f"GEN_{i}__GT" for i in range(n_samples)]
-    codes = rng.choice(["0/0", "0/1", "1/1"], size=(6, n_samples), p=[0.85, 0.12, 0.03])
+    codes = rng.choice(["0/0", "0/1", "1/1"], size=(n_var, n_samples), p=[0.85, 0.12, 0.03])
     gene_df = pd.DataFrame(
-        {"GENE": name, "CHROM": "1", "POS": np.arange(6) * 10 + 100, "REF": "A", "ALT": "T"}
+        {"GENE": name, "CHROM": "1", "POS": np.arange(n_var) * 10 + 100, "REF": "A", "ALT": "T"}
     )
     gene_df = pd.concat([gene_df, pd.DataFrame(codes, columns=gt_cols)], axis=1)
     phenotype = np.array([1.0] * 20 + [0.0] * (n_samples - 20))
@@ -331,7 +331,7 @@ def _real_gene(name: str, seed: int, n_samples: int = 60) -> dict[str, Any]:
         "GENE": name,
         "proband_count": 20,
         "control_count": n_samples - 20,
-        "n_qualifying_variants": 6,
+        "n_qualifying_variants": n_var,
         "_genotype_matrix_builder": builder,
     }
 
@@ -575,3 +575,84 @@ def test_fork_map_keeps_a_callers_gc_freeze() -> None:
         assert before - 100 < gc.get_freeze_count() <= before  # frozen objects may be freed
     finally:
         gc.unfreeze()
+
+
+def _span(plan: list[tuple[int, int]], costs: list[int], workers: int) -> int:
+    """Finish time of tasks handed in plan order to the first free worker (cost = variants)."""
+    free = [0] * workers
+    for lo, hi in plan:
+        free[free.index(min(free))] += sum(costs[lo:hi])
+    return max(free)
+
+
+@pytest.mark.unit
+def test_task_plan_small_tasks_largest_first_shorter_span() -> None:
+    """A huge gene late in name order no longer starts last in a 6-gene chunk (audit fix 5)."""
+    from variantcentrifuge.association.engine_workers import _task_bounds
+
+    costs = [5] * 200 + [2000] + [5] * 20  # huge gene near the end of the name order
+    old = _task_bounds(len(costs), 4)  # name-order chunks, as before
+    new = _task_bounds(len(costs), 4, costs)
+    assert [i for lo, hi in sorted(new) for i in range(lo, hi)] == list(range(len(costs)))
+    assert all(hi - lo <= 8 for lo, hi in new)
+    assert new[0][0] <= 200 < new[0][1]  # the huge gene's task goes first
+    assert _span(new, costs, 4) < _span(old, costs, 4)
+    assert _span(new, costs, 4) == 2000 + 5 * (new[0][1] - new[0][0] - 1)  # tail-free
+
+
+def _yield_times(plan: list[tuple[int, int]], costs: list[int], workers: int) -> list[int]:
+    """When fork_map can yield each task (item order): it waits for all earlier tasks too."""
+    free, done = [0] * workers, {}
+    for lo, hi in plan:
+        i = free.index(min(free))
+        free[i] += sum(costs[lo:hi])
+        done[lo] = free[i]
+    out, latest = [], 0
+    for lo in sorted(done):
+        latest = max(latest, done[lo])
+        out.append(latest)
+    return out
+
+
+@pytest.mark.unit
+def test_task_plan_keeps_progress_flowing() -> None:
+    """Review P3-r1: only costly tasks jump the queue, so in-order results keep coming."""
+    from variantcentrifuge.association.engine_workers import _task_bounds
+
+    costs = [1 + (i * 37) % 97 for i in range(800)]  # uneven, costly genes not first
+    costs[600] = 2000
+    plan = _task_bounds(len(costs), 4, costs)
+    times = _yield_times(plan, costs, 4)
+    assert times[len(times) // 10] < 0.25 * times[-1]  # 10 % of genes reported early
+    assert times[len(times) // 2] < 0.6 * times[-1]
+    assert plan[0][0] <= 600 < plan[0][1]
+    assert plan[1:] == sorted(plan[1:])  # cheap tasks keep gene order
+
+
+def _hook(gene: str, builder: Any, result: dict[str, Any]) -> tuple[str, int]:
+    return gene, int(result["genotype_matrix"].shape[1])
+
+
+@pytest.mark.unit
+def test_huge_gene_parallel_equals_sequential_hooks_in_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One 2000-variant gene among small ones, unsorted input: identical table and hook order."""
+    from variantcentrifuge.association import engine_workers as ew
+
+    seen: list[Any] = []
+    real = ew._task_bounds
+    monkeypatch.setattr(ew, "_task_bounds", lambda *a: seen.append(a) or real(*a))
+    names = [f"G{i:03d}" for i in range(200)]
+    order = np.random.default_rng(7).permutation(len(names))
+    tables, hooks = [], []
+    for workers in (1, 4):
+        genes = [_real_gene(names[i], int(i), n_var=2000 if i == 150 else 3) for i in order]
+        engine = AssociationEngine.from_names(
+            ["fisher", "logistic_burden"], AssociationConfig(association_workers=workers)
+        )
+        tables.append(engine.run_all(genes, gene_hook=_hook))
+        hooks.append(list(engine.gene_hook_results.items()))
+    pd.testing.assert_frame_equal(tables[0], tables[1], check_exact=True)
+    assert hooks[0] == hooks[1] and [g for g, _ in hooks[0]] == names
+    assert len(seen) == 1 and max(seen[0][2]) == 2000  # dispatch passed variant counts

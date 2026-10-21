@@ -12,7 +12,7 @@ import logging
 import multiprocessing
 import os
 import sys
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from typing import TYPE_CHECKING, Any
 
 from variantcentrifuge.association.timing import Progress
@@ -200,18 +200,45 @@ def _fork_task(bounds: tuple[int, int]) -> Any:
     return task(state, *bounds)
 
 
+def _task_bounds(
+    n_items: int, workers: int, costs: Sequence[float] | None = None
+) -> list[tuple[int, int]]:
+    """``fork_map``'s ``(lo, hi)`` tasks in submission order.
+
+    Without ``costs``: ~8 chunks per worker in item order. With ``costs`` (e.g. variants
+    per gene): tasks of at most 8 items; tasks costing over twice the mean go first (costliest
+    first), so a huge gene starts early instead of leaving one worker busy at the end
+    (audit 0.25 fix 5).
+    """
+    chunk = max(1, n_items // (workers * 8))
+    if costs is not None:
+        chunk = min(chunk, 8)
+    bounds = [(lo, min(lo + chunk, n_items)) for lo in range(0, n_items, chunk)]
+    if costs is not None and bounds:
+        task_costs = {b: sum(costs[b[0] : b[1]]) for b in bounds}
+        big = 2 * sum(task_costs.values()) / len(bounds)
+        # Only costly tasks jump the queue; the rest keep item order so the in-order
+        # results (progress, early errors) keep flowing during the run (review P3-r1).
+        bounds.sort(key=lambda b: -task_costs[b] if task_costs[b] > big else 0)
+    return bounds
+
+
 def fork_map(
-    task: Callable[[Any, int, int], Any], state: Any, n_items: int, workers: int
+    task: Callable[[Any, int, int], Any],
+    state: Any,
+    n_items: int,
+    workers: int,
+    costs: Sequence[float] | None = None,
 ) -> Iterator[tuple[int, int, Any]]:
-    """Yield ``(lo, hi, task(state, lo, hi))`` over ``range(n_items)`` in order.
+    """Yield ``(lo, hi, task(state, lo, hi))`` over ``range(n_items)`` in item order.
 
     Runs in forked worker processes (one BLAS thread each) that inherit ``state``; ``task``
-    must be a module-level function. Chunks are ~8 per worker to balance uneven items.
+    must be a module-level function. Tasks are planned by ``_task_bounds`` (``costs``:
+    small tasks, costly ones first); results are still yielded in item order.
     Linux only: callers check ``fork_available()`` first.
     """
     global _FORK_STATE
-    chunk = max(1, n_items // (workers * 8))
-    bounds = [(lo, min(lo + chunk, n_items)) for lo in range(0, n_items, chunk)]
+    bounds = _task_bounds(n_items, workers, costs)
     _FORK_STATE = (task, state)
     # Frozen objects are skipped by the children's GC, so its passes don't dirty (copy) the
     # parent's heap pages that the workers share copy-on-write. Skipped when the caller
@@ -226,8 +253,13 @@ def fork_map(
             mp_context=multiprocessing.get_context("fork"),
             initializer=_worker_initializer,
         ) as executor:
-            for (lo, hi), result in zip(bounds, executor.map(_fork_task, bounds), strict=True):
-                yield lo, hi, result
+            futures = {b: executor.submit(_fork_task, b) for b in bounds}
+            try:
+                for lo, hi in sorted(futures):
+                    yield lo, hi, futures[lo, hi].result()
+            finally:  # on error or early close, like executor.map: drop tasks not started
+                for future in futures.values():
+                    future.cancel()
     finally:
         _FORK_STATE = None
         if freeze:
@@ -284,7 +316,11 @@ def dispatch_parallel_genes(
     state = (remaining, tests, config, gene_hook)
     progress = progress or Progress("Association genes", len(remaining))
     for lo, hi, (chunk_results, qc, chunk_hooks) in fork_map(
-        _run_gene_range, state, len(remaining), actual_workers
+        _run_gene_range,
+        state,
+        len(remaining),
+        actual_workers,
+        [gd.get("n_qualifying_variants", 1) for gd in remaining],
     ):
         for test_name, by_gene in chunk_results.items():
             results_by_test[test_name].update(by_gene)

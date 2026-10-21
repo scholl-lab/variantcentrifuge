@@ -104,3 +104,21 @@ def test_cli_error_log_names_the_gene(tmp_path, monkeypatch, caplog):
     caplog.set_level(logging.ERROR, logger="variantcentrifuge")
     assert main(["--manifest", manifest, "--output", str(tmp_path / "o.tsv")]) == 1
     assert "Meta-analysis failed: boom; meta-analysis gene NULLG" in caplog.text
+
+
+@pytest.mark.skipif(not fork_available(), reason="fork_map needs fork (Linux)")
+def test_parallel_schedules_by_variant_count_same_rows(monkeypatch):
+    """Meta genes go out largest-first by variant count; rows and order stay sequential."""
+    from variantcentrifuge.association import engine_workers as ew
+
+    seen = []
+    real = ew._task_bounds
+    monkeypatch.setattr(ew, "_task_bounds", lambda *a: seen.append(a) or real(*a))
+    keys = {f"G{i:02d}": [f"{i + 1}:{100 + j}:A:G" for j in range(3)] for i in range(40)}
+    keys["G31"] = [f"32:{100 + j}:A:G" for j in range(60)]
+    arts = [make_stratum(s, seed=i + 1, gene_keys=keys) for i, s in enumerate("AB")]
+    seq = meta_analyze_artifacts(arts, workers=1)
+    par = meta_analyze_artifacts(arts, workers=3)
+    pd.testing.assert_frame_equal(seq, par, check_exact=True)
+    assert list(par["gene"]) == sorted(keys)
+    assert len(seen) == 1 and seen[0][2][31] == 120 and max(seen[0][2]) == 120
