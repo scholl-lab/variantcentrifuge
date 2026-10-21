@@ -33,6 +33,7 @@ from variantcentrifuge.association.engine_workers import (
     fork_map,
     single_blas_thread,
 )
+from variantcentrifuge.association.meta.artifact import _MAX_CACHED_NULLS
 from variantcentrifuge.association.weights import get_weights
 
 logger = logging.getLogger("variantcentrifuge")
@@ -91,6 +92,13 @@ def gene_rng(seed: int, gene: str) -> np.random.Generator:
     return np.random.default_rng([seed, digest])
 
 
+def _standardise(r: np.ndarray, mu: np.ndarray) -> np.ndarray:
+    """(r) / sqrt(mu (1 - mu)); 0 where mu is 0 or 1 and r is 0 (zero null weight, as in SKAT)."""
+    phi = np.sqrt(mu * (1.0 - mu))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where((phi == 0) & (r == 0), 0.0, r / phi)
+
+
 def empirical_p(
     stat: Callable[[np.ndarray], np.ndarray],
     a: np.ndarray,
@@ -100,18 +108,26 @@ def empirical_p(
     n_perm: int,
     h: int = H_STOP,
 ) -> tuple[float, int]:
-    """Return (empirical p, replicates used); Besag-Clifford h / L, else (r + 1) / (N + 1)."""
+    """Return (empirical p, replicates used); Besag-Clifford h / L, else (r + 1) / (N + 1).
+
+    (nan, 0) when the observed or a replicate statistic is not finite: never the p floor.
+    """
     t_obs = float(stat(a.T @ e_obs))
+    if not np.isfinite(t_obs):
+        return np.nan, 0
     # Ties count as exceedances; the margin absorbs round-off between GEMV and GEMM.
     thresh = t_obs - 1e-9 * abs(t_obs)
-    phi = np.sqrt(mu * (1.0 - mu))
-    case, control, mu_col = ((1.0 - mu) / phi)[:, None], (-mu / phi)[:, None], mu[:, None]
+    case, control = _standardise(1.0 - mu, mu)[:, None], _standardise(-mu, mu)[:, None]
+    mu_col = mu[:, None]
     done = exceed = 0
     batch = FIRST_BATCH
     while done < n_perm:
         batch = min(batch, n_perm - done)
         e = np.where(rng.random((mu.size, batch)) < mu_col, case, control)
-        cum = exceed + np.cumsum(stat(a.T @ e) >= thresh)  # the batch's one GEMM
+        t = stat(a.T @ e)  # the batch's one GEMM
+        if not np.isfinite(t).all():
+            return np.nan, 0
+        cum = exceed + np.cumsum(t >= thresh)
         if cum[-1] >= h:
             used = done + int(np.argmax(cum >= h)) + 1
             return h / used, used
@@ -125,7 +141,8 @@ def _gene_empirical(
 ) -> tuple[float, int] | None:
     """Empirical p for one gene from its rebuilt matrix; None when it cannot be tested.
 
-    ``q_below``: skip the gene unless SKAT Q's own analytic p is below it (SKAT-O runs).
+    ``q_below``: skip the gene unless SKAT Q's own analytic p is below it (SKAT-O and
+    ``--skat-robust`` runs).
     """
     built = builder()
     geno, y, cov = (
@@ -137,6 +154,8 @@ def _gene_empirical(
         return None
     key = (y.tobytes(), None if cov is None else cov.tobytes())
     if key not in nulls:
+        if len(nulls) >= _MAX_CACHED_NULLS:  # bounded, as artifact.null_for_mask
+            del nulls[next(iter(nulls))]
         try:
             nulls[key] = fit_glm_null_model(y, cov, "binary")
         except UntestableGeneError:
@@ -155,7 +174,7 @@ def _gene_empirical(
     )
     a = project_out_nuisance(geno * weights[np.newaxis, :], null)
     mu = null.extra["mu_hat"]
-    e_obs = null.extra["residuals"] / np.sqrt(mu * (1.0 - mu))
+    e_obs = _standardise(null.extra["residuals"], mu)
     if q_below is not None:
         lambdas = compute_eigenvalues_filtered(geno * weights[np.newaxis, :], null)
         q = float(_STATISTICS["skat"](a.T @ e_obs)) / 2.0  # SKAT Q = ||Z'r||^2 / 2
@@ -187,9 +206,12 @@ def add_empirical_p(
     stat = permutation_statistic(test_names, primary_id, config.skat_method, config.trait_type)
     column = source_pvalue_column(stat, test_names, list(result_df.columns))
     source_p = pd.to_numeric(result_df[column], errors="coerce")
-    # Under SKAT-O the gene is selected on SKAT Q's own p, computed in the worker for every
-    # gene with a SKAT-O p (the reported SKAT-O p can be conservative, so it cannot pre-filter).
-    q_below = config.permute_below_p if column == "skat_o_pvalue" else None
+    # Every SKAT mode selects on SKAT Q's standard analytic p: the reported skat_pvalue for
+    # default SKAT, else computed in the worker for every gene with a p (a SKAT-O or robust
+    # p is a different statistic's p, so it cannot pre-filter).
+    robust = getattr(config, "skat_robust", False)
+    own_q = stat == "skat" and (column == "skat_o_pvalue" or robust)
+    q_below = config.permute_below_p if own_q else None
     below = source_p.notna() if q_below else source_p < config.permute_below_p
     genes = [g for g in result_df.loc[below, "gene"] if builders.get(g) is not None]
     reason = result_df.get("skat_skip_reason") if stat == "skat" else None
@@ -223,10 +245,12 @@ def add_empirical_p(
     return result_df.assign(
         empirical_p=[r[0] if isinstance(r, tuple) else np.nan for r in hits],
         n_permutations=pd.array(
-            [r[1] if isinstance(r, tuple) else None for r in hits], dtype="Int64"
+            [r[1] if isinstance(r, tuple) and r[1] else None for r in hits], dtype="Int64"
         ),
         permutation_method=[
-            METHOD_LABEL[stat] if isinstance(r, tuple) else (skip if np.isnan(p) else None)
+            ("skipped_nonfinite" if np.isnan(r[0]) else METHOD_LABEL[stat])
+            if isinstance(r, tuple)
+            else (skip if np.isnan(p) else None)
             for r, p, skip in zip(hits, source_p, skipped, strict=True)
         ],
     )

@@ -314,9 +314,10 @@ class AssociationAnalysisStage(Stage):
                     f"Association analysis: phenotype vector built — "
                     f"{n_pv_cases} cases, {n_pv_controls} controls"
                 )
-            covariate_matrix, covariate_col_names = preflight_covariates(
-                covariate_matrix, covariate_col_names, phenotype_vector, binary=not quantitative
-            )
+            if needs_regression:  # Fisher ignores covariates; only their consumers are checked
+                covariate_matrix, covariate_col_names = preflight_covariates(
+                    covariate_matrix, covariate_col_names, phenotype_vector, binary=not quantitative
+                )
 
         gt_cols = _find_per_sample_gt_columns(df)
         # Samples whose genotypes are parsed: the assigned VCF samples, or (packed GT

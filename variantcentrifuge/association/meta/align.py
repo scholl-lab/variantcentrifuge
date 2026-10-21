@@ -38,13 +38,14 @@ def canonical_key(chrom: str, pos: int | str, ref: str, alt: str) -> str:
 
 
 def align_strata(
-    gene_scores: list[GeneScore],
+    gene_scores: list[GeneScore], calibrate: bool = True
 ) -> tuple[list[np.ndarray], list[np.ndarray], np.ndarray, np.ndarray, list[str]]:
     """Embed each stratum's ``U``/``V`` into the shared union of variant keys.
 
     When every stratum carries calibrated variances (``v_robust``, ``--skat-robust``),
     each ``V`` is rescaled to them, ``V~ = D V D`` with ``D = sqrt(v_robust / diag V)``
-    (R ``SKATBinary_spa``); otherwise the uncalibrated ``V`` is used.
+    (R ``SKATBinary_spa``); otherwise, or with ``calibrate=False`` (effect sizes and
+    heterogeneity: V~ calibrates null p-values only), the uncalibrated ``V`` is used.
 
     Returns
     -------
@@ -64,7 +65,7 @@ def align_strata(
     ac_pooled = np.zeros(m, dtype=np.float64)
     an_pooled = np.zeros(m, dtype=np.float64)
 
-    robust = all(gs.v_robust is not None for gs in gene_scores)
+    robust = calibrate and all(gs.v_robust is not None for gs in gene_scores)
     for gs in gene_scores:
         cols = np.array([index[k] for k in gs.variant_keys], dtype=int)
         u_full = np.zeros(m, dtype=np.float64)

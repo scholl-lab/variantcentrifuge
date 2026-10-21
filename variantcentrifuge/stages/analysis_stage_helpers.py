@@ -158,6 +158,10 @@ def _validate_association_config_dict(d: dict) -> None:
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0.0 <= v <= 1.0:
             errors.append(f"'{key}' must be a number between 0 and 1, got {v!r}")
 
+    for key in ("permutations", "seed", "permute_below_p"):  # bool is an int
+        if isinstance(d.get(key), bool):
+            errors.append(f"'{key}' must be a number, got bool")
+
     for key in ("missing_as_ref", "skat_robust"):
         if key in d and not isinstance(d[key], bool):
             errors.append(f"'{key}' must be a boolean, got {type(d[key]).__name__}")

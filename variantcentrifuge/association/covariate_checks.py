@@ -62,9 +62,14 @@ def preflight_covariates(
         if not keep:
             return None, []
 
+    n, k = covariates.shape
+    if n <= k + 1:  # thin SVD would show only n singular values and hide the rank loss
+        raise ValueError(
+            f"Covariates leave no residual degrees of freedom: {n} samples for {k + 1} "
+            f"design columns (intercept + {k} covariates). Use fewer covariates."
+        )
     centred = covariates - covariates.mean(axis=0)
     scaled = centred / np.linalg.norm(centred, axis=0)
-    n = len(scaled)
     _u, sv, vt = np.linalg.svd(np.column_stack([np.full(n, n**-0.5), scaled]), full_matrices=False)
     condition = sv[0] / sv[-1] if sv[-1] > 0 else np.inf
     if condition > MAX_CONDITION:
@@ -96,6 +101,22 @@ def preflight_covariates(
                 "Covariate(s) separate cases from controls, so no logistic model "
                 f"converges: {', '.join(separating)}. Remove these columns."
             )
+        # Joint complete separation (e.g. y = x1 + x2 > 0): the same covariates-only null
+        # fit and rule every gene would hit (OUTCOME_EXPLAINED_BY_COVARIATES), once.
+        from variantcentrifuge.association.backends.null_model import (
+            UntestableGeneError,
+            fit_glm_null_model,
+        )
+
+        try:
+            fit_glm_null_model(phenotype, covariates, "binary")
+        except UntestableGeneError as exc:
+            if exc.reason == "OUTCOME_EXPLAINED_BY_COVARIATES":
+                raise ValueError(
+                    "Covariates jointly separate cases from controls (the covariates-only "
+                    f"logistic fit predicts every sample): {', '.join(names)}. Remove or "
+                    "combine columns."
+                ) from exc
     return covariates, names
 
 

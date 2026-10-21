@@ -389,10 +389,14 @@ class PythonSKATBackend(SKATBackend):
     ) -> dict[str, Any]:
         """Imbalance-robust binary SKAT / SKAT-O (port of R ``SKATBinary_Robust``)."""
         tested = weights != 0.0
-        p, rho = robust_skat(geno[:, tested], weights[tested], *null_arrays(null_model), method)
+        p, rho, variant_p = robust_skat(
+            geno[:, tested], weights[tested], *null_arrays(null_model), method
+        )
         return {
             "p_value": p,
             "rho": rho,
+            "variant_p": variant_p,  # calibrated, for ACAT-V
+            "variant_weights": weights[tested],
             "n_variants": geno.shape[1],
             "warnings": [],
             "p_method": "spa_er",

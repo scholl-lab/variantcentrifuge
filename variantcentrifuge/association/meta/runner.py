@@ -181,6 +181,10 @@ def _gene_row(
     skat_p, _method = meta_skat(u_list, v_list, weights)
     skato_p, rho = meta_skato(u_list, v_list, weights)
 
+    # V~ (--skat-robust) calibrates the p-values only; effects and heterogeneity use raw V
+    if any(gs.v_robust is not None for gs in gene_scores):
+        v_list = align_strata(gene_scores, calibrate=False)[1]
+        beta = meta_burden(u_list, v_list, weights)[1] if burden_p is not None else 0.0
     betas, ses = per_stratum_burden(u_list, v_list, weights)
     het_q, het_p, het_i2 = cochran_q(betas, ses)
     directions = [

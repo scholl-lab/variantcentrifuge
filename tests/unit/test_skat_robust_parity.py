@@ -86,7 +86,7 @@ def test_variant_pvalues_match_r(cohort, gene):
 @pytest.mark.parametrize("cohort", COHORTS)
 def test_calibrated_moments_match_r(cohort, gene):
     geno, w, y, mu, design = _load(cohort, gene)
-    score, cov, _p_burden = robust_moments(geno, w, y, mu, design)
+    score, cov, _p_burden, _p = robust_moments(geno, w, y, mu, design)
     assert cov is not None
     r_score = np.array([s for s, _ in MOMENTS[(cohort, gene)]])
     r_phi = np.array([row for _, row in MOMENTS[(cohort, gene)]])
@@ -98,7 +98,7 @@ def test_calibrated_moments_match_r(cohort, gene):
 @pytest.mark.parametrize("cohort", COHORTS)
 def test_robust_skat_matches_r_tight_davies(cohort, gene):
     geno, w, y, mu, design = _load(cohort, gene)
-    p, rho = robust_skat(geno, w, y, mu, design, "SKAT")
+    p, rho, _ = robust_skat(geno, w, y, mu, design, "SKAT")
     assert rho is None
     ref = float(REF[(cohort, gene, "SKAT")]["p_davies_1e12"])
     assert p == pytest.approx(ref, rel=1e-4, abs=2e-12)
@@ -109,14 +109,14 @@ def test_robust_skat_matches_r_tight_davies(cohort, gene):
 @pytest.mark.parametrize("cohort", COHORTS)
 def test_robust_skat_matches_r_skatbinary_robust(cohort, gene, method):
     geno, w, y, mu, design = _load(cohort, gene)
-    p, _rho = robust_skat(geno, w, y, mu, design, method)
+    p, _rho, _ = robust_skat(geno, w, y, mu, design, method)
     ref = float(REF[(cohort, gene, method)]["p_value"])
     assert p == pytest.approx(ref, rel=1e-3, abs=1e-6)
 
 
 def test_single_variant_skato_is_skat():
     geno, w, y, mu, design = _load("r19", "single")
-    assert robust_skat(geno, w, y, mu, design, "SKATO") == (
+    assert robust_skat(geno, w, y, mu, design, "SKATO")[:2] == (
         robust_skat(geno, w, y, mu, design, "SKAT")[0],
         0.0,
     )
@@ -178,21 +178,73 @@ def test_rank_one_skato_falls_back_to_skat():
     geno2 = np.column_stack([geno[:, 0], geno[:, 0]])
     w2 = np.array([w[0], w[0]])
     p_skat = robust_skat(geno2, w2, y, mu, design, "SKAT")[0]
-    assert robust_skat(geno2, w2, y, mu, design, "SKATO") == (p_skat, 0.0)
+    assert robust_skat(geno2, w2, y, mu, design, "SKATO")[:2] == (p_skat, 0.0)
 
 
-def test_cancelling_burden_returns_robust_burden_p():
-    # Opposite single-carrier variants: burden score exactly 0, so the burden
-    # recalibration is undefined (R errors there); the robust burden p (= 1) is returned.
+@pytest.mark.parametrize("method", ["SKAT", "SKATO"])
+def test_exact_zero_burden_score_follows_the_normal_path(method):
+    # Opposite single-carrier variants: burden score exactly 0, p_burden exactly 1. R's
+    # S^2 / qchisq(0) is 0/0 there (try-error -> robust burden p = 1, R SKAT 2.2.5 prints 1);
+    # the port uses the analytic variance as for S ~ 1e-9, so p is continuous in S.
     n = 40
     y = np.zeros(n)
     y[:20] = 1.0
     mu = np.full(n, 0.5)
+
+    def p_of(eps):
+        geno = np.zeros((n, 2))
+        geno[0, 0] = 1.0 + eps  # one case carrier
+        geno[30, 1] = 1.0  # one control carrier
+        return robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), method)[0]
+
+    assert p_of(0.0) < 0.6
+    assert p_of(0.0) == pytest.approx(p_of(1e-9), rel=1e-6)
+
+
+def test_exact_zero_variant_score_stays_in_the_burden():
+    # A variant with score exactly 0 (p~ = 1) next to a strong one: R drops p~ = 1 variants
+    # from the burden sum (SPA_ER_kernel), so the robust p jumped (2.4e-4 vs 3.0e-4 at
+    # S ~ 1e-9). Every variant now enters the burden.
+    n = 40
+    y = np.zeros(n)
+    y[:20] = 1.0
+    mu = np.full(n, 0.5)
+
+    def p_of(eps):
+        geno = np.zeros((n, 3))
+        geno[[0, 20], 0] = 1.0  # one case, one control: score exactly 0
+        geno[0, 0] += eps
+        geno[2:12, 1] = 1.0  # ten case carriers
+        geno[[10, 11, 33, 34, 35], 2] = 1.0
+        return robust_skat(geno, np.ones(3), y, mu, np.ones((n, 1)), "SKAT")[0]
+
+    assert p_of(0.0) == pytest.approx(p_of(1e-9), rel=1e-6)
+
+
+@pytest.mark.parametrize("seed", [None, 1, 2])
+def test_opposing_variants_keep_their_signal(seed):
+    """500:500, uniform weights, variant 1 in 50 cases only, variant 2 in 50 controls only.
+
+    The burden score cancels to round-off (S ~ 1e-13, p_burden ~ 1 - 2e-14), so
+    S^2 / qchisq(1 - p, 1) is noise. R SKAT 2.2.5 SKATBinary_Robust (intercept-only null,
+    weights.beta = c(1, 1)) prints SKAT p 2.5e-21 in sample order and 1.3e-16 after a
+    permutation (its own round-off: r = VarQ / VarQ_2 = 0.91 / 0.70); with the exact
+    normal-branch variance (r = 1) the port gives 5.1e-23 in every order (v0.24 dev: 0.905
+    and 0.968).
+    """
+    n = 1000
+    y = np.r_[np.ones(500), np.zeros(500)]
     geno = np.zeros((n, 2))
-    geno[0, 0] = 1.0  # one case carrier
-    geno[30, 1] = 1.0  # one control carrier
-    p, rho = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKATO")
-    assert (p, rho) == (1.0, None)
+    geno[:50, 0] = 1.0
+    geno[500:550, 1] = 1.0
+    if seed is not None:
+        order = np.random.default_rng(seed).permutation(n)
+        y, geno = y[order], geno[order]
+    mu = np.full(n, 0.5)
+    p_skat, *_ = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKAT")
+    p_skato, *_ = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKATO")
+    assert p_skat == pytest.approx(5.1057684528e-23, rel=1e-6)
+    assert p_skato < 1e-20
 
 
 def test_unadjusted_variants_keep_the_exact_score_variance():

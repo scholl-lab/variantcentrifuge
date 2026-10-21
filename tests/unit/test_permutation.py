@@ -82,6 +82,9 @@ class TestValidation:
         _validate_association_config_dict({"permutations": 10, "permute_below_p": 0.5, "seed": 1})
         with pytest.raises(ValueError, match="permute_below_p"):
             _validate_association_config_dict({"permute_below_p": "x"})
+        for key in ("permutations", "seed", "permute_below_p"):  # bool is an int in Python
+            with pytest.raises(ValueError, match=key):
+                _validate_association_config_dict({key: True})
         ctx = SimpleNamespace(config={"association": {"permutations": 10, "seed": 4}})
         cfg = _build_assoc_config_from_context(ctx)
         assert (cfg.permutations, cfg.permute_below_p, cfg.seed) == (10, 1e-4, 4)
@@ -333,3 +336,105 @@ def test_skato_selection_ignores_reported_skato_p():
     assert out.loc["G001", "empirical_p"] > 0  # SKAT Q p 5e-4 < P: selected and permuted
     assert np.isnan(out.loc["G000", "empirical_p"])  # null gene: SKAT Q p >= P
     assert out.loc["G002", "permutation_method"] == "skipped_no_pvalue"
+
+
+@pytest.mark.unit
+def test_fitted_probabilities_of_one_do_not_give_the_floor():
+    """Five outlier cases get mu_hat == 1.0 exactly (no separation): v0.24 dev gave 1/(N+1)."""
+    rng = np.random.default_rng(0)
+    n = 1000
+    x = rng.normal(size=n)
+    y = (rng.random(n) < 1 / (1 + np.exp(-x))).astype(float)
+    x[:5], y[:5] = 200.0, 1.0
+    g = (rng.random((n, 4)) < 0.02).astype(float)
+    built = {
+        "genotype_matrix": g,
+        "variant_mafs": g.mean(0) / 2,
+        "phenotype_vector": y,
+        "covariate_matrix": x[:, None],
+    }
+    config = SimpleNamespace(
+        variant_weights="uniform", variant_weight_params=None, seed=0, permutations=1000
+    )
+    nulls: dict = {}
+    p, used = perm._gene_empirical("A", lambda: dict(built), config, "skat", nulls)
+    assert (next(iter(nulls.values())).extra["mu_hat"] == 1.0).sum() == 5  # repro shape
+    assert p > 0.05 and used < 1000
+
+
+@pytest.mark.unit
+def test_nonfinite_statistic_is_skipped_not_floored(monkeypatch):
+    n = 50
+    stat, a, mu = perm._STATISTICS["skat"], np.ones((n, 2)), np.full(n, 0.3)
+    e_obs = np.zeros(n)
+    e_obs[0] = np.nan
+    p, used = perm.empirical_p(stat, a, mu, e_obs, np.random.default_rng(0), 100)
+    assert np.isnan(p) and used == 0
+    mu_bad = mu.copy()
+    mu_bad[0] = np.nan  # a replicate statistic turns NaN
+    p, used = perm.empirical_p(stat, a, mu_bad, np.zeros(n), np.random.default_rng(0), 100)
+    assert np.isnan(p) and used == 0
+
+    genes = _gene_dicts(2, 400, 0.2, seed=4)
+    builders = {d["GENE"]: d["_genotype_matrix_builder"] for d in genes}
+    frame = pd.DataFrame({"gene": list(builders), "skat_pvalue": [0.01, 0.9]})
+    config = AssociationConfig(permutations=100, permute_below_p=0.5, association_workers=1)
+    monkeypatch.setattr(perm, "empirical_p", lambda *args, **kw: (np.nan, 0))
+    out = perm.add_empirical_p(frame, builders, ["skat"], config, "skat").set_index("gene")
+    assert np.isnan(out.loc["G000", "empirical_p"]) and pd.isna(out.loc["G000", "n_permutations"])
+    assert out.loc["G000", "permutation_method"] == "skipped_nonfinite"
+    assert pd.isna(out.loc["G001", "permutation_method"])
+
+
+@pytest.mark.unit
+def test_null_cache_is_bounded():
+    """One null fit per distinct sample mask: the cache keeps at most 8 (Codex: 226 MiB at 64)."""
+    from variantcentrifuge.association.meta.artifact import _MAX_CACHED_NULLS
+
+    config = SimpleNamespace(
+        variant_weights="beta:1,25", variant_weight_params=None, seed=0, permutations=20
+    )
+    genes = _gene_dicts(1, 200, 0.3, seed=1)
+    base = genes[0]["_genotype_matrix_builder"]()
+    nulls: dict = {}
+    for k in range(3 * _MAX_CACHED_NULLS):
+        b = {key: val[k:] if key != "variant_mafs" else val for key, val in base.items()}
+        perm._gene_empirical(f"G{k}", lambda b=b: b, config, "skat", nulls)
+        assert len(nulls) <= _MAX_CACHED_NULLS
+    assert len(nulls) == _MAX_CACHED_NULLS
+
+
+@pytest.mark.unit
+def test_robust_skat_and_skato_select_on_the_same_skat_q_p():
+    """Fixture r19/le10: robust SKAT p 1.6e-4, SKAT Q's analytic p 1.1e-6 (Codex review).
+
+    v0.24 dev selected robust SKAT on its calibrated p (skipped at P = 1e-5) but robust
+    SKAT-O on SKAT Q's analytic p (permuted): the same bootstrap, different genes.
+    """
+    from tests.unit.test_skat_robust_parity import _load
+
+    geno, _w, y, _mu, design = _load("r19", "le10")
+    built = {
+        "genotype_matrix": geno,
+        "variant_mafs": geno.mean(axis=0) / 2,
+        "phenotype_vector": y,
+        "covariate_matrix": design[:, 1:],
+    }
+    gene = {
+        "GENE": "le10",
+        "proband_count": int(y.sum()),
+        "control_count": int(y.size - y.sum()),
+        "n_qualifying_variants": geno.shape[1],
+        "_genotype_matrix_builder": lambda: dict(built),
+    }
+
+    def run(method, robust):
+        config = AssociationConfig(
+            permutations=200, permute_below_p=1e-5, skat_method=method, skat_robust=robust
+        )
+        return AssociationEngine.from_names(["skat"], config).run_all([dict(gene)]).iloc[0]
+
+    skat, rskat, rskato = run("SKAT", False), run("SKAT", True), run("SKATO", True)
+    assert skat["skat_pvalue"] < 1e-5 <= rskat["skat_pvalue"]  # repro shape
+    assert skat["empirical_p"] > 0
+    assert rskat["empirical_p"] == rskato["empirical_p"] == skat["empirical_p"]

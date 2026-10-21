@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
 from tests.unit.test_association_primary_test import _parse, _validate
@@ -118,3 +119,47 @@ def test_single_variant_gene_gets_a_robust_p_value():
     res, _w = _run("r19", "single", skat_method="SKATO", skat_robust=True)
     assert res.p_value == pytest.approx(float(REF[("r19", "single", "SKAT")]["p_value"]), rel=1e-6)
     assert res.extra["skat_o_rho"] == 0.0
+
+
+@pytest.mark.unit
+def test_robust_acat_v_uses_calibrated_variant_pvalues():
+    """10:990, a case-only singleton and a variant in four controls (Codex review case).
+
+    v0.24 dev: robust SKAT-O 0.0076 but ACAT-V (normal score p) 4.7e-23 drove the
+    default ACAT-O primary to 9.4e-23. ACAT-V now combines the SPA/ER p-values.
+    """
+    from variantcentrifuge.association.engine import AssociationEngine
+    from variantcentrifuge.association.spa import variant_pvalues
+    from variantcentrifuge.association.tests.acat import cauchy_combination
+    from variantcentrifuge.association.weights import get_weights
+
+    n = 1000
+    y = np.zeros(n)
+    y[:10] = 1.0
+    geno = np.zeros((n, 2))
+    geno[0, 0] = 1.0
+    geno[[100, 200, 300, 400], 1] = 1.0
+    built = {
+        "genotype_matrix": geno,
+        "phenotype_vector": y,
+        "covariate_matrix": None,
+        "variant_mafs": geno.mean(axis=0) / 2.0,
+    }
+    gene = {
+        "GENE": "G",
+        "proband_count": 10,
+        "control_count": 990,
+        "n_qualifying_variants": 2,
+        "_genotype_matrix_builder": lambda: dict(built),
+    }
+
+    def run(robust):
+        config = AssociationConfig(skat_method="SKATO", skat_robust=robust)
+        return AssociationEngine.from_names(["skat"], config).run_all([dict(gene)]).iloc[0]
+
+    default, robust = run(False), run(True)
+    assert default["acat_v_p"] < 1e-20  # default path unchanged
+    _s, p, _g, _v = variant_pvalues(geno, y, np.full(n, 0.01), np.ones((n, 1)))
+    w = get_weights(geno.mean(axis=0) / 2.0, "beta:1,25")
+    assert robust["acat_v_p"] == pytest.approx(cauchy_combination(p, w), rel=1e-9)
+    assert robust["primary_pvalue"] > 1e-3

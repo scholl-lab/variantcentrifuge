@@ -12,6 +12,7 @@ import pathlib
 
 import numpy as np
 import pytest
+import scipy.stats
 
 from tests.unit.meta_helpers import make_stratum
 from tests.unit.test_skat_robust_parity import MOMENTS, _load
@@ -152,3 +153,31 @@ def test_stage_hook_and_emit_store_v_robust_only_when_robust(tmp_path):
 
     entry = hook("G1", builder, _build_for_artifact(builder))[2]
     np.testing.assert_array_equal(entry.v_robust, v_rob)
+
+
+def test_meta_effects_and_heterogeneity_use_raw_covariance():
+    """U = 20, V = 40 in both strata, V~ = 160 / 40 (Codex probe): equal effects stay equal.
+
+    v0.24 dev used V~ in beta = U / V and in Cochran's Q: 0.125 / 0.5, het p 0.034.
+    """
+    from types import SimpleNamespace
+
+    from variantcentrifuge.association.meta.runner import _gene_row
+
+    def stratum(sid, v_robust):
+        gs = GeneScore(
+            variant_keys=["1:100:A:G"],
+            u=np.array([20.0]),
+            v=np.array([[40.0]]),
+            ac=np.array([30.0]),
+            an=np.array([2000.0]),
+            null_converged=True,
+            v_robust=np.array([v_robust]),
+        )
+        return SimpleNamespace(stratum_id=sid, n_cases=100, n_controls=900), gs
+
+    row = _gene_row("G1", "m", [stratum("a", 160.0), stratum("b", 40.0)], "uniform")
+    assert row["meta_burden_beta"] == pytest.approx(0.5)  # (20 + 20) / (40 + 40)
+    assert row["het_p"] == pytest.approx(1.0) and row["het_q"] == pytest.approx(0.0)
+    # the association p-value is still calibrated: z = 40 / sqrt(160 + 40)
+    assert row["meta_burden_p"] == pytest.approx(2 * scipy.stats.norm.sf(40 / np.sqrt(200)))
