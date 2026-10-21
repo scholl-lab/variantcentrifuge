@@ -82,6 +82,9 @@ class TestValidation:
         _validate_association_config_dict({"permutations": 10, "permute_below_p": 0.5, "seed": 1})
         with pytest.raises(ValueError, match="permute_below_p"):
             _validate_association_config_dict({"permute_below_p": "x"})
+        for key in ("permutations", "seed", "permute_below_p"):  # bool is an int in Python
+            with pytest.raises(ValueError, match=key):
+                _validate_association_config_dict({key: True})
         ctx = SimpleNamespace(config={"association": {"permutations": 10, "seed": 4}})
         cfg = _build_assoc_config_from_context(ctx)
         assert (cfg.permutations, cfg.permute_below_p, cfg.seed) == (10, 1e-4, 4)
