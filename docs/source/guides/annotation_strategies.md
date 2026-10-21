@@ -406,7 +406,8 @@ of a variant is neither reported nor kept.
 To keep such genes, add `--transcript-fallback keep-gene`: every annotation of a gene with no
 matched transcript is kept, so each of its transcripts becomes a row (readthrough genes without a
 listed transcript are kept too). Genes with at least one matched transcript are filtered as
-before. In parallel runs the counts are summed over the chunks; when a resumed run reuses chunk
+before. `keep-gene` runs the filter in one pass over all variants (no parallel
+chunks), so a gene split across several `--regions-bed` intervals is decided once. In parallel runs the counts are summed over the chunks; when a resumed run reuses chunk
 outputs, the summary and the dropped-gene list are skipped.
 
 ## Custom Gene Annotations with VariantCentrifuge
