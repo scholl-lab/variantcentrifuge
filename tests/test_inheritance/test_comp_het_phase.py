@@ -6,6 +6,9 @@ prove two hets cis (pair dropped) or trans (``compound_heterozygous``,
 path ignores phase.
 """
 
+import logging
+from unittest.mock import patch
+
 import pandas as pd
 
 from variantcentrifuge.inheritance.analyzer import analyze_inheritance
@@ -171,3 +174,105 @@ def test_end_to_end_patterns():
     assert out["Inheritance_Pattern"].tolist()[:2] == ["compound_heterozygous"] * 2
     out = analyze_inheritance(_gene(["0|1", "0|1"]), {}, ["child"])
     assert NO_PED not in out["Inheritance_Pattern"].tolist()
+
+
+# --- review r1: phase blocks declared in the header but not extracted -------------
+def _hdr(*format_ids):
+    from variantcentrifuge.vcf_header_parser import AnnotationField
+
+    return [AnnotationField(i, "1", "String", "", "FORMAT") for i in ("GT", *format_ids)]
+
+
+def _usable(header, fields):
+    from variantcentrifuge.vcf_header_parser import comp_het_phase_usable
+
+    cfg = {"vcf_file": "in.vcf.gz", "fields_to_extract": fields}
+    with patch("variantcentrifuge.vcf_header_parser.parse_vcf_header", return_value=header):
+        return comp_het_phase_usable(cfg), cfg
+
+
+def test_header_without_ps_or_pid_uses_phase():
+    assert _usable(_hdr(), "CHROM POS GEN[*].GT")[0] is True
+
+
+def test_header_ps_not_extracted_turns_phase_off(caplog):
+    with caplog.at_level(logging.INFO, logger="variantcentrifuge"):
+        ok, cfg = _usable(_hdr("PS"), "CHROM POS GEN[*].GT")
+    assert ok is False
+    msgs = [r.getMessage() for r in caplog.records if "phase" in r.getMessage()]
+    assert len(msgs) == 1 and "GEN[*].PS" in msgs[0]
+    # cached: second call neither re-reads the header nor logs again
+    with patch("variantcentrifuge.vcf_header_parser.parse_vcf_header") as hdr:
+        from variantcentrifuge.vcf_header_parser import comp_het_phase_usable
+
+        assert comp_het_phase_usable(cfg) is False
+        hdr.assert_not_called()
+
+
+def test_header_pid_not_extracted_turns_phase_off():
+    assert _usable(_hdr("PGT", "PID"), "CHROM GEN[*].GT GEN[*].PS")[0] is False
+
+
+def test_header_ps_extracted_uses_phase():
+    assert _usable(_hdr("PS"), "CHROM POS GEN[*].GT GEN[*].PS")[0] is True
+    assert _usable(_hdr("PS", "PGT", "PID"), "GEN[*].GT GEN[*].PS GEN[*].PGT GEN[*].PID")[0]
+
+
+def test_use_phase_false_keeps_old_labels():
+    res = analyze_gene_for_compound_het_vectorized(
+        _gene(["0|1", "0|1"]), {}, ["child"], use_phase=False
+    )
+    assert res[K1]["child"]["comp_het_type"] == NO_PED
+    out = analyze_inheritance(_gene(["0|1", "1|0"]), {}, ["child"], use_phase=False)
+    assert out["Inheritance_Pattern"].tolist() == [NO_PED] * 2
+
+
+def test_parallel_analyzer_passes_use_phase():
+    from variantcentrifuge.inheritance.parallel_analyzer import analyze_inheritance_parallel
+
+    df = pd.concat([_gene(["0|1", "0|1"])] * 1, ignore_index=True)
+    out = analyze_inheritance_parallel(
+        df, {}, ["child"], n_workers=2, min_variants_for_parallel=1, use_phase=False
+    )
+    assert out["Inheritance_Pattern"].tolist() == [NO_PED] * 2
+    out = analyze_inheritance_parallel(df, {}, ["child"], n_workers=2, min_variants_for_parallel=1)
+    assert NO_PED not in out["Inheritance_Pattern"].tolist()
+
+
+def test_stage_reads_header_and_passes_use_phase():
+    from tests.mocks.fixtures import create_test_context
+    from variantcentrifuge.stages.analysis_stages import InheritanceAnalysisStage
+
+    ctx = create_test_context()
+    ctx.current_dataframe = _gene(["0|1", "0|1"])
+    ctx.vcf_samples = ["child"]
+    ctx.pedigree_data = {}
+    ctx.config.update(
+        inheritance_mode="simple", vcf_file="in.vcf.gz", fields_to_extract="CHROM GEN[*].GT"
+    )
+    for s in ("dataframe_loading", "sample_config_loading", "pedigree_loading"):
+        ctx.mark_complete(s)
+    with patch("variantcentrifuge.vcf_header_parser.parse_vcf_header", return_value=_hdr("PS")):
+        out = InheritanceAnalysisStage()._process(ctx)
+    assert out.current_dataframe["Inheritance_Pattern"].tolist() == [NO_PED] * 2
+
+
+def test_chunk_path_passes_use_phase():
+    from tests.mocks.fixtures import create_test_context
+    from variantcentrifuge.stages.chunk_helpers import apply_chunk_inheritance_analysis
+
+    ctx = create_test_context()
+    ctx.config["inheritance_analysis_config"] = {
+        "vcf_samples": ["child"],
+        "pedigree_data": {},
+        "use_phase": False,
+    }
+    out = apply_chunk_inheritance_analysis(_gene(["0|1", "0|1"]), ctx)
+    assert out["Inheritance_Pattern"].tolist() == [NO_PED] * 2
+
+
+def test_compound_het_description_mentions_phase():
+    from variantcentrifuge.inheritance.prioritizer import get_pattern_description
+
+    text = get_pattern_description("compound_heterozygous")
+    assert "one from each parent" not in text and "phase" in text

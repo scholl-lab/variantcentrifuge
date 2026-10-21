@@ -245,6 +245,41 @@ def _read_header(vcf_path: str) -> str:
         raise
 
 
+def comp_het_phase_usable(config: dict) -> bool:
+    """False when the VCF header declares FORMAT/PS or PID that is not extracted (#236).
+
+    Phased GT is only comparable within its PS/PID block, so comp-het then ignores phase.
+    A VCF that declares neither is taken as one phase set. Read once; cached in *config*.
+    """
+    if "comp_het_use_phase" not in config:
+        vcf = config.get("vcf_file")
+        try:
+            declared = (
+                {
+                    f.id
+                    for f in parse_vcf_header(vcf)
+                    if f.source == "FORMAT" and f.id in ("PS", "PID")
+                }
+                if vcf
+                else set()
+            )
+        except (OSError, subprocess.CalledProcessError):
+            declared = set()
+        extracted = set(
+            re.findall(r"GEN\[[^\]]*\]\.(PS|PID)\b", str(config.get("fields_to_extract") or ""))
+        )
+        missing = sorted(declared - extracted)
+        if missing:
+            logger.info(
+                "Compound het: phase ignored; the VCF declares FORMAT/%s but it is not extracted "
+                "(add %s to the fields to use phased genotypes)",
+                "/".join(missing),
+                " ".join(f"GEN[*].{f}" + (" GEN[*].PGT" if f == "PID" else "") for f in missing),
+            )
+        config["comp_het_use_phase"] = not missing
+    return bool(config["comp_het_use_phase"])
+
+
 def format_fields_table(
     fields: list[AnnotationField],
     *,

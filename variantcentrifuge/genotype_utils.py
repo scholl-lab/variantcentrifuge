@@ -8,6 +8,7 @@ commonly found in VCF files.
 import re
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 
@@ -188,3 +189,59 @@ def phased_alt_haplotypes(
         else:
             out[row] = None
     return out
+
+
+def gene_phase_setup(
+    df: pd.DataFrame, candidates: list[str], sample_list: list[str]
+) -> tuple[dict[str, np.ndarray], dict[str, dict[str, str]]]:
+    """Once per gene: per candidate, rows whose GT is a phased het, and its PS/PGT/PID columns."""
+    present = [s for s in candidates if s in df.columns]
+    phased = dict(
+        zip(present, np.isin(df[present].to_numpy(dtype=object), _PHASED_HET).T, strict=True)
+    )
+    cols = phase_format_columns(df.columns)
+    fmt = {s: cols.get(i, {}) for i, s in enumerate(sample_list) if s in phased} if cols else {}
+    return phased, fmt
+
+
+def phase_relations(
+    haps: dict[int, tuple[tuple[str, str], str] | None], var: int, partners: list[int]
+) -> dict[int, str]:
+    """``cis``/``trans``/``unknown`` of *var* with each partner."""
+    h1, rel = haps[var], {}
+    for p in partners:
+        h2 = haps[p]
+        if h1 is None or h2 is None or h1[0] != h2[0]:
+            rel[p] = "unknown"
+        else:
+            rel[p] = "cis" if h1[1] == h2[1] else "trans"
+    return rel
+
+
+def phase_partner_labels(
+    haps: dict[int, tuple[tuple[str, str], str] | None] | None,
+    var: int,
+    partners: list[int],
+    keys: Any,
+    possible: str,
+) -> tuple[list[int], str, str, dict[str, str], dict[str, str], list[str]]:
+    """Comp-het labels of *var* and its *partners* when parents cannot decide (#236).
+
+    Returns ``(partners kept, comp_het_type, inheritance_type, partner_types,
+    partner_comp_het_types, all_comp_het_types)``. Proven-cis partners are removed,
+    proven-trans ones become ``compound_heterozygous``/``trans_phased``, the rest keep
+    *possible*/``unknown``. *keys* maps row positions to variant keys.
+    """
+    if haps is None:  # no phase for this sample: the pre-#236 labels
+        pk = [keys[p] for p in partners]
+        pt, pct = dict.fromkeys(pk, "unknown"), dict.fromkeys(pk, possible)
+        return partners, possible, "unknown", pt, pct, [possible]
+    rel = phase_relations(haps, var, partners)
+    kept = [p for p in partners if rel[p] != "cis"]
+    trans = {keys[p]: rel[p] == "trans" for p in kept}
+    pt = {k: "trans_phased" if t else "unknown" for k, t in trans.items()}
+    pct = {k: "compound_heterozygous" if t else possible for k, t in trans.items()}
+    all_types = list(dict.fromkeys(pct.values()))
+    if any(trans.values()):
+        return kept, "compound_heterozygous", "trans_phased", pt, pct, all_types
+    return kept, possible, "unknown", pt, pct, all_types

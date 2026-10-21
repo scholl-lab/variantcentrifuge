@@ -157,7 +157,9 @@ def get_pattern_description(pattern: str) -> str:
     descriptions = {
         # Confirmed patterns
         "de_novo": "New mutation not inherited from parents",
-        "compound_heterozygous": "Two different mutations in the same gene, one from each parent",
+        "compound_heterozygous": (
+            "Two different mutations in the same gene in trans (by parents or by phase)"
+        ),
         "autosomal_recessive": "Two copies of the mutation needed, one from each parent",
         "autosomal_dominant": "One copy of the mutation is sufficient to cause disease",
         "x_linked_recessive": "Mutation on X chromosome, primarily affects males",

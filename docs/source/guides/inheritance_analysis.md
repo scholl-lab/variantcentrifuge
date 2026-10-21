@@ -157,8 +157,13 @@ When one or both parents are missing, read-backed or statistical phase decides t
 - Phased `GT` (`0|1`, `1|0`) from WhatsHap, Beagle or similar: two hets on the same haplotype are
   **cis** and the pair is dropped; on opposite haplotypes they are **trans** and the pair is called
   `compound_heterozygous` (configuration `trans_phased`). If `GEN[*].PS` is extracted, both records
-  need the same phase set; without a PS column the whole VCF counts as one phase set.
+  need the same phase set. A VCF whose header declares no `FORMAT/PS` or `FORMAT/PID` (e.g. Beagle or
+  SHAPEIT output) counts as one phase set.
 - GATK `PGT`/`PID`: extract `GEN[*].PGT GEN[*].PID`; two hets with the same `PID` are compared on `PGT`.
+- If the header declares `FORMAT/PS` or `FORMAT/PID` (WhatsHap, GATK HaplotypeCaller, DRAGEN) but that
+  field is not extracted, phase blocks cannot be told apart: phase is ignored for every pair and one
+  INFO line says so. Add `GEN[*].PS` (and `GEN[*].PGT GEN[*].PID` when declared) to `--fields` to use it.
+- Statistical phase of rare variants is trusted as given; switch errors can mislabel such pairs.
 - Unphased pairs, or pairs in different phase sets, keep the old labels
   (`compound_heterozygous_possible_no_pedigree` / `_missing_parents`). With both parents present
   the parental genotypes decide and phase is not used.
