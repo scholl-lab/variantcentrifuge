@@ -611,8 +611,11 @@ single informative variant get a p-value (R behaviour) instead of being skipped.
 saddlepoint/exact p-values instead of the normal score p-values, so an ultra-rare variant
 cannot bring back the inflation through ACAT-V. When opposing variants cancel the burden
 score, the burden recalibration uses the exact normal-approximation variance instead of the
-round-off-prone `S² / qchisq(1 − p, 1)`; an exactly zero burden score keeps R's fallback
-(the robust burden p-value). The option
+round-off-prone `S² / qchisq(1 − p, 1)`, also for an exactly zero burden score, and every
+variant enters the burden sum, also one with an exactly zero score. This differs from R where
+R's own round-off decides: R drops variants with p~ = 1 from the burden, and returns the
+robust burden p-value (1) for an exactly zero burden score, while a score of 1e-13 gives
+about 1e-21 in R. The port uses the analytic variance, so p is continuous in the score. The option
 needs `--trait-type binary`, `skat` in `--association-tests`, the Python backend and
 `--skat-method SKAT` or `SKATO`; other combinations fail before extraction. It is off by
 default; the default output is unchanged.

@@ -181,18 +181,44 @@ def test_rank_one_skato_falls_back_to_skat():
     assert robust_skat(geno2, w2, y, mu, design, "SKATO")[:2] == (p_skat, 0.0)
 
 
-def test_cancelling_burden_returns_robust_burden_p():
-    # Opposite single-carrier variants: burden score exactly 0, so the burden
-    # recalibration is undefined (R errors there); the robust burden p (= 1) is returned.
+@pytest.mark.parametrize("method", ["SKAT", "SKATO"])
+def test_exact_zero_burden_score_follows_the_normal_path(method):
+    # Opposite single-carrier variants: burden score exactly 0, p_burden exactly 1. R's
+    # S^2 / qchisq(0) is 0/0 there (try-error -> robust burden p = 1, R SKAT 2.2.5 prints 1);
+    # the port uses the analytic variance as for S ~ 1e-9, so p is continuous in S.
     n = 40
     y = np.zeros(n)
     y[:20] = 1.0
     mu = np.full(n, 0.5)
-    geno = np.zeros((n, 2))
-    geno[0, 0] = 1.0  # one case carrier
-    geno[30, 1] = 1.0  # one control carrier
-    p, rho, _ = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKATO")
-    assert (p, rho) == (1.0, None)
+
+    def p_of(eps):
+        geno = np.zeros((n, 2))
+        geno[0, 0] = 1.0 + eps  # one case carrier
+        geno[30, 1] = 1.0  # one control carrier
+        return robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), method)[0]
+
+    assert p_of(0.0) < 0.6
+    assert p_of(0.0) == pytest.approx(p_of(1e-9), rel=1e-6)
+
+
+def test_exact_zero_variant_score_stays_in_the_burden():
+    # A variant with score exactly 0 (p~ = 1) next to a strong one: R drops p~ = 1 variants
+    # from the burden sum (SPA_ER_kernel), so the robust p jumped (2.4e-4 vs 3.0e-4 at
+    # S ~ 1e-9). Every variant now enters the burden.
+    n = 40
+    y = np.zeros(n)
+    y[:20] = 1.0
+    mu = np.full(n, 0.5)
+
+    def p_of(eps):
+        geno = np.zeros((n, 3))
+        geno[[0, 20], 0] = 1.0  # one case, one control: score exactly 0
+        geno[0, 0] += eps
+        geno[2:12, 1] = 1.0  # ten case carriers
+        geno[[10, 11, 33, 34, 35], 2] = 1.0
+        return robust_skat(geno, np.ones(3), y, mu, np.ones((n, 1)), "SKAT")[0]
+
+    assert p_of(0.0) == pytest.approx(p_of(1e-9), rel=1e-6)
 
 
 @pytest.mark.parametrize("seed", [None, 1, 2])
