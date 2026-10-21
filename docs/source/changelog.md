@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-21
+
 ### Added
 
 - The transcript filter (`--transcript-list` / `--transcript-file`) now logs one summary — transcripts requested, matched exactly, matched with a different version, genes before -> after — and a WARNING naming the genes that had annotated variants but lost all of them because none of their transcripts is listed (first 10 shown). Up/downstream and intergenic annotations of a neighbouring gene do not count. With `--diagnostics-output` the full list is written to `transcript_filter_dropped_genes.tsv`. Parallel runs aggregate the counts over all chunks; a resumed run that reuses chunks skips the summary (#231).
