@@ -263,8 +263,9 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         default=None,
         help=(
             "Genes whose p from the permuted test is below this get an empirical p: the "
-            "SKAT Q p (skat_pvalue; under SKATO computed internally) when SKAT Q is "
-            "permuted, else the logistic_burden p. Default: 1e-4."
+            "standard analytic SKAT Q p (skat_pvalue; computed internally under SKATO or "
+            "--skat-robust) when SKAT Q is permuted, else the logistic_burden p. "
+            "Default: 1e-4."
         ),
     )
     stats_group.add_argument(

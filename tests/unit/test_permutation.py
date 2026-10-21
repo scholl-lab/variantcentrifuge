@@ -402,3 +402,39 @@ def test_null_cache_is_bounded():
         perm._gene_empirical(f"G{k}", lambda b=b: b, config, "skat", nulls)
         assert len(nulls) <= _MAX_CACHED_NULLS
     assert len(nulls) == _MAX_CACHED_NULLS
+
+
+@pytest.mark.unit
+def test_robust_skat_and_skato_select_on_the_same_skat_q_p():
+    """Fixture r19/le10: robust SKAT p 1.6e-4, SKAT Q's analytic p 1.1e-6 (Codex review).
+
+    v0.24 dev selected robust SKAT on its calibrated p (skipped at P = 1e-5) but robust
+    SKAT-O on SKAT Q's analytic p (permuted): the same bootstrap, different genes.
+    """
+    from tests.unit.test_skat_robust_parity import _load
+
+    geno, _w, y, _mu, design = _load("r19", "le10")
+    built = {
+        "genotype_matrix": geno,
+        "variant_mafs": geno.mean(axis=0) / 2,
+        "phenotype_vector": y,
+        "covariate_matrix": design[:, 1:],
+    }
+    gene = {
+        "GENE": "le10",
+        "proband_count": int(y.sum()),
+        "control_count": int(y.size - y.sum()),
+        "n_qualifying_variants": geno.shape[1],
+        "_genotype_matrix_builder": lambda: dict(built),
+    }
+
+    def run(method, robust):
+        config = AssociationConfig(
+            permutations=200, permute_below_p=1e-5, skat_method=method, skat_robust=robust
+        )
+        return AssociationEngine.from_names(["skat"], config).run_all([dict(gene)]).iloc[0]
+
+    skat, rskat, rskato = run("SKAT", False), run("SKAT", True), run("SKATO", True)
+    assert skat["skat_pvalue"] < 1e-5 <= rskat["skat_pvalue"]  # repro shape
+    assert skat["empirical_p"] > 0
+    assert rskat["empirical_p"] == rskato["empirical_p"] == skat["empirical_p"]

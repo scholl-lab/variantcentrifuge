@@ -848,8 +848,9 @@ Defaults reproduce earlier output exactly.
 
 `--permutations N --permute-below-p P` (default off; `P` defaults to `1e-4`) gives an empirical
 p-value to every gene whose p for the permuted statistic is below `P`: `skat_pvalue` when SKAT Q
-is permuted (under `--skat-method SKATO`, SKAT Q's own analytic p, computed internally and not
-written), `logistic_burden_pvalue` when the burden score is. Binary traits, single cohort.
+is permuted (under `--skat-method SKATO` or `--skat-robust`, SKAT Q's own standard analytic p,
+computed internally and not written, so every SKAT mode selects the same genes),
+`logistic_burden_pvalue` when the burden score is. Binary traits, single cohort.
 
 - **Null:** a parametric bootstrap from the fitted covariate null model: case labels are
   redrawn as `y* ~ Bernoulli(mu_hat)`, so covariate strata keep their case rates. The null

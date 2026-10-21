@@ -141,7 +141,8 @@ def _gene_empirical(
 ) -> tuple[float, int] | None:
     """Empirical p for one gene from its rebuilt matrix; None when it cannot be tested.
 
-    ``q_below``: skip the gene unless SKAT Q's own analytic p is below it (SKAT-O runs).
+    ``q_below``: skip the gene unless SKAT Q's own analytic p is below it (SKAT-O and
+    ``--skat-robust`` runs).
     """
     built = builder()
     geno, y, cov = (
@@ -205,9 +206,12 @@ def add_empirical_p(
     stat = permutation_statistic(test_names, primary_id, config.skat_method, config.trait_type)
     column = source_pvalue_column(stat, test_names, list(result_df.columns))
     source_p = pd.to_numeric(result_df[column], errors="coerce")
-    # Under SKAT-O the gene is selected on SKAT Q's own p, computed in the worker for every
-    # gene with a SKAT-O p (the reported SKAT-O p can be conservative, so it cannot pre-filter).
-    q_below = config.permute_below_p if column == "skat_o_pvalue" else None
+    # Every SKAT mode selects on SKAT Q's standard analytic p: the reported skat_pvalue for
+    # default SKAT, else computed in the worker for every gene with a p (a SKAT-O or robust
+    # p is a different statistic's p, so it cannot pre-filter).
+    robust = getattr(config, "skat_robust", False)
+    own_q = stat == "skat" and (column == "skat_o_pvalue" or robust)
+    q_below = config.permute_below_p if own_q else None
     below = source_p.notna() if q_below else source_p < config.permute_below_p
     genes = [g for g in result_df.loc[below, "gene"] if builders.get(g) is not None]
     reason = result_df.get("skat_skip_reason") if stat == "skat" else None
