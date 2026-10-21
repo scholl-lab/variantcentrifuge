@@ -75,6 +75,43 @@ RELEVANT_CONFIG_KEYS: tuple[str, ...] = (
 SUBSET_FILE_KEYS: tuple[str, ...] = ("case_phenotypes_file", "control_phenotypes_file")
 SUBSET_CONFIG_KEYS: tuple[str, ...] = ("trait_type", "remove_sample_substring", *SUBSET_FILE_KEYS)
 
+# Association runs only: result-affecting keys read by _build_assoc_config_from_context and the
+# stage. Not hashed: association_workers, diagnostics_output, score_artifact (outputs, parallelism).
+ASSOCIATION_CONFIG_KEYS: tuple[str, ...] = (
+    "association_tests",
+    "correction_method",
+    "gene_burden_mode",
+    "confidence_interval_method",
+    "confidence_interval_alpha",
+    "continuity_correction",
+    "covariate_file",
+    "covariate_columns",
+    "categorical_covariates",
+    "variant_weights",
+    "variant_weight_params",
+    "variant_weight_column",
+    "missing_site_threshold",
+    "missing_sample_threshold",
+    "missing_as_ref",
+    "firth_max_iter",
+    "skat_backend",
+    "skat_method",
+    "primary_test",
+    "acat_o_exclude",
+    "coast_backend",
+    "association_min_cases",
+    "association_max_case_control_ratio",
+    "association_min_case_carriers",
+    "pca_file",
+    "pca_tool",
+    "pca_components",
+    "coast_weights",
+    "coast_classification",
+    "gene_prior_weights",
+    "gene_prior_weight_column",
+    "association",  # JSON association section
+)
+
 CANONICAL_ANNOTATION_KEYS: frozenset[str] = frozenset(
     {
         "annotate_bed_files",
@@ -140,8 +177,9 @@ def hash_configuration(config: dict[str, Any]) -> str:
     # A blocker flag (--no-stats, --pseudonymize, ...) decides whether samples are subset (#212).
     if config.get("perform_association"):
         relevant_config["__sample_subset_blocked__"] = blocking_reason(config) is not None
-        # These also decide which samples are extracted (resume maps TSV columns by header).
-        for key in SUBSET_CONFIG_KEYS:
+        # Subset keys decide which samples are extracted (resume maps TSV columns by header);
+        # association keys decide the results.
+        for key in (*SUBSET_CONFIG_KEYS, *ASSOCIATION_CONFIG_KEYS):
             if config.get(key) not in (None, ""):
                 relevant_config[key] = config[key]
     # Edited sample/phenotype files change the extracted sample subset (#212).

@@ -264,6 +264,11 @@ if current_hash != stored_hash:
     return False
 ```
 
+For association runs the hash also covers every result-affecting association option (tests,
+SKAT method, primary test, covariates/PCA, weights, filters and thresholds, set on the command
+line or in the JSON `association` section). The worker count, `--diagnostics-output` and
+`--score-artifact` paths do not invalidate a checkpoint.
+
 ### Pipeline Version Compatibility
 
 ```python

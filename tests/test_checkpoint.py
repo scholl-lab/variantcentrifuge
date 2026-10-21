@@ -601,3 +601,82 @@ def test_new_association_options_change_checkpoint_hash():
         "seed": 7,
     }.items():
         assert hash_configuration({**base, **unset, key: value}) != h_base, key
+
+
+def _assoc_hash(**overrides):
+    from variantcentrifuge.checkpoint_helpers import hash_configuration
+
+    base = {
+        "vcf_file": "in.vcf.gz",
+        "perform_association": True,
+        "association_tests": ["fisher", "skat"],
+        "skat_method": "SKAT",
+        "primary_test": None,
+        "association": {"min_cases": 50},
+    }
+    return hash_configuration({**base, **overrides})
+
+
+def test_association_options_change_checkpoint_hash():
+    """--resume reruns association when a result-affecting association option changes."""
+    h = _assoc_hash()
+    for key, value in {
+        "association_tests": ["fisher"],
+        "skat_method": "SKATO",
+        "primary_test": "skat",
+        "acat_o_exclude": ["fisher"],
+        "covariate_columns": ["age"],
+        "pca_components": 5,
+        "variant_weights": "uniform",
+        "association_min_cases": 10,
+        "missing_site_threshold": 0.2,
+        "firth_max_iter": 50,
+        "correction_method": "bonferroni",
+        "association": {"min_cases": 10},  # JSON-only association setting
+    }.items():
+        assert _assoc_hash(**{key: value}) != h, key
+
+
+def test_execution_only_association_options_keep_checkpoint_hash():
+    h = _assoc_hash()
+    assert _assoc_hash(association_workers=8, diagnostics_output="diag/") == h
+    assert _assoc_hash(score_artifact="art.npz", log_level="DEBUG", acat_o_exclude=None) == h
+
+
+def test_non_association_checkpoint_hash_unchanged_since_0_23():
+    """Non-association checkpoints written by 0.23 stay valid (hash from c0e97e07)."""
+    from variantcentrifuge.checkpoint_helpers import hash_configuration
+
+    config = {
+        "vcf_file": "in.vcf.gz",
+        "gene_name": "BRCA1",
+        "threads": 4,
+        "association_tests": [],
+        "skat_method": "SKAT",
+        "primary_test": None,
+        "association_workers": 0,
+        "association": {"skat_method": "SKATO"},
+    }
+    expected = "d4df18d8abc5067a58b1af858b85653f8ba46e563268889e126ae3d1f763f31b"
+    assert hash_configuration(config) == expected
+
+
+def test_every_association_config_field_is_hashed_or_excluded():
+    """New AssociationConfig fields must join ASSOCIATION_CONFIG_KEYS (or the exclude set)."""
+    import dataclasses
+
+    from variantcentrifuge.association.base import AssociationConfig
+    from variantcentrifuge.checkpoint_helpers import (
+        ASSOCIATION_CONFIG_KEYS,
+        RELEVANT_CONFIG_KEYS,
+        SUBSET_CONFIG_KEYS,
+    )
+
+    hashed = {*ASSOCIATION_CONFIG_KEYS, *RELEVANT_CONFIG_KEYS, *SUBSET_CONFIG_KEYS}
+    execution_only = {"association_workers", "diagnostics_output"}
+    missing = [
+        f.name
+        for f in dataclasses.fields(AssociationConfig)
+        if f.name not in hashed | execution_only and f"association_{f.name}" not in hashed
+    ]
+    assert missing == []
