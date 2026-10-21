@@ -343,8 +343,11 @@ variantcentrifuge \
 
 The transcript file must match the transcript namespace present in `ANN[0].FEATUREID`.
 For SnpEff RefSeq annotations this is typically `NM_*`; for Ensembl/GENCODE annotations
-this is typically `ENST*`. Transcript versions matter: `NM_000059.4` and
-`NM_000059.3` are different IDs.
+this is typically `ENST*`. Version suffixes are matched leniently: an exact ID
+such as `NM_000059.4` is preferred, but if a variant has no annotation with that exact ID,
+annotations of the same accession with another version (for example `NM_000059.3`) are kept
+instead and reported as version-skewed matches in the INFO summary; an ID listed without a
+version matches any version.
 
 ### MANE transcript lists
 
@@ -389,6 +392,22 @@ databases such as `GRCh38.mane.1.2.refseq` and `GRCh38.mane.1.2.ensembl`, and ca
 restrict annotation with `-onlyTr` or `-tag MANE_Select`. VariantCentrifuge does not
 infer MANE status from gene symbols alone; provide a transcript list that matches the
 VCF's annotation source.
+
+### Genes without a listed transcript
+
+A gene none of whose annotated transcripts is in the transcript list loses all its
+variants. After filtering, VariantCentrifuge logs one INFO summary (transcripts requested,
+matched exactly, matched with a different version, unmatched, and genes before -> after) and a
+WARNING naming the dropped genes (first 10). With `--diagnostics-output DIR` the full list is
+written to `DIR/transcript_filter_dropped_genes.tsv` (one column, `gene`). Only gene-body
+annotations count: a gene that appears only as an upstream, downstream or intergenic neighbour
+of a variant is neither reported nor kept.
+
+To keep such genes, add `--transcript-fallback keep-gene`: every annotation of a gene with no
+matched transcript is kept, so each of its transcripts becomes a row (readthrough genes without a
+listed transcript are kept too). Genes with at least one matched transcript are filtered as
+before. In parallel runs the counts are summed over the chunks; when a resumed run reuses chunk
+outputs, the summary and the dropped-gene list are skipped.
 
 ## Custom Gene Annotations with VariantCentrifuge
 
