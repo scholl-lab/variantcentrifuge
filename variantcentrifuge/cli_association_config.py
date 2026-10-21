@@ -108,6 +108,8 @@ def populate_association_config(
     cfg["primary_test"] = getattr(args, "primary_test", None)
     cfg["acat_o_exclude"] = getattr(args, "acat_o_exclude", None)
     cfg["skat_robust"] = getattr(args, "skat_robust", None)
+    for key in ("permutations", "permute_below_p", "seed"):  # None: JSON or default (#195)
+        cfg[key] = getattr(args, key, None)
     # Phase 33: Gene-level FDR weighting
     _gpw = getattr(args, "gene_prior_weights", None)
     if _gpw and not Path(_gpw).is_file():
@@ -237,6 +239,9 @@ def validate_association_args(
         "primary_test",
         "acat_o_exclude",
         "skat_robust",
+        "permutations",
+        "permute_below_p",
+        "seed",
     ):
         if getattr(args, dest, None) is not None and not args.perform_association:
             _fail(f"--{dest.replace('_', '-')} requires --perform-association to be set")
@@ -296,3 +301,26 @@ def validate_association_args(
             _fail("--skat-robust requires the python SKAT backend (--skat-backend python)")
         if merged.skat_method not in ("SKAT", "SKATO"):
             _fail("--skat-robust requires --skat-method SKAT or SKATO")
+    # #195: --permutations (CLI, else config file) is checked here, before extraction.
+    perm = {k: getattr(args, k, None) for k in ("permutations", "permute_below_p", "seed")}
+    perm = {k: file_assoc.get(k) if v is None else v for k, v in perm.items()}
+    if args.perform_association and any(v is not None for v in perm.values()):
+        from .association.permutation import permutation_statistic
+
+        tests = raw_tests or file_assoc.get("association_tests") or ["fisher"]
+        if isinstance(tests, str):
+            tests = [t.strip() for t in tests.split(",")]
+        n_perm, below_p = perm["permutations"] or 0, perm["permute_below_p"]
+        if n_perm < 0:
+            _fail(f"--permutations must be >= 0, got {n_perm}")
+        elif n_perm == 0:
+            if below_p is not None or perm["seed"] is not None:
+                _fail("--permute-below-p and --seed require --permutations N (N > 0)")
+        elif below_p is not None and not 0.0 < below_p <= 1.0:
+            _fail(f"--permute-below-p must be in (0, 1], got {below_p}")
+        else:
+            primary = "logistic_burden" if merged.primary_test == "burden" else None
+            try:
+                permutation_statistic(tests, primary, merged.skat_method, trait_type)
+            except ValueError as e:
+                _fail(str(e))

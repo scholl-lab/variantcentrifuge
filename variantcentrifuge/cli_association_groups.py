@@ -244,6 +244,29 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
             "SKAT or SKATO."
         ),
     )
+    # #195: None = not set on the CLI, so the JSON "association" section can provide it.
+    stats_group.add_argument(
+        "--permutations",
+        type=int,
+        default=None,
+        help=(
+            "Empirical p-values for the top genes: up to N parametric-bootstrap replicates "
+            "per gene from the fixed covariate null model, with adaptive stopping. "
+            "Binary traits, single cohort. Default: off."
+        ),
+    )
+    stats_group.add_argument(
+        "--permute-below-p",
+        type=float,
+        default=None,
+        help="Genes whose primary p-value is below this get an empirical p. Default: 1e-4.",
+    )
+    stats_group.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for --permutations (default 0); results do not depend on workers.",
+    )
     stats_group.add_argument(
         "--acat-o-exclude",
         choices=["acat_v"],
