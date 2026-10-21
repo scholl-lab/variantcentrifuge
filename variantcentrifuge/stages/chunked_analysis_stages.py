@@ -18,6 +18,7 @@ from ..dataframe_optimizer import (
 )
 from ..pipeline_core import PipelineContext, Stage
 from ..scoring import apply_scoring
+from ..vcf_header_parser import comp_het_phase_usable
 from .chunk_helpers import (
     apply_chunk_annotations,
     apply_chunk_inheritance_analysis,
@@ -185,6 +186,7 @@ class ChunkedAnalysisStage(Stage):
                 "pedigree_data": context.pedigree_data,
                 "use_vectorized_comp_het": not context.config.get("no_vectorized_comp_het", False),
                 "preserve_details_for_scoring": preserve_details,
+                "use_phase": comp_het_phase_usable(context.config),
             }
 
             logger.debug(

@@ -13,17 +13,14 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 
+from .utils import ensure_fields_in_extract
+
 logger = logging.getLogger("variantcentrifuge")
 
-# Regex for standard VCF meta-information lines (INFO / FORMAT).
-# Handles optional extra attributes (Source=, Version=) after Description.
-HEADER_RE = re.compile(
-    r"##(?P<source>INFO|FORMAT)=<"
-    r"ID=(?P<id>[^,]+),"
-    r"Number=(?P<number>[^,]+),"
-    r"Type=(?P<type>[^,]+),"
-    r'Description="(?P<desc>[^"]*)"'
-)
+# VCF meta-information lines (INFO / FORMAT); keys may come in any order.
+HEADER_RE = re.compile(r"##(?P<source>INFO|FORMAT)=<(?P<body>.*)>\s*$")
+# One attribute, matched only at the start of the body or right after a separator comma.
+HEADER_ATTR_RE = re.compile(r'([^=,"]+)=("(?:[^"\\]|\\.)*"|[^,"]*)(?:,|$)')
 TUMOR_SAMPLE_RE = re.compile(r"^##tumor_sample=(?P<sample>\S+)\s*$")
 NORMAL_SAMPLE_RE = re.compile(r"^##normal_sample=(?P<sample>\S+)\s*$")
 
@@ -67,21 +64,27 @@ def parse_vcf_header(vcf_path: str) -> list[AnnotationField]:
         logger.warning("Empty or missing VCF header for %s", vcf_path)
         return []
 
+    fields = _header_fields(header_text)
+    fields.sort(key=lambda f: (f.source, f.id.lower()))
+    return fields
+
+
+def _header_fields(header_text: str) -> list[AnnotationField]:
+    """INFO/FORMAT lines with ID, Number, Type and Description, in any key order."""
     fields: list[AnnotationField] = []
     for line in header_text.splitlines():
         m = HEADER_RE.match(line)
-        if m:
+        if not m:
+            continue
+        kv, body, pos = {}, m.group("body"), 0
+        while pos < len(body) and (a := HEADER_ATTR_RE.match(body, pos)):
+            value = a.group(2)
+            kv[a.group(1)] = value[1:-1] if value.startswith('"') else value  # the quote pair only
+            pos = a.end()
+        if {"ID", "Number", "Type", "Description"} <= kv.keys():
             fields.append(
-                AnnotationField(
-                    id=m.group("id"),
-                    number=m.group("number"),
-                    type=m.group("type"),
-                    description=m.group("desc"),
-                    source=m.group("source"),
-                )
+                AnnotationField(kv["ID"], kv["Number"], kv["Type"], kv["Description"], m["source"])
             )
-
-    fields.sort(key=lambda f: (f.source, f.id.lower()))
     return fields
 
 
@@ -243,6 +246,59 @@ def _read_header(vcf_path: str) -> str:
     except subprocess.CalledProcessError as exc:
         logger.error("bcftools failed (exit %d): %s", exc.returncode, exc.stderr.strip())
         raise
+
+
+def _read_phase_header(vcf_path: str) -> str:
+    """VCF header text; raises without logging (the caller decides how loud to be)."""
+    cmd = ["bcftools", "view", "--header-only", vcf_path]
+    return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+
+
+def comp_het_phase_usable(config: dict) -> bool:
+    """False when the VCF header declares FORMAT/PS or PID that is not extracted (#236).
+
+    Phased GT is only comparable within its PS/PID block, so comp-het then ignores phase.
+    A VCF that declares neither is taken as one phase set; an unreadable header counts as
+    declaring PS (fail closed), and no VCF (``--from-tsv``) turns phase off. Fields appended
+    by ``--append-extra-sample-fields`` count as extracted. Read once; cached in *config*.
+    """
+    if "comp_het_use_phase" not in config:
+        vcf = str(config.get("vcf_file") or "")
+        if not vcf:  # --from-tsv / library use without a VCF: phase cannot be checked
+            config["comp_het_use_phase"] = False
+            return False
+        try:
+            declared = {
+                f.id
+                for f in _header_fields(_read_phase_header(vcf))
+                if f.source == "FORMAT" and f.id in ("PS", "PID")
+            }
+        except (OSError, subprocess.CalledProcessError) as exc:
+            logger.warning(
+                "Compound het: cannot read the VCF header of %r (%s); assuming FORMAT/PS, "
+                "so phase is ignored unless GEN[*].PS is extracted",
+                vcf,
+                exc,
+            )
+            declared = {"PS"}
+        fields = str(config.get("fields_to_extract") or "")
+        if config.get("append_extra_sample_fields") and config.get("extra_sample_fields"):
+            fields = ensure_fields_in_extract(fields, config["extra_sample_fields"])
+        extracted = {
+            t.rsplit(".", 1)[1]
+            for t in fields.split()
+            if re.fullmatch(r"GEN\[[^\]]*\]\.(PS|PID)", t)
+        }
+        missing = sorted(declared - extracted)
+        if missing:
+            logger.info(
+                "Compound het: phase ignored; the VCF declares FORMAT/%s but it is not extracted "
+                "(add %s to the fields to use phased genotypes)",
+                "/".join(missing),
+                " ".join(f"GEN[*].{f}" + (" GEN[*].PGT" if f == "PID" else "") for f in missing),
+            )
+        config["comp_het_use_phase"] = not missing
+    return bool(config["comp_het_use_phase"])
 
 
 def format_fields_table(

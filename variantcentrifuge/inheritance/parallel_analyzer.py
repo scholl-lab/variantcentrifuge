@@ -67,6 +67,7 @@ def _process_gene_group(
     sample_to_idx: dict[str, int] | None = None,
     gene_row_indices: np.ndarray | None = None,
     variant_keys: np.ndarray | None = None,
+    use_phase: bool = True,
 ) -> tuple[str, dict[str, Any]]:
     """
     Process a single gene's variants for compound heterozygous patterns.
@@ -112,6 +113,7 @@ def _process_gene_group(
         sample_to_idx=sample_to_idx,
         gene_row_indices=gene_row_indices,
         variant_keys=variant_keys,
+        use_phase=use_phase,
     )
 
     return gene, comp_het_results
@@ -125,6 +127,7 @@ def analyze_inheritance_parallel(
     n_workers: int | None = None,
     min_variants_for_parallel: int = 100,
     reference: str | None = None,
+    use_phase: bool = True,
 ) -> pd.DataFrame:
     """
     Parallel version of inheritance analysis with concurrent gene processing.
@@ -149,6 +152,8 @@ def analyze_inheritance_parallel(
         Minimum number of variants to use parallel processing
     reference : str, optional
         Genome build (e.g. "GRCh37", "hg38") used to place the X PAR regions.
+    use_phase : bool, optional
+        Use phased genotypes for compound hets without both parents (#236).
 
     Returns
     -------
@@ -287,6 +292,7 @@ def analyze_inheritance_parallel(
                             sample_to_idx,
                             gene_row_idx,
                             gene_vkeys,
+                            use_phase,
                         ): gene
                         for gene, gene_df, gene_row_idx, gene_vkeys in batch
                     }
@@ -330,6 +336,7 @@ def analyze_inheritance_parallel(
                         sample_to_idx=sample_to_idx,
                         gene_row_indices=gene_row_idx,
                         variant_keys=gene_vkeys,
+                        use_phase=use_phase,
                     )
 
                     if comp_het_results:

@@ -86,6 +86,22 @@ def single_blas_thread() -> Iterator[None]:
             set_threads(n)
 
 
+@contextlib.contextmanager
+def gc_paused() -> Iterator[None]:
+    """Pause the cyclic garbage collector, e.g. while building one object per gene.
+
+    Every full collection scans all live objects, so a loop that keeps ~20k new objects
+    alive spends more time in the collector than in the loop itself.
+    """
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
+
+
 def _worker_initializer() -> None:
     """Limit BLAS to one thread in a worker process.
 

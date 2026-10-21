@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0] - 2026-10-21
+
+### Behaviour changes
+
+- **Compound hets use phased genotypes when parents are missing** (#236). For samples without both parents, phase now decides each het pair, but only where the phase is proven: phased `GT` (`0|1`/`1|0`) within the same extracted `FORMAT/PS` (when the VCF has no PS or PID, the whole VCF counts as one phase set), or GATK `PGT` with the same `PID`. Pairs proven **cis** are no longer reported. Pairs proven **trans** are called `compound_heterozygous` with configuration `trans_phased`. Unphased or unproven pairs keep `compound_heterozygous_possible_no_pedigree` / `_missing_parents`, byte-identical to v0.25.0. Trios are unchanged. On the phased 1000 Genomes fixture without a PED (rare HIGH/MODERATE variants), the 136 possible pairs become 85 dropped as cis and 51 `compound_heterozygous` (`trans_phased`). If the VCF header declares `FORMAT/PS` or `FORMAT/PID` but that field is not extracted, phase is ignored for every pair, the old labels are kept, and one INFO line names the field to add (`GEN[*].PS`, or `GEN[*].PGT GEN[*].PID`). Statistical phase (Beagle/SHAPEIT) is trusted as given. There is no option; to keep the old labels, use unphased genotypes.
+
+### Added
+
+- `not_artefact_af5` preset (`AF[ANY] <= 0.05 & QUAL[ANY] >= 100`): an alternative to `not_artefact` that does not depend on cohort size. The `AC <= 513` cap of `not_artefact` equals ~5 % only at ~5,100 samples. A WARNING is logged when a selected preset, `--filter` or `--final-filter` filters on INFO/AF and the VCF header has no INFO/AF (add it with `bcftools +fill-tags -- -t AF,AN,AC`). `not_artefact` is unchanged (#233).
+
+### Performance
+
+- Davies `qfc` evaluates its integrand for central chi-square terms with one complex product per term instead of one `atan` and one `log` per eigenvalue (2.4× faster `qfc`). Quadrature and term counts are unchanged. p-values change only by floating-point rounding (≤ 5e-11 relative on the 20,000-gene bench, 0 decision flips); score artifacts are bit-identical.
+- Association per-gene overhead: the genotype-matrix build, the score-artifact record and ACAT-V do less redundant work, and the per-gene matrix builders run with garbage collection paused. Results and score artifacts are bit-identical.
+- Together, on synthetic 20,000-gene runs (burden + SKAT-O + score artifact) vs v0.25.0: about 26 % less stage time per gene at 1 worker, 13–17 % at 8 workers, 9–22 % at 16 workers, and 35–40 % less for `variantcentrifuge meta`.
+
+### Fixed
+
+- The bcftools extractor now extracts `LOF[0].GENE`, `LOF[0].GENEID`, `LOF[0].NUMTR` and `LOF[0].PERC` correctly. Before, it wrote the raw LOF annotation plus a literal suffix (e.g. `(GENE|ID|1|1.00)...PERC`). A bare `LOF` or `NMD` field now keeps its raw column (#234).
+
+### Known limits
+
+- A direct-Newton logistic burden and SKAT-O algebra on the p×p kernel were evaluated and not shipped: counterexamples showed p-value drift beyond 1e-8 and changed Firth decisions.
+- The Meta-SAIGE GC-SPA meta burden (#198) was implemented and withdrawn: it failed the pre-registered null calibration. The default meta is anti-conservative in the tail at 8:1 case:control imbalance with small strata (3.2–3.6× the nominal rate at α = 1e-4 in a synthetic null).
+- Peak PSS at 8 association workers is 0.6–0.8 GB higher than v0.25.0; 1 and 16 workers are unchanged.
+- An infinite eigenvalue can hang Davies `qfc` (pre-existing; callers filter NaN, not inf).
+- In samples with one parent, phase is applied only to pairs that pass the existing parental candidate rules.
+- Saving the score artifact still takes ~2.7 s of serial time at 20,000 genes.
+- Phase-switch errors in the input are trusted; they can mislabel distant pairs.
+
 ## [0.25.0] - 2026-10-21
 
 ### Added

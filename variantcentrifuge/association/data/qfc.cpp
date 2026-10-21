@@ -1,8 +1,10 @@
 /* Standalone version of CompQuadForm/src/qfc.cpp for use without R headers.
  * Original source: https://cran.r-project.org/package=CompQuadForm (version 1.4.4)
  * Original algorithm: Davies (1980), JRSS-C 29(3):323-333.
- * Modifications: replaced <R.h> and "Rmath.h" with standard C/C++ headers only.
- * The math is identical to the original R package source.
+ * Modifications: replaced <R.h> and "Rmath.h" with standard C/C++ headers only;
+ * integrate() sums the central chi2_1 terms (all nc = 0, n = 1, lb >= 0) via one complex
+ * product per integration term (same terms, same quadrature; differs only by rounding).
+ * Otherwise the math is identical to the original R package source.
  */
 
 #define UseDouble 0             /* all floating point double */
@@ -32,7 +34,7 @@ extern "C" {
 
 static double sigsq, lmax, lmin, mean, c;
 static double intl, ersm;
-static int count, r, lim;  static BOOL ndtsrt, fail;
+static int count, r, lim;  static BOOL ndtsrt, fail, central;  /* central: see integrate() */
 static int *n,*th; static double *lb,*nc;
 static jmp_buf env;
 
@@ -211,7 +213,30 @@ static double exp1(double x)               /* to avoid underflows  */
          u = (k + 0.5) * interv;
          sum1 = - 2.0 * u * c;  sum2 = std::fabs(sum1);
          sum3 = - 0.5 * sigsq * square(u);
-         for ( j = r - 1; j >= 0; j--)
+         if (central)
+         {
+            /* sum_j atan(x_j) = arg prod_j (1 + i x_j) and sum_j log(1 + x_j^2) = log|prod|^2,
+               x_j >= 0: one atan2 and one log per term instead of one each per lb[j] */
+            double re = 1.0, im = 0.0, t, nrm; int w = 0;
+            for ( j = r - 1; j >= 0; j--)
+            {
+               x = 2.0 * lb[j] * u;
+               t = re - im * x;  y = im + re * x;
+               w += (im >= 0.0 && y < 0.0);  /* angle grows by < pi/2 per factor: count crossings of pi */
+               re = t;  im = y;
+            }
+            nrm = re * re + im * im;
+            /* exp1(sum3) = 0: the term adds 0, as in the original loop. An overflowed product (inf or
+               NaN) with a finite Gaussian part means |prod|^2 >= 1e308, sum3 <= -177: also 0 (findu
+               keeps |prod|^2 far below that anyway). Any other NaN propagates as in the original. */
+            if (!std::isfinite(nrm) && std::isfinite(sum3)) continue;
+            sum3 = sum3 - 0.25 * std::log(nrm);
+            if (sum3 < -50.0) continue;
+            /* exact 2*pi: the `pi` macro (3.14159265358979) is 3e-15 short, 6e-15 per crossing */
+            z = std::atan2(im, re) + 2.0 * 3.141592653589793 * w;
+            sum1 = sum1 + z;  sum2 = sum2 + z;
+         }
+         else for ( j = r - 1; j >= 0; j--)
          {
             nj = n[j];  x = 2.0 * lb[j] * u;  y = square(x);
             sum3 = sum3 - 0.25 * nj * log1(y, TRUE );
@@ -314,6 +339,8 @@ output:
       qfval = -1.0; acc1 = acc[0]; ndtsrt = TRUE;  fail = FALSE;
       xlim = (double)lim;
       th = (int*)malloc(r*(sizeof(int)));
+      central = TRUE;
+      for (j = 0; j < r; j++) if (nc[j] != 0.0 || n[j] != 1 || lb[j] < 0.0) central = FALSE;
       if (! th) { *ifault = 5;  goto  endofproc; }
 
       /* find mean, sd, max and min of lb,
