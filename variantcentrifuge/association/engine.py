@@ -192,6 +192,14 @@ class AssociationEngine:
         exclude = getattr(self._config, "acat_o_exclude", None)
         return compute_acat_o(results_by_test, sorted_data, list(self._tests), exclude)
 
+    def runs_parallel(self, n_units: int) -> bool:
+        """Whether a loop over *n_units* forks workers (the stage's set-up uses it too)."""
+        return (
+            self._config.association_workers != 1
+            and all(getattr(t, "parallel_safe", False) for t in self._tests.values())
+            and n_units >= MIN_GENES_FOR_PARALLEL
+        )
+
     def run_all(
         self, gene_burden_data: list[dict[str, Any]], gene_hook: GeneHook | None = None
     ) -> pd.DataFrame:
@@ -249,9 +257,7 @@ class AssociationEngine:
         all_parallel_safe = all(
             getattr(test, "parallel_safe", False) for test in self._tests.values()
         )
-        use_parallel = (
-            n_workers != 1 and all_parallel_safe and len(sorted_data) >= MIN_GENES_FOR_PARALLEL
-        )
+        use_parallel = self.runs_parallel(len(sorted_data))
 
         if n_workers != 1 and not all_parallel_safe:
             logger.warning(

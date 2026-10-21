@@ -23,6 +23,11 @@ import pandas as pd
 
 from variantcentrifuge.association.correction import apply_correction
 from variantcentrifuge.association.diagnostics import write_diagnostics
+from variantcentrifuge.association.engine_workers import (
+    fork_available,
+    fork_map,
+    single_blas_thread,
+)
 from variantcentrifuge.association.meta.align import align_strata, pooled_frequency_weights
 from variantcentrifuge.association.meta.artifact import GeneScore, ScoreCovarianceArtifact
 from variantcentrifuge.association.meta.combine import meta_burden, meta_skat, meta_skato
@@ -33,6 +38,7 @@ from variantcentrifuge.association.meta.manifest import (
     read_study_manifest,
     validate_comparability,
 )
+from variantcentrifuge.association.timing import Progress
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -229,6 +235,20 @@ def _gene_row(
     }
 
 
+def _gene_rows(state: tuple, lo: int, hi: int) -> list[dict]:
+    """Result rows for genes[lo:hi] (a ``fork_map`` task; also the sequential loop)."""
+    genes, artifacts, mask_id, weight_scheme, min_mac, n_required = state
+    rows = []
+    for gene in genes[lo:hi]:
+        contributors = [(art, art.genes[gene]) for art in artifacts if gene in art.genes]
+        try:
+            rows.append(_gene_row(gene, mask_id, contributors, weight_scheme, min_mac, n_required))
+        except Exception as exc:  # re-raised unchanged; the note names the gene
+            exc.add_note(f"meta-analysis gene {gene}")
+            raise
+    return rows
+
+
 def meta_analyze_artifacts(
     artifacts: list[ScoreCovarianceArtifact],
     weight_scheme: str = "beta:1,25",
@@ -236,6 +256,7 @@ def meta_analyze_artifacts(
     min_mac: float = 0.0,
     require_variants_in_all_strata: bool = False,
     mask_name: str | None = None,
+    workers: int = 1,
 ) -> pd.DataFrame:
     """Combine already-loaded, already-validated artifacts into a results frame.
 
@@ -246,6 +267,9 @@ def meta_analyze_artifacts(
     ``require_variants_in_all_strata``, without an informative minor allele in every
     stratum (``status=not_in_all_strata``) keep their p-values but stay outside the
     multiple-testing family, like the main engine's untestable genes.
+
+    ``workers`` > 1 (-1: all cores) combines genes in forked processes (Linux); rows,
+    order and floats are identical to the sequential loop (one BLAS thread either way).
     """
     if not (np.isfinite(min_mac) and min_mac >= 0):
         raise ValueError(f"min_mac must be a finite number >= 0, got {min_mac}")
@@ -257,11 +281,26 @@ def meta_analyze_artifacts(
     mask_id = mask_name or artifacts[0].mask_label or artifacts[0].mask_id
     all_genes = sorted({g for art in artifacts for g in art.genes})
 
+    n_required = len(artifacts) if require_variants_in_all_strata else 0
+    state = (all_genes, artifacts, mask_id, weight_scheme, min_mac, n_required)
+    cpus = os.cpu_count() or 1
+    n_workers = cpus if workers == -1 else min(workers, cpus)
+    if workers > cpus:
+        logger.info("Meta-analysis: --workers %d capped at %d CPU cores", workers, cpus)
+    progress = Progress("Meta-analysis genes", len(all_genes))
     rows: list[dict] = []
-    for gene in all_genes:
-        contributors = [(art, art.genes[gene]) for art in artifacts if gene in art.genes]
-        n_required = len(artifacts) if require_variants_in_all_strata else 0
-        rows.append(_gene_row(gene, mask_id, contributors, weight_scheme, min_mac, n_required))
+    with single_blas_thread():  # gene-level parallelism only, never BLAS (#212)
+        if n_workers > 1 and not fork_available():
+            logger.info("Parallel meta-analysis needs fork (Linux); running genes sequentially")
+        if n_workers > 1 and len(all_genes) > 1 and fork_available():
+            logger.info("Meta-analysis: %d workers for %d genes", n_workers, len(all_genes))
+            for _lo, hi, chunk in fork_map(_gene_rows, state, len(all_genes), n_workers):
+                rows.extend(chunk)
+                progress.update(hi)
+        else:
+            for i in range(len(all_genes)):
+                rows.extend(_gene_rows(state, i, i + 1))
+                progress.update(i + 1)
 
     df = pd.DataFrame(rows).reindex(columns=OUTPUT_COLUMNS)
 
@@ -366,6 +405,7 @@ def run_meta(
     diagnostics_dir: str | None = None,
     require_variants_in_all_strata: bool = False,
     allow_annotation_mismatch: bool = False,
+    workers: int = 1,
 ) -> pd.DataFrame:
     """Full pipeline: manifest → validated artifacts → meta results → TSV.
 
@@ -395,6 +435,7 @@ def run_meta(
                 min_mac=min_mac,
                 require_variants_in_all_strata=require_variants_in_all_strata,
                 mask_name=mask,
+                workers=workers,
             )
             for scheme in schemes
         ]

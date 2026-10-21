@@ -160,6 +160,10 @@ variantcentrifuge meta \
   --diagnostics-output meta_diagnostics/
 ```
 
+`--workers N` combines genes in N forked processes (`-1`: all cores; default 1,
+Linux only, otherwise sequential); the output is byte-identical for any N. A progress
+line (genes done/total, rate, ETA) is logged at most every 30 s.
+
 Only `beta:a,b` and `uniform` weights are supported (the only schemes reproducible
 from the artifact). `--weights` takes several schemes, e.g.
 `--weights beta:1,25 uniform`: every column that depends on the weights (p-values,
