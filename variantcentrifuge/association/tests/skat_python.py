@@ -382,6 +382,7 @@ class PurePythonSKATTest(AssociationTest):
                 mu_hat=self._null_model.extra.get("mu_hat"),  # None for quantitative
                 weights=acat_v_weights,
                 null_model=self._null_model,
+                projection=result.get("projection"),
             )
         )
 

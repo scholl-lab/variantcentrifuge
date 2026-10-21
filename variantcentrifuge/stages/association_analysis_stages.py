@@ -419,7 +419,7 @@ class AssociationAnalysisStage(Stage):
             if score_artifact and "_genotype_matrix_builder" in d
         }
         gene_hook = (
-            _score_artifact_hook(artifact_builders, assoc_config.skat_robust)
+            _score_artifact_hook(artifact_builders, assoc_config.skat_robust, df)
             if artifact_builders
             else None
         )

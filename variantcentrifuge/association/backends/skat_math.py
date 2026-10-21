@@ -37,6 +37,7 @@ _SKATO_RHO_GRID = [0.0, 0.01, 0.04, 0.09, 0.25, 0.5, 1.0]
 def compute_eigenvalues_filtered(
     geno_weighted: np.ndarray,
     null_model: NullModelResult,
+    projected: tuple[np.ndarray, np.ndarray, float] | None = None,
 ) -> np.ndarray:
     """
     Compute filtered eigenvalues of the null-projected SKAT kernel ``Z'PZ / 2``.
@@ -49,7 +50,8 @@ def compute_eigenvalues_filtered(
 
     Uses scipy.linalg.eigh(driver='evr') matching R's DSYEVR Lapack routine.
     Applies threshold = mean(positive_eigenvalues) / 100_000 (matches R SKAT),
-    floored at ``projection_noise_floor(...)**2 / 2`` (round-off of ``Z'PZ``).
+    floored at ``(bound * sigma_max(V^1/2 Z))**2 / 2`` (round-off of ``Z'PZ``; ``bound`` is
+    the per-column round-off bound of ``null_model._project``).
 
     Parameters
     ----------
@@ -57,6 +59,8 @@ def compute_eigenvalues_filtered(
         Weighted genotype matrix (G * W).
     null_model : NullModelResult
         Fitted null model containing mu_hat (binary) and design_matrix.
+    projected : tuple, optional
+        ``null_model._project(geno_weighted, null_model)``, if the caller already has it.
 
     Returns
     -------
@@ -64,12 +68,9 @@ def compute_eigenvalues_filtered(
         Filtered eigenvalues (positive and above threshold). Empty array
         if none pass.
     """
-    from variantcentrifuge.association.backends.null_model import (
-        project_out_nuisance,
-        projection_noise_floor,
-    )
+    from variantcentrifuge.association.backends.null_model import _project
 
-    z_adj = project_out_nuisance(geno_weighted, null_model)
+    z_adj, z, bound = projected if projected is not None else _project(geno_weighted, null_model)
     n_variants = geno_weighted.shape[1]
     eig_mat = z_adj.T @ z_adj if n_variants <= geno_weighted.shape[0] else z_adj @ z_adj.T
     lambdas_all = scipy.linalg.eigh(eig_mat / 2.0, eigvals_only=True, driver="evr")
@@ -79,9 +80,9 @@ def compute_eigenvalues_filtered(
         return np.array([], dtype=np.float64)
     # R's relative filter, floored at the round-off level of the unprojected kernel
     # (directions explained by covariates must not become noise eigenvalues).
-    threshold = max(
-        pos.mean() / 100_000.0, projection_noise_floor(geno_weighted, null_model) ** 2 / 2.0
-    )
+    # Singular-value round-off floor: bound * sigma_max of the UNprojected z (callers zero
+    # explained columns first, so they cannot inflate sigma_max).
+    threshold = max(pos.mean() / 100_000.0, float(bound * np.linalg.norm(z, 2)) ** 2 / 2.0)
     return np.asarray(lambdas_all[lambdas_all > threshold], dtype=np.float64)
 
 
@@ -89,8 +90,12 @@ def compute_skato_q_and_z1(
     geno_weighted: np.ndarray,
     null_model: NullModelResult,
     rho_grid: list[float],
+    z_adj: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compute per-rho Q statistics and projection-adjusted Z1/sqrt(2) for SKAT-O."""
+    """Compute per-rho Q statistics and projection-adjusted Z1/sqrt(2) for SKAT-O.
+
+    ``z_adj`` is ``project_out_nuisance(geno_weighted, null_model)`` if the caller has it.
+    """
     from variantcentrifuge.association.backends.null_model import project_out_nuisance
 
     residuals: np.ndarray = null_model.extra["residuals"]
@@ -108,5 +113,7 @@ def compute_skato_q_and_z1(
         q_rho[i] = (q1 + q2) / (2.0 * sigma2)
 
     # ── Step 2: Build projection-adjusted Z1 ──
-    z1_half = project_out_nuisance(geno_weighted, null_model) / np.sqrt(2.0)
+    if z_adj is None:
+        z_adj = project_out_nuisance(geno_weighted, null_model)
+    z1_half = z_adj / np.sqrt(2.0)
     return q_rho, z1_half

@@ -12,11 +12,14 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def _score_artifact_hook(builders: dict[str, Any], robust: bool = False) -> Any:
+def _score_artifact_hook(
+    builders: dict[str, Any], robust: bool = False, df: pd.DataFrame | None = None
+) -> Any:
     """Engine gene hook computing each gene's artifact entry from the tests' matrix (#212).
 
     Validates the phenotype up front and fits the all-samples null model here, in the
-    parent, so forked workers inherit it.
+    parent, so forked workers inherit it. ``df`` is the frame whose row positions the
+    builders' ``rows`` are: its site columns are taken once instead of per gene.
     """
     import numpy as np
 
@@ -30,10 +33,13 @@ def _score_artifact_hook(builders: dict[str, Any], robust: bool = False) -> Any:
     with contextlib.suppress(UntestableGeneError):
         null_for_mask(nulls, np.ones(pheno_all.size, dtype=bool), pheno_all, first.covariate_matrix)
 
+    cols = ("CHROM", "POS", "REF", "ALT")
+    sites = [df[c].to_numpy() for c in cols] if df is not None and set(cols) <= set(df) else None
+
     def hook(gene: str, builder: Any, built: dict[str, Any]) -> Any:
         if builder.gene_df.empty:
             return None
-        return gene_score_record(gene, builder, built, pheno_all, nulls, robust)
+        return gene_score_record(gene, builder, built, pheno_all, nulls, robust, sites)
 
     return hook
 
