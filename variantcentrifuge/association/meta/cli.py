@@ -70,6 +70,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write lambda_GC and QQ diagnostics for the meta p-values to DIR.",
     )
     parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Worker processes for the per-gene combination (default: 1, sequential; "
+        "-1: all cores). Results are identical for any worker count.",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -80,7 +87,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point. Returns a process exit code."""
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.workers == 0 or args.workers < -1:
+        parser.error(f"--workers must be >= 1 or -1 (all cores), got {args.workers}")
 
     logging.basicConfig(
         level=getattr(logging, args.log_level),
@@ -103,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
             diagnostics_dir=args.diagnostics_output,
             require_variants_in_all_strata=args.require_variants_in_all_strata,
             allow_annotation_mismatch=args.allow_annotation_mismatch,
+            workers=args.workers,
         )
     except MetaCompatibilityError as exc:
         logger.error("Meta-analysis refused (strata not comparable): %s", exc)

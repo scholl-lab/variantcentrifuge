@@ -313,7 +313,8 @@ def run_meta(args) -> int:
         runner.run_meta = keep
         with PssPeak() as pss:
             t0 = time.perf_counter()
-            rc = meta_main(["--manifest", str(manifest), "--output", out, "--log-level", "ERROR"])
+            argv = ["--manifest", str(manifest), "--output", out, "--log-level", "ERROR"]
+            rc = meta_main([*argv, "--workers", str(args.workers)])
             wall = time.perf_counter() - t0
         logging.shutdown()
     if args.out and "df" in captured:
