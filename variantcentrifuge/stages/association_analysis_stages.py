@@ -328,9 +328,14 @@ class AssociationAnalysisStage(Stage):
         genotypes = None
         if "GT" in df.columns or (gt_cols and vcf_samples_list):
             with substep(timings, "gt_parse"):  # once per run, assigned samples only (#219)
-                genotypes = parse_genotype_codes(df, samples, vcf_samples_list, gt_cols)
+                genotypes = parse_genotype_codes(
+                    df, samples, vcf_samples_list, gt_cols, assoc_config.association_workers
+                )
             # Per-sample GEN[i].* columns are no longer needed: keep only annotations.
-            df = df.drop(columns=[c for c in df.columns if _PER_SAMPLE_COLUMN.match(c)])
+            # Packed GT too: genotypes come from the codes from here on.
+            df = df.drop(
+                columns=[c for c in df.columns if c == "GT" or _PER_SAMPLE_COLUMN.match(c)]
+            )
 
         with substep(timings, "aggregation"):
             gene_rows = df.groupby("GENE", observed=True).indices
@@ -345,6 +350,7 @@ class AssociationAnalysisStage(Stage):
                     np.array([s in case_set for s in samples], dtype=bool),
                     np.array([s in control_set for s in samples], dtype=bool),
                     assoc_config.missing_as_ref,
+                    assoc_config.association_workers,
                 )
             else:
                 logger.info(
@@ -366,9 +372,13 @@ class AssociationAnalysisStage(Stage):
                 else None
             )
             with substep(timings, "matrix_builders"):
-                for gene_data in gene_burden_data:
-                    rows = gene_rows[gene_data["GENE"]]
-                    gene_df = df.iloc[rows]
+                # One take in gene order, then a contiguous slice per gene: the same rows
+                # and index labels as df.iloc[rows], without a pandas take per gene.
+                ordered_rows = [gene_rows[d["GENE"]] for d in gene_burden_data]
+                by_gene = df.take(np.concatenate(ordered_rows))
+                ends = np.cumsum([len(r) for r in ordered_rows])
+                for gene_data, rows, end in zip(gene_burden_data, ordered_rows, ends, strict=True):
+                    gene_df = by_gene.iloc[end - len(rows) : end]
                     gene_data["_genotype_matrix_builder"] = _GenotypeMatrixBuilder(
                         gene_df=gene_df,
                         vcf_samples=assigned_samples,
