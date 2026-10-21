@@ -245,6 +245,9 @@ class AssociationEngine:
             f"tests on {len(sorted_data)} genes"
         )
 
+        # run_all consumes the matrix builders; permutation rebuilds its few genes (#195)
+        perm = getattr(self._config, "permutations", 0)
+        builders = {d["GENE"]: d.get("_genotype_matrix_builder") for d in sorted_data if perm}
         # Collect results: results_by_test[test_name][gene] = TestResult
         results_by_test: dict[str, dict[str, TestResult]] = {name: {} for name in self._tests}
 
@@ -562,6 +565,12 @@ class AssociationEngine:
             return pd.DataFrame()
 
         result_df = pd.DataFrame(rows)
+        if perm:
+            from variantcentrifuge.association.permutation import add_empirical_p
+
+            result_df = add_empirical_p(
+                result_df, builders, list(self._tests), self._config, primary_result_id
+            )
         n_sig = (result_df.get("primary_qvalue", pd.Series(dtype=float)) < 0.05).sum()
         logger.info(
             f"Association analysis complete: {len(result_df)} genes tested, "

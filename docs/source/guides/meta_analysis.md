@@ -273,6 +273,8 @@ In a synthetic null (strata of 5,000 samples at 1:9 and 900 at 8:1, genes of 10 
 with MAC 1–10, 1e5 tests), the meta with calibrated variances rejected 1.06–1.13x the
 nominal rate at α = 1e-2 and 9–11 of 10 expected at 1e-4 (burden, SKAT, SKAT-O); the
 uncalibrated meta rejected 1.3–1.5x at 1e-2 and up to 3.9x (SKAT) at 1e-4.
+Permutation (`--permutations`) is single-cohort only: it needs the genotypes of every
+stratum, which artifacts do not carry (#195).
 `V` is stored as a full matrix, so a future relatedness-aware (GLMM/GRM) null drops in
 without a schema change.
 
