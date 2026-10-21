@@ -88,9 +88,12 @@ def _infer_missing_ploidy(ploidy: np.ndarray, kind: np.ndarray, retained: np.nda
     In place. Explicit calls keep their encoded ploidy; only retained samples decide the
     row ploidy, so excluded samples cannot change retained imputation (#174).
     """
-    kept = kind[:, retained]
+    generic = kind == _GENERIC_MISSING
+    if not generic.any():
+        return
+    kept = kind if retained.all() else kind[:, retained]
     haploid_rows = (kept == _HAPLOID).any(axis=1) & ~(kept == _DIPLOID).any(axis=1)
-    ploidy[haploid_rows[:, None] & (kind == _GENERIC_MISSING)] = 1.0
+    ploidy[haploid_rows[:, None] & generic] = 1.0
 
 
 def _column_strings(column: pd.Series) -> np.ndarray:
@@ -342,9 +345,7 @@ def build_genotype_matrix(
     circular dependency.  Variants where every retained sample is missing receive
     MAF=0 and are imputed to 0 (ref/ref).
     """
-    vcf_samples_list = list(vcf_samples)
-    gt_columns_list = list(gt_columns)
-    n_samples = len(vcf_samples_list)
+    n_samples = len(vcf_samples)
     warnings_list: list[str] = []
 
     # ------------------------------------------------------------------ #
@@ -353,34 +354,36 @@ def build_genotype_matrix(
     # ops instead of per-cell Python function calls.                       #
     # ------------------------------------------------------------------ #
     if parsed is None:
-        parsed = _vectorized_parse_gt_columns(gene_df, gt_columns_list)
+        parsed = _vectorized_parse_gt_columns(gene_df, list(gt_columns))
     raw, ploidy, kind = parsed
+    missing = np.isnan(raw)
     if missing_as_ref:
         # Missing ploidy is still inferred below (generic missing calls on haploid rows -> 1).
-        raw[np.isnan(raw)] = 0.0
+        raw[missing] = 0.0
+        missing[:] = False
 
     # ------------------------------------------------------------------ #
     # Step 2 — Layer 1a: Remove variants with >missing_site_threshold     #
     # fraction missing site-wide                                          #
     # ------------------------------------------------------------------ #
-    missing_per_variant = np.isnan(raw).mean(axis=1)  # shape (n_variants,)
+    missing_per_variant = missing.mean(axis=1)  # shape (n_variants,)
     keep_variants_mask = missing_per_variant <= missing_site_threshold
-    raw = raw[keep_variants_mask]  # shape (n_kept_variants, n_samples)
+    raw = raw[keep_variants_mask]  # shape (n_kept_variants, n_samples); a copy
     ploidy = ploidy[keep_variants_mask]
     kind = kind[keep_variants_mask]
+    missing = missing[keep_variants_mask]
 
     # ------------------------------------------------------------------ #
     # Step 3 — Layer 1b: Flag samples with >missing_sample_threshold      #
     # fraction missing across kept variants                               #
     # ------------------------------------------------------------------ #
     if raw.shape[0] > 0:
-        missing_per_sample = np.isnan(raw).mean(axis=0)  # shape (n_samples,)
+        missing_per_sample = missing.mean(axis=0)  # shape (n_samples,)
     else:
         missing_per_sample = np.zeros(n_samples, dtype=np.float64)
 
-    sample_mask: list[bool] = [
-        bool(missing_per_sample[i] <= missing_sample_threshold) for i in range(n_samples)
-    ]
+    retained = missing_per_sample <= missing_sample_threshold
+    sample_mask: list[bool] = retained.tolist()
 
     # ------------------------------------------------------------------ #
     # Step 4 (optional): Differential missingness warning per variant     #
@@ -392,10 +395,9 @@ def build_genotype_matrix(
         ctrl_mask = pheno == 0
         n_cases = int(case_mask.sum())
         n_ctrls = int(ctrl_mask.sum())
-        if n_cases > 0 and n_ctrls > 0:
-            miss = np.isnan(raw)
-            case_rates = miss[:, case_mask].mean(axis=1)
-            ctrl_rates = miss[:, ctrl_mask].mean(axis=1)
+        if n_cases > 0 and n_ctrls > 0 and missing.any():  # no missing call: all rates 0
+            case_rates = missing[:, case_mask].mean(axis=1)
+            ctrl_rates = missing[:, ctrl_mask].mean(axis=1)
             for v_idx in np.flatnonzero(np.abs(case_rates - ctrl_rates) > 0.05):
                 warnings_list.append(
                     f"Variant index {v_idx}: differential missingness "
@@ -407,11 +409,9 @@ def build_genotype_matrix(
     # Step 5 — Layer 2: Compute MAFs and impute missing values            #
     # MAF from all RETAINED samples combined (never stratified; #174)     #
     # ------------------------------------------------------------------ #
-    retained = np.asarray(sample_mask, dtype=bool)
     _infer_missing_ploidy(ploidy, kind, retained)
     # Vectorised over variants; dosages and ploidies are small integers, so the sums
     # (and everything derived from them) are exact and match a per-variant loop.
-    missing = np.isnan(raw)
     obs = ~missing & retained
     total_ac = np.where(obs, raw, 0.0).sum(axis=1)
     total_an = np.where(obs, ploidy, 0.0).sum(axis=1)
@@ -419,8 +419,11 @@ def build_genotype_matrix(
     zero = ~obs.any(axis=1) | (total_an <= 0.0) | (total_ac >= total_an)
     alt_freq = np.divide(total_ac, total_an, out=np.zeros_like(total_ac), where=~zero)
     mafs = np.where(zero, 0.0, np.minimum(alt_freq, 1.0 - alt_freq))
-    imputed = ploidy * alt_freq[:, None]
-    geno = np.where(missing, np.round(imputed) if is_binary else imputed, raw)
+    if missing.any() or np.result_type(ploidy, alt_freq, raw) != raw.dtype:
+        imputed = ploidy * alt_freq[:, None]
+        geno = np.where(missing, np.round(imputed) if is_binary else imputed, raw)
+    else:
+        geno = raw  # nothing to impute, same dtype; raw is this function's own copy
     flip = ~zero & (alt_freq > 0.5)
     geno[flip] = ploidy[flip] - geno[flip]
     geno[zero] = 0.0

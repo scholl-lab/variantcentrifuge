@@ -70,8 +70,8 @@ class GenotypeCodes:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Return (dosage, ploidy, kind) for *rows*, exactly as the column parser does."""
         sub = self.codes[rows]
-        multi = self.multi[sub]
-        if multi.any():  # first offending sample, then row (column-major, like the parser)
+        multi = self.multi[sub] if self.multi.any() else None
+        if multi is not None and multi.any():  # first offending sample, then row (column-major)
             j, r = divmod(int(np.flatnonzero(multi.T)[0]), len(rows))
             raise _multiallelic_error(gene_df, r, self.labels[j], self.vocab[sub[r, j]])
         return self.dosage[sub], self.ploidy[sub], self.kind[sub]
