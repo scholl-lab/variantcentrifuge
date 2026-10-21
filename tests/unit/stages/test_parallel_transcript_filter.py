@@ -19,7 +19,7 @@ def test_parallel_chunk_applies_transcript_filter_before_field_extraction(
     chunk_bed.write_text("1\t0\t100\n", encoding="utf-8")
 
     stage = ParallelCompleteProcessingStage()
-    result = stage._process_single_chunk(
+    result, _ = stage._process_single_chunk(
         chunk_index=0,
         chunk_bed=chunk_bed,
         vcf_file="input.vcf.gz",

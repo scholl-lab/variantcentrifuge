@@ -71,6 +71,22 @@ chr20	12345000	12347000	OTHER_GENE
         ]
 
     @patch("subprocess.run")
+    def test_temp_bed_lands_in_cache_dir(self, mock_subprocess, temp_dir, monkeypatch):
+        """#226: the genes2bed temp BED is created under the cache dir, not the system tmp."""
+        mock_subprocess.side_effect = self.mock_successful_bed_pipeline
+        made: list[str] = []
+        real_mkstemp = tempfile.mkstemp
+
+        def spy(*a, **kw):
+            fd, name = real_mkstemp(*a, **kw)
+            made.append(name)
+            return fd, name
+
+        monkeypatch.setattr(tempfile, "mkstemp", spy)
+        get_gene_bed("GRCh38.p14", "PKD1", 0, False, output_dir=temp_dir)
+        assert [os.path.dirname(p) for p in made] == [os.path.join(temp_dir, "bed_cache")]
+
+    @patch("subprocess.run")
     def test_genes2bed_failure_includes_captured_output(self, mock_subprocess, temp_dir):
         """Test that snpEff failures include stderr and partial stdout in the raised error."""
 

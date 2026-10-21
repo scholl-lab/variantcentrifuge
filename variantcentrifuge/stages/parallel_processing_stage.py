@@ -9,7 +9,6 @@ import logging
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import Manager
 from pathlib import Path
 from typing import Any
 
@@ -282,9 +281,8 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
         base_name: str,
         intermediate_dir: Path,
         config: dict[str, Any],
-        subtask_times: Any = None,
-    ) -> Path:
-        """Process a single BED chunk through complete pipeline."""
+    ) -> tuple[Path, dict[str, float]]:
+        """Process a single BED chunk through complete pipeline; return (TSV, subtask times)."""
         chunk_base = f"{base_name}.chunk_{chunk_index}"
         extract_start = time.time()
         chunk_vcf = intermediate_dir / f"{chunk_base}.variants.vcf.gz"
@@ -377,12 +375,12 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
         )
         field_extract_time = time.time() - field_extract_start
 
-        if subtask_times is not None:
-            subtask_times[f"chunk_{chunk_index}_extraction"] = extract_time
-            subtask_times[f"chunk_{chunk_index}_filtering"] = filter_time
-            subtask_times[f"chunk_{chunk_index}_field_extraction"] = field_extract_time
         logger.debug(f"Completed processing chunk {chunk_index}")
-        return chunk_tsv
+        return chunk_tsv, {
+            f"chunk_{chunk_index}_extraction": extract_time,
+            f"chunk_{chunk_index}_filtering": filter_time,
+            f"chunk_{chunk_index}_field_extraction": field_extract_time,
+        }
 
     def _process_chunks_parallel(
         self, context: PipelineContext, bed_chunks: list[Path]
@@ -449,6 +447,7 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                 "max_memory_gb": worker_max_memory_gb,
                 "snpsift_memory_gb": worker_snpsift_gb,
                 "bcftools_prefilter": cfg.get("bcftools_prefilter"),
+                "temp_dir": cfg.get("temp_dir"),
                 "late_filtering": cfg.get("late_filtering", False),
                 "snpeff_splitting_mode": cfg.get("snpeff_splitting_mode"),
                 "filter": cfg.get("filter"),
@@ -465,7 +464,7 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                     cfg.get("transcript_list"), cfg.get("transcript_file")
                 ),
             }
-            shared_subtask_times = Manager().dict()
+            subtask_times: dict[str, float] = {}
             executor_cls = _ps_attr("ProcessPoolExecutor", ProcessPoolExecutor)
             as_completed_fn = _ps_attr("as_completed", as_completed)
             with executor_cls(max_workers=active_workers) as executor:
@@ -478,22 +477,22 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                         base_name,
                         intermediate_dir,
                         worker_config,
-                        shared_subtask_times,
                     ): (i, chunk_bed, expected_tsv, chunk_fp)
                     for i, chunk_bed, expected_tsv, chunk_fp in chunks_to_process
                 }
                 for future in as_completed_fn(future_to_chunk):
                     chunk_index, chunk_bed, _expected_tsv, chunk_fp = future_to_chunk[future]
                     try:
-                        chunk_tsv = future.result()
+                        chunk_tsv, chunk_times = future.result()
+                        subtask_times.update(chunk_times)
                         if chunk_tsv.parent.exists():
                             Path(f"{chunk_tsv}.meta").write_text(chunk_fp, encoding="utf-8")
                         logger.debug(f"Completed chunk {chunk_index}: {chunk_bed.name}")
                     except Exception as e:
                         logger.error(f"Failed to process chunk {chunk_bed}: {e}")
                         raise
-            if shared_subtask_times:
-                self._aggregate_subtask_times(shared_subtask_times)
+            if subtask_times:
+                self._aggregate_subtask_times(subtask_times)
         else:
             logger.info("All chunk TSVs already exist and are valid - no processing needed")
 
