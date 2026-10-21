@@ -500,14 +500,14 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
             intermediate_dir / f"{base_name}.chunk_{i}{tsv_suffix}" for i in range(len(bed_chunks))
         ]
 
-    def _aggregate_subtask_times(self, shared_subtask_times: Any) -> None:
+    def _aggregate_subtask_times(self, subtask_times: dict[str, float]) -> None:
         """Aggregate subtask times from parallel processing."""
         groups: dict[str, list[float]] = {
             "variant_extraction": [],
             "snpsift_filtering": [],
             "field_extraction": [],
         }
-        for k, v in shared_subtask_times.items():
+        for k, v in subtask_times.items():
             if "_field_extraction" in k:
                 groups["field_extraction"].append(v)
             elif "_extraction" in k:
