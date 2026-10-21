@@ -416,7 +416,8 @@ def compute_pvalue(
     acc : float
         Davies integration accuracy. Default: 1e-6 (matches R SKAT).
     lim : int
-        Davies integration term limit. Default: 10_000 (matches R SKAT).
+        Davies integration term limit; the call uses max(lim, _DAVIES_RETRY_LIM = 1_000_000),
+        which is identical to R SKAT's lim=10_000 wherever that converges. Default: 10_000.
 
     Returns
     -------
