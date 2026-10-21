@@ -305,7 +305,9 @@ Fisher-only runs ignore covariates and skip the check:
   **stop the run** with an error naming the columns involved.
 - For binary traits, a covariate whose case and control values do not overlap or touch (it
   completely separates the phenotype, so no logistic model has a finite estimate) **stops the run**
-  with an error naming it. Quasi-separation, such as a batch with controls only, is left to the
+  with an error naming it. So do covariates that separate it only jointly (the covariates-only
+  logistic null fit predicts every sample, e.g. `y = (x1 + x2 > 0)`). Quasi-separation, such as
+  a batch with controls only, is left to the
   Firth fallback (and to the batch warning of `--diagnostics-output`).
 
 Well-conditioned covariates pass through unchanged. For the logistic burden fit only, covariates

@@ -218,7 +218,8 @@ def test_preflight_memory_is_independent_of_n_squared():
     preflight_covariates(cov, ["age", "sex", "PC1"], y, binary=True)
     peak = tracemalloc.get_traced_memory()[1]
     tracemalloc.stop()
-    assert peak < 20 * cov.nbytes  # O(n k), far below n * n * 8 bytes
+    # O(n k), far below n * n * 8 bytes (the joint-separation GLM fit makes ~30 n-vectors)
+    assert peak < 50 * cov.nbytes
 
 
 # --- standardisation of ill-conditioned covariates for the logistic fit ---------------------
@@ -351,3 +352,19 @@ def test_preflight_wide_design_without_residual_df_fails():
         preflight_covariates(rng.normal(size=(8, 10)), [f"c{j}" for j in range(10)], y, True)
     ok = rng.normal(size=(8, 6))  # 7 design columns, 1 residual df: passes
     assert preflight_covariates(ok, [f"c{j}" for j in range(6)], y, binary=False)[0] is ok
+
+
+def test_preflight_joint_separation_fails_quasi_passes():
+    """y = (x1 + x2 > 0): each column overlaps, jointly separating (v0.24 dev passed)."""
+    rng = np.random.default_rng(0)
+    cov = rng.normal(size=(400, 2))
+    y = (cov.sum(axis=1) > 0).astype(float)
+    assert (cov[y == 1].max(axis=0) > cov[y == 0].min(axis=0)).all()  # no single column
+    with pytest.raises(ValueError, match=r"jointly separate cases from controls.*: x1, x2"):
+        preflight_covariates(cov, ["x1", "x2"], y, binary=True)
+    tied = cov.copy()
+    tied[:4] = 0.0  # four samples on the boundary x1 + x2 = 0, both outcomes: quasi-separation
+    y_q = (tied.sum(axis=1) > 0).astype(float)
+    y_q[:2] = 1.0
+    assert preflight_covariates(tied, ["x1", "x2"], y_q, binary=True)[0] is tied
+    assert preflight_covariates(cov, ["x1", "x2"], y, binary=False)[0] is cov

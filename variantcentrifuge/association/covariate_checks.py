@@ -101,6 +101,22 @@ def preflight_covariates(
                 "Covariate(s) separate cases from controls, so no logistic model "
                 f"converges: {', '.join(separating)}. Remove these columns."
             )
+        # Joint complete separation (e.g. y = x1 + x2 > 0): the same covariates-only null
+        # fit and rule every gene would hit (OUTCOME_EXPLAINED_BY_COVARIATES), once.
+        from variantcentrifuge.association.backends.null_model import (
+            UntestableGeneError,
+            fit_glm_null_model,
+        )
+
+        try:
+            fit_glm_null_model(phenotype, covariates, "binary")
+        except UntestableGeneError as exc:
+            if exc.reason == "OUTCOME_EXPLAINED_BY_COVARIATES":
+                raise ValueError(
+                    "Covariates jointly separate cases from controls (the covariates-only "
+                    f"logistic fit predicts every sample): {', '.join(names)}. Remove or "
+                    "combine columns."
+                ) from exc
     return covariates, names
 
 
