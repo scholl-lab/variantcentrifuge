@@ -135,7 +135,7 @@ class TestParallelCompleteProcessingStage:
 
         # Mock future and result
         mock_future = Mock()
-        mock_future.result.return_value = (Path("/tmp/test.chunk_1.extracted.tsv.gz"), {})
+        mock_future.result.return_value = (Path("/tmp/test.chunk_1.extracted.tsv.gz"), {}, {})
         mock_executor.submit.return_value = mock_future
 
         # Mock as_completed to return the future
@@ -255,7 +255,7 @@ class TestParallelCompleteProcessingStage:
                 self.submissions += 1
                 chunk_tsv.write_text("CHROM\tPOS\tREF\tALT\nchr1\t100\tA\tG\n")
                 fut = Future()
-                fut.set_result((chunk_tsv, {}))
+                fut.set_result((chunk_tsv, {}, {}))
                 return fut
 
         exec1 = FakeExecutor()

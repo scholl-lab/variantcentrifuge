@@ -72,6 +72,7 @@ class TestParallelCompleteProcessingStage:
             future.result.return_value = (
                 Path(f"/tmp/intermediate/test_output.chunk_{i}.extracted.tsv.gz"),
                 {},
+                {},
             )
             futures.append(future)
 
@@ -147,7 +148,7 @@ class TestParallelCompleteProcessingStage:
                 patch("variantcentrifuge.stages.processing_stages.apply_snpsift_filter"),
                 patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools"),
             ):
-                result, _ = stage._process_single_chunk(
+                result, _, _ = stage._process_single_chunk(
                     0, chunk_bed, "/path/to/test.vcf", "test_output", tmppath, config
                 )
 

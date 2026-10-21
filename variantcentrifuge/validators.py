@@ -448,6 +448,19 @@ def validate_cli_args(
             parser.error(msg)
         raise FileNotFoundError(msg)
 
+    fallback = getattr(args, "transcript_fallback", None) or cfg.get("transcript_fallback")
+    tx_list = getattr(args, "transcript_list", None) or cfg.get("transcript_list")
+    if fallback not in (None, "none", "keep-gene") or (
+        fallback == "keep-gene" and not (tx_file or tx_list)
+    ):
+        msg = (
+            f"--transcript-fallback {fallback!r}: must be 'none' or 'keep-gene', and "
+            "'keep-gene' requires --transcript-list or --transcript-file"
+        )
+        if parser is not None:
+            parser.error(msg)
+        raise ValueError(msg)
+
     bed_specs = getattr(args, "annotate_bed", None) or cfg.get("annotate_bed_files") or []
     try:
         validate_annotate_bed_specs(bed_specs, getattr(args, "fields", None) or cfg.get("fields"))

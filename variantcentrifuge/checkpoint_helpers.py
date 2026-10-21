@@ -58,6 +58,7 @@ RELEVANT_CONFIG_KEYS: tuple[str, ...] = (
     "filter_exception_file",
     "transcript_list",
     "transcript_file",
+    "transcript_fallback",
     "regions_bed",
     "interval_expand",
     "add_chr",

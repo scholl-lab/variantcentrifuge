@@ -36,7 +36,11 @@ from ..pipeline_core.error_handling import (
     validate_file_exists,
 )
 from ..sample_subset import resolve_sample_subset
-from ..transcript_filter import filter_vcf_to_transcripts, load_transcript_ids
+from ..transcript_filter import (
+    filter_vcf_to_transcripts,
+    load_transcript_ids,
+    log_transcript_filter_summary,
+)
 from ..utils import ensure_fields_in_extract, split_bed_file  # noqa: F401
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
 from .post_processing_stages import (
@@ -418,13 +422,20 @@ class TranscriptFilterStage(Stage):
         output_vcf = context.workspace.get_intermediate_path(
             f"{context.workspace.base_name}.transcript_filtered.vcf.gz"
         )
+        stats: dict = {}
         filter_vcf_to_transcripts(
             str(input_vcf),
             str(output_vcf),
             transcript_ids,
             index_output=False,
             filter_exception_file=context.config.get("filter_exception_file"),
+            fallback=context.config.get("transcript_fallback") or "none",
+            stats=stats,
         )
+        if stats:
+            log_transcript_filter_summary(
+                stats, transcript_ids, context.config.get("diagnostics_output")
+            )
 
         context.transcript_filtered_vcf = output_vcf  # type: ignore[attr-defined]
         if not getattr(context, "extracted_tsv", None):

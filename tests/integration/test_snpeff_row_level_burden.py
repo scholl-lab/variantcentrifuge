@@ -156,7 +156,7 @@ def test_parallel_chunk_worker_before_filters_excludes_cross_gene_issue_106_row(
     subprocess.run(["bcftools", "index", "-f", str(indexed_vcf)], check=True)
     chunk_bed.write_text("chr1\t0\t150\n", encoding="utf-8")
 
-    chunk_tsv, _ = ParallelCompleteProcessingStage()._process_single_chunk(
+    chunk_tsv, _, _ = ParallelCompleteProcessingStage()._process_single_chunk(
         chunk_index=0,
         chunk_bed=chunk_bed,
         vcf_file=str(indexed_vcf),
