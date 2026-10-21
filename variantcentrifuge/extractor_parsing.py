@@ -1,4 +1,4 @@
-"""Parsing of SnpEff ANN and NMD subfields from raw extracted columns."""
+"""Parsing of SnpEff ANN, LOF and NMD subfields from raw extracted columns."""
 
 import pandas as pd
 
@@ -36,14 +36,11 @@ ANN_SUBFIELD_MAP = {
     "ANN[0].AA_LEN": ("AA.pos/AA.length", 13),  # Will need split
 }
 
-# NMD field positions (pipe-delimited SnpEff LOF/NMD format:
-# Gene | ID | num_transcripts | percent_affected)
-NMD_SUBFIELD_MAP = {
-    "NMD[0].GENE": 0,
-    "NMD[0].GENEID": 1,
-    "NMD[0].NUMTR": 2,
-    "NMD[0].PERC": 3,
-}
+# SnpEff LOF and NMD share one pipe-delimited format:
+# (Gene_Name | Gene_ID | Number_of_transcripts_in_gene | Percent_of_transcripts_affected)
+LOF_NMD_TAGS = ("LOF", "NMD")
+LOF_NMD_SUBFIELD_POSITIONS = {"GENE": 0, "GENEID": 1, "NUMTR": 2, "PERC": 3}
+NMD_SUBFIELD_MAP = {f"NMD[0].{k}": v for k, v in LOF_NMD_SUBFIELD_POSITIONS.items()}
 
 
 def parse_ann_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
@@ -128,47 +125,31 @@ def parse_ann_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
 
 def parse_nmd_subfields(df: pd.DataFrame, fields: list[str]) -> pd.DataFrame:
     """
-    Parse NMD subfields from raw NMD column.
+    Parse LOF[0].* and NMD[0].* subfields from the raw LOF and NMD columns.
 
     Parameters
     ----------
     df : pd.DataFrame
-        DataFrame with raw "NMD" column containing pipe-delimited data
+        DataFrame with raw "LOF"/"NMD" columns containing pipe-delimited data
     fields : list[str]
-        Original field list to determine which NMD subfields to extract
+        Original field list to determine which subfields to extract
 
     Returns
     -------
     pd.DataFrame
-        DataFrame with NMD subfields added and raw NMD column removed
+        DataFrame with subfields added and raw LOF/NMD columns removed
     """
-    if "NMD" not in df.columns:
-        return df
-
-    # Determine which NMD subfields are needed
-    nmd_fields_needed = [f for f in fields if f.startswith("NMD[0].")]
-
-    if not nmd_fields_needed:
-        return df.drop(columns=["NMD"])
-
-    # Take first NMD annotation and remove SnpEff's surrounding parentheses:
-    # NMD=(GENE|GENEID|NUMTR|PERC)
-    first_nmd = df["NMD"].fillna("").str.split(",", n=1).str[0]
-    first_nmd = first_nmd.str.strip().str.replace(r"^\((.*)\)$", r"\1", regex=True)
-
-    # Split by pipe
-    nmd_split = first_nmd.str.split("|", expand=True)
-
-    # Extract each requested subfield
-    for field in nmd_fields_needed:
-        if field in NMD_SUBFIELD_MAP:
-            pos = NMD_SUBFIELD_MAP[field]
-            if pos < nmd_split.shape[1]:
-                df[field] = nmd_split[pos].fillna("NA")
-            else:
-                df[field] = "NA"
-
-    # Drop raw NMD column
-    df = df.drop(columns=["NMD"])
-
+    for tag in LOF_NMD_TAGS:
+        if tag not in df.columns or tag in fields:  # a bare LOF/NMD field keeps its raw column
+            continue
+        # Take the first annotation and strip SnpEff's parentheses: (GENE|GENEID|NUMTR|PERC)
+        first = df[tag].fillna("").str.split(",", n=1).str[0]
+        first = first.str.strip().str.replace(r"^\((.*)\)$", r"\1", regex=True)
+        split = first.str.split("|", expand=True)
+        for field in fields:
+            if field.startswith(f"{tag}[0]."):
+                pos = LOF_NMD_SUBFIELD_POSITIONS.get(field.split(".", 1)[1])
+                if pos is not None:
+                    df[field] = split[pos].fillna("NA") if pos < split.shape[1] else "NA"
+        df = df.drop(columns=[tag])
     return df

@@ -68,7 +68,7 @@ def build_bcftools_format_string(
     format_parts = []
     column_names = []
     seen_ann = False
-    seen_nmd = False
+    seen_lof_nmd: set[str] = set()
     per_sample_fields = []
 
     # Fixed VCF fields mapping
@@ -95,12 +95,13 @@ def build_bcftools_format_string(
                 column_names.append("ANN")
                 seen_ann = True
 
-        elif field.startswith("NMD[0]."):
-            # NMD subfield - extract raw NMD once
-            if not seen_nmd:
-                format_parts.append("%INFO/NMD")
-                column_names.append("NMD")
-                seen_nmd = True
+        elif field.startswith(("LOF[0].", "NMD[0].")):
+            # LOF/NMD subfield - extract the raw INFO tag once (#234)
+            tag = field[:3]
+            if tag not in seen_lof_nmd:
+                format_parts.append(f"%INFO/{tag}")
+                column_names.append(tag)
+                seen_lof_nmd.add(tag)
 
         elif field.startswith("GEN[*]."):
             # Per-sample FORMAT field
