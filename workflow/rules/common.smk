@@ -2,7 +2,7 @@
 
 import os
 
-from rules.helpers import build_vc_flags, get_samples, get_vcf_path  # noqa: F401
+from rules.helpers import build_vc_flags, get_samples, get_snpeff_db, get_vcf_path  # noqa: F401
 
 # ── Config shortcuts ─────────────────────────────────────────────────────────
 VCF_FOLDER = config["paths"]["vcf_folder"]
@@ -11,6 +11,7 @@ LOG_SUBDIR = config["paths"].get("log_subdir", "logs")
 VC_CONFIG = config["variantcentrifuge"]
 IGV_CONFIG = config.get("igv", {})
 CONTAINER_IMAGE = config.get("container", {}).get("image", "")
+SNPEFF_DB = get_snpeff_db(VC_CONFIG)
 
 SAMPLES = get_samples(samples_df)
 

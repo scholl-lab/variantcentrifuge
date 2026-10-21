@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.3] - 2026-10-21
+
+### Fixed
+
+- Snakemake workflow: the snpEff database is downloaded once (new rule `snpeff_download_db`, marker `<output_folder>/<log_subdir>/snpeff_db.<reference>.done`) before any `run_variantcentrifuge` job. Before, every parallel job auto-downloaded it into the shared env, and jobs read it half-written: `snpEff genes2bed` returned, and `bed_cache/` kept, a truncated gene BED (1–90 regions instead of the full gene set for `genes: all`), so the lists were silently incomplete. The reference comes from `variantcentrifuge.reference` or, if unset, `reference` in the JSON `config_file` (`get_snpeff_db`). A read-only, pre-populated cache falls back to a load check.
+
 ## [0.23.2] - 2026-10-21
 
 ### Fixed
