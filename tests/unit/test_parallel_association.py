@@ -587,7 +587,7 @@ def _span(plan: list[tuple[int, int]], costs: list[int], workers: int) -> int:
 
 @pytest.mark.unit
 def test_task_plan_small_tasks_largest_first_shorter_span() -> None:
-    """A huge gene late in name order no longer starts last in a 6-gene chunk (audit fix 5)."""
+    """A huge gene late in name order no longer starts last in a 6-gene chunk."""
     from variantcentrifuge.association.engine_workers import _task_bounds
 
     costs = [5] * 200 + [2000] + [5] * 20  # huge gene near the end of the name order

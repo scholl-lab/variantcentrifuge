@@ -1,4 +1,4 @@
-"""Per-gene work is done once (0.25 perf audit fixes 3 and 4).
+"""Per-gene work is done once.
 
 One nuisance projection per distinct input array of a gene, and under ``--skat-robust``
 one per-variant SPA per gene shared by the robust test and the score artifact.

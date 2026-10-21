@@ -219,7 +219,7 @@ def test_transcript_fallback_cli_choices() -> None:
 
 # GENEG matched in chunk 0, where GENEB appears only as an upstream entry; chunk 1 holds GENEG/LOCX
 # only as neighbour entries of a GENEH variant, GENEB whose only transcript is unlisted, and a
-# conserved_intergenic_variant between two genes (#231 review).
+# conserved_intergenic_variant between two genes.
 NB_TX = "NM_100001.1,NM_300003.1"
 NB_PARTS = {
     "c0.bed": [
