@@ -183,8 +183,39 @@ def variant_pvalues(
     p-values, the projected genotypes ``G1 = G - X (X'WX)^-1 X'W G`` (all in the flipped
     orientation; two-sided p-values are orientation-invariant) and the calibrated
     variances ``V~`` (:func:`calibrated_variance`).
+
+    Per gene the score artifact and the robust test ask for the same columns under the
+    same null (``--skat-robust`` with ``--score-artifact``): an input bit-identical to the
+    previous call returns that call's result (callers must not modify it).
     """
     geno = np.where(geno.mean(axis=0) / 2.0 > 0.5, 2.0 - geno, geno)
+    key = (geno, y, mu, design)
+    if _last and all(_identical(a, b) for a, b in zip(_last[0], key, strict=True)):
+        hit: tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] = _last[1]
+        return hit
+    result = _variant_pvalues(geno, y, mu, design)
+    _last[:] = [tuple(np.array(a) for a in key), result]  # copies: null arrays may change
+    return result
+
+
+# One-slot memo of variant_pvalues: [(geno, y, mu, design), result] (per process).
+_last: list = []
+
+
+def _identical(a: np.ndarray, b: np.ndarray) -> bool:
+    """Same dtype, shape, layout and bytes (so the same arithmetic gives the same bits)."""
+    return (
+        a.dtype == b.dtype
+        and a.shape == b.shape
+        and a.strides == b.strides
+        and a.tobytes() == b.tobytes()
+    )
+
+
+def _variant_pvalues(
+    geno: np.ndarray, y: np.ndarray, mu: np.ndarray, design: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """:func:`variant_pvalues` on minor-allele (already flipped) columns, uncached."""
     xv = design * (mu * (1.0 - mu))[:, np.newaxis]
     g1 = geno - design @ np.linalg.solve(design.T @ xv, xv.T @ geno)
     mac = geno.sum(axis=0)

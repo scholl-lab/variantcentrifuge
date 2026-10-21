@@ -25,8 +25,8 @@ import numpy as np
 from variantcentrifuge.association.backends.base import NullModelResult
 from variantcentrifuge.association.backends.null_model import (
     UntestableGeneError,
-    explained_columns,
-    project_out_nuisance,
+    _project,
+    classify_projected,
 )
 from variantcentrifuge.association.meta.artifact_schema import (
     SCHEMA_VERSION,
@@ -118,14 +118,14 @@ def compute_gene_score(
 
     # Unweighted score U = Gᵀ r; variants in the covariate space contribute exactly
     # zero score and covariance (same rule as the single-cohort backend)
-    explained = explained_columns(geno, null_model)
+    z_adj, z, bound = _project(geno, null_model)  # one projection for both uses
+    explained = classify_projected(z_adj, z, bound)
     if explained is None:
         # Never export (or zero) scores whose nuisance projection is not trustworthy
         raise UntestableGeneError("ILL_CONDITIONED_COVARIATES")
     u = np.where(explained, 0.0, geno.T @ residuals)
 
     # Projection-adjusted covariance V = Gᵀ P G, P = V - VX(X'VX)^-1 X'V (shared QR helper)
-    z_adj = project_out_nuisance(geno, null_model)
     z_adj[:, explained] = 0.0
     v = z_adj.T @ z_adj
     v = 0.5 * (v + v.T)  # enforce exact symmetry against round-off
@@ -258,13 +258,16 @@ def gene_score_record(
     pheno_all: np.ndarray,
     nulls: dict[bytes, NullModelResult | UntestableGeneError],
     robust: bool = False,
+    sites: list[np.ndarray] | None = None,
 ) -> tuple[int, int, GeneScore | str | None]:
     """One gene's artifact entry from its builder and that builder's result.
 
     ``built`` holds ``qc_genotype_matrix`` (retained samples, before the MAC check),
     ``sample_mask``, ``variant_keep_mask`` and ``parsed`` (the dosage/ploidy/kind arrays
-    the matrix was built from). Returns (sites, kept sites, entry): a GeneScore, the
-    omission reason, or None for a gene with no kept variant.
+    the matrix was built from). ``sites`` are the run's CHROM, POS, REF and ALT arrays
+    that ``b.rows`` index (``b.gene_df`` is used without them). Returns (sites, kept
+    sites, entry): a GeneScore, the omission reason, or None for a gene with no kept
+    variant.
     """
     from variantcentrifuge.association.genotype_matrix import _infer_missing_ploidy
     from variantcentrifuge.association.meta.align import canonical_key
@@ -288,11 +291,12 @@ def gene_score_record(
     flipped = (ac > an / 2.0) & (ac < an)  # build_genotype_matrix minor-allele recoding
     geno[:, flipped] = plo[:, flipped] - geno[:, flipped]
 
-    rows = b.gene_df.loc[keep]
-    keys = [
-        canonical_key(c, p, r, a)
-        for c, p, r, a in zip(rows["CHROM"], rows["POS"], rows["REF"], rows["ALT"], strict=True)
-    ]
+    if sites is not None and b.rows is not None:
+        site_cols = [col[b.rows[keep]] for col in sites]  # no pandas per gene
+    else:
+        rows = b.gene_df.loc[keep]
+        site_cols = [rows[c] for c in ("CHROM", "POS", "REF", "ALT")]
+    keys = [canonical_key(c, p, r, a) for c, p, r, a in zip(*site_cols, strict=True)]
     n_sites, n_kept = len(keep), int(keep.sum())
     if not keys:
         return n_sites, n_kept, None

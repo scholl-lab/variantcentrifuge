@@ -35,9 +35,9 @@ from scipy.stats import norm
 
 from variantcentrifuge.association.backends.base import NullModelResult
 from variantcentrifuge.association.backends.null_model import (
-    explained_columns,
+    _project,
+    classify_projected,
     full_rank_design,
-    project_out_nuisance,
 )
 
 logger = logging.getLogger("variantcentrifuge")
@@ -147,6 +147,7 @@ def compute_acat_v(
     weights: np.ndarray,
     design_matrix: np.ndarray | None = None,
     null_model: NullModelResult | None = None,
+    projection: tuple[np.ndarray, np.ndarray, float] | None = None,
 ) -> float | None:
     """
     ACAT-V per-variant score test (Liu & Xie 2020, STAARpipeline).
@@ -178,6 +179,9 @@ def compute_acat_v(
     null_model : NullModelResult | None
         Fitted null model; preferred over ``design_matrix`` because it carries the
         design conditioning used to recognise variants explained by covariates.
+    projection : tuple | None
+        ``null_model._project`` of the tested (nonzero-weight) columns of ``geno``, if
+        the caller already has it (the SKAT backend's ``result["projection"]``).
 
     Returns
     -------
@@ -213,13 +217,16 @@ def compute_acat_v(
         # Shared QR projection; variants in the covariate space get zero variance (skipped)
         # Classify only the variants that are tested (nonzero weight)
         tested = np.asarray(weights) != 0.0
-        explained_tested = explained_columns(geno[:, tested], null_model)
+        if projection is None:
+            projection = _project(geno[:, tested], null_model)
+        explained_tested = classify_projected(*projection)
         if explained_tested is None:
             return None  # ill-conditioned covariates: projections not trustworthy
         explained = ~tested
         explained[np.flatnonzero(tested)[explained_tested]] = True
-        z_adj = project_out_nuisance(geno, null_model)
-        g_ss = np.where(explained, 0.0, np.sum(z_adj**2, axis=0))
+        g_ss = np.zeros(n_variants)
+        g_ss[tested] = np.sum(projection[0] ** 2, axis=0)
+        g_ss = np.where(explained, 0.0, g_ss)
         var_vec = g_ss if null_model.trait_type == "binary" else sigma2 * g_ss
     else:
         if trait_type == "binary" and mu_hat is not None:

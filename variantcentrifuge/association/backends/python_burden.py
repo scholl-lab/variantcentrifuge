@@ -9,8 +9,8 @@ import scipy.stats
 
 from variantcentrifuge.association.backends.base import NullModelResult
 from variantcentrifuge.association.backends.null_model import (
-    explained_columns,
-    project_out_nuisance,
+    _project,
+    classify_projected,
 )
 
 
@@ -46,12 +46,13 @@ def burden_score_test(
 
     # Score test: score = r^T b; Var(score) = sigma2 * b^T P b (null-model score covariance)
     score = float(residuals @ burden)
-    burden_adj = project_out_nuisance(burden, null_model)
+    projection = _project(burden, null_model)
+    burden_adj = projection[0][:, 0]
     variance = sigma2 * float(burden_adj @ burden_adj)
 
     # Shared three-way rule on the collapsed burden (as in LinearBurdenTest):
     # indeterminate -> skip; in the covariate span -> zero variance.
-    burden_status = explained_columns(burden[:, np.newaxis], null_model)
+    burden_status = classify_projected(*projection)
     if burden_status is None:
         return skip_result(n_variants, n_variants, "ill_conditioned_covariates")
     if burden_status[0]:
