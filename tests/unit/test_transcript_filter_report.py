@@ -328,7 +328,7 @@ def test_split_gene_bed_gives_single_pass_rows(tmp_path: Path, fallback) -> None
 
 
 def test_keep_gene_routing_reads_args_when_config_is_a_path(tmp_path: Path) -> None:
-    """Python API: args.config may be a file path, so keep-gene must also be read from args."""
+    """Python API: args.config may be a file path, so transcript options are read from args too."""
     from variantcentrifuge.pipeline import build_pipeline_stages
 
     cfg_file = tmp_path / "config.json"
@@ -336,12 +336,21 @@ def test_keep_gene_routing_reads_args_when_config_is_a_path(tmp_path: Path) -> N
     args = Namespace(
         config=str(cfg_file),
         threads=4,
-        transcript_list="NM_1.1",
+        transcript_list=TX_LIST,
         transcript_fallback="keep-gene",
         fields_to_extract="CHROM POS",
     )
-    names = [s.name for s in build_pipeline_stages(args)]
-    assert "parallel_complete_processing" not in names
+    stages = {s.name: s for s in build_pipeline_stages(args)}
+    assert "parallel_complete_processing" not in stages
+    assert "transcript_filtering" in stages
+
+    vcf = tmp_path / "in.vcf"
+    vcf.write_text(_vcf_text(RECORDS), encoding="utf-8")
+    ctx = PipelineContext(args=args, config={}, workspace=Workspace(tmp_path / "out", "s"))
+    ctx = stages["configuration_loading"]._process(ctx)
+    ctx.extracted_vcf = vcf
+    ctx = stages["transcript_filtering"]._process(ctx)
+    assert sorted(_genes(ctx.transcript_filtered_vcf)) == ["GENEA", "GENEB", "GENEC"]
 
 
 def test_default_chunk_fingerprint_equals_v0_24_0(tmp_path: Path) -> None:
