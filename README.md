@@ -81,8 +81,8 @@
 | variantcentrifuge/gene\_bed.py                                |      139 |       36 |     74.10% |52, 55, 58, 66-67, 122-154, 208-209, 274, 288, 290 |
 | variantcentrifuge/gene\_burden.py                             |      148 |       21 |     85.81% |17-18, 25-27, 31-32, 101-103, 172-173, 214-219, 232-237, 272-277 |
 | variantcentrifuge/generate\_html\_report.py                   |      145 |        4 |     97.24% |23, 28, 40, 244 |
-| variantcentrifuge/generate\_igv\_report.py                    |      155 |       13 |     91.61% |106-108, 130, 133, 242-243, 258, 266, 289, 302, 310-311 |
-| variantcentrifuge/genotype\_utils.py                          |       63 |        6 |     90.48% |38, 44-45, 78, 93, 115 |
+| variantcentrifuge/generate\_igv\_report.py                    |      158 |       13 |     91.77% |114-116, 138, 141, 250-251, 266, 274, 297, 310, 318-319 |
+| variantcentrifuge/genotype\_utils.py                          |       63 |        5 |     92.06% |44-45, 78, 93, 115 |
 | variantcentrifuge/gt\_reconstruction.py                       |      118 |        5 |     95.76% |108-109, 237, 257-261 |
 | variantcentrifuge/helpers.py                                  |      216 |      102 |     52.78% |77-89, 119, 123-124, 167, 235-236, 258-259, 265-272, 324-330, 347-348, 376, 379-381, 398-425, 459-495, 513-520, 539-564 |
 | variantcentrifuge/inheritance/\_\_init\_\_.py                 |        2 |        0 |    100.00% |           |
@@ -153,7 +153,7 @@
 | variantcentrifuge/vcf\_eff\_one\_per\_line.py                 |      283 |       71 |     74.91% |104, 148, 173, 178-179, 196-210, 228-234, 251, 255, 259, 266-272, 293, 302, 345, 393-447, 452-472 |
 | variantcentrifuge/vcf\_header\_parser.py                      |      171 |       18 |     89.47% |153, 164, 199, 204, 231-245, 380, 392-393, 410 |
 | variantcentrifuge/version.py                                  |        1 |        0 |    100.00% |           |
-| **TOTAL**                                                     | **19515** | **2361** | **87.90%** |           |
+| **TOTAL**                                                     | **19518** | **2360** | **87.91%** |           |
 
 
 ## Setup coverage badge
