@@ -6,6 +6,7 @@ can be unit-tested in a plain ``pytest`` session without Snakemake installed.
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,15 @@ if TYPE_CHECKING:
 def get_samples(samples_df: pd.DataFrame) -> list[str]:
     """Return a sorted list of unique sample names from the sample sheet."""
     return sorted(samples_df["sample"].unique().tolist())
+
+
+def get_snpeff_db(vc_config: dict[str, Any]) -> str | None:
+    """Return the snpEff database: workflow ``reference``, else ``reference`` in the JSON ``config_file``."""
+    ref = vc_config.get("reference")
+    if not ref and vc_config.get("config_file"):
+        with open(vc_config["config_file"], encoding="utf-8") as fh:
+            ref = json.load(fh).get("reference")
+    return str(ref) if ref else None
 
 
 def get_vcf_path(sample: str, vcf_folder: str, samples_df: pd.DataFrame) -> str:
