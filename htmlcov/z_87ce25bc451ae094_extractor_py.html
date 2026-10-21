@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-    <title>Coverage for variantcentrifuge/extractor.py: 88.69%</title>
+    <title>Coverage for variantcentrifuge/extractor.py: 89.88%</title>
     <link rel="icon" sizes="32x32" href="favicon_32_cb_c827f16f.png">
     <link rel="stylesheet" href="style_cb_4667309f.css" type="text/css">
     <script src="coverage_html_cb_15cffcd0.js" defer></script>
@@ -12,7 +12,7 @@
     <div class="content">
         <h1>
             <span class="text">Coverage for </span><b>variantcentrifuge<span class="sep">/</span>extractor.py</b>:
-            <span class="pc_cov">88.69%</span>
+            <span class="pc_cov">89.88%</span>
         </h1>
         <aside id="help_panel_wrapper">
             <input id="help_panel_state" type="checkbox">
@@ -55,8 +55,8 @@
         </aside>
         <h2>
             <span class="text">168 statements &nbsp;</span>
-            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">149<span class="text"> run</span></button>
-            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">19<span class="text"> missing</span></button>
+            <button type="button" class="run button_toggle_run" value="run" data-shortcut="r" title="Toggle lines run">151<span class="text"> run</span></button>
+            <button type="button" class="mis show_mis button_toggle_mis" value="mis" data-shortcut="m" title="Toggle lines missing">17<span class="text"> missing</span></button>
             <button type="button" class="exc show_exc button_toggle_exc" value="exc" data-shortcut="x" title="Toggle lines excluded">0<span class="text"> excluded</span></button>
         </h2>
         <p class="text">
@@ -65,7 +65,7 @@
             <a id="nextFileLink" class="nav" href="z_87ce25bc451ae094_extractor_parsing_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.16.2">coverage.py v7.16.2</a>,
-            created at 2026-10-21 06:44 +0000
+            created at 2026-10-21 11:54 +0000
         </p>
         <aside class="hidden">
             <button type="button" class="button_next_chunk" data-shortcut="j"></button>
@@ -335,8 +335,8 @@
     <p class="run"><span class="n"><a id="t253" href="#t253">253</a></span><span class="t">            <span class="nam">df</span> <span class="op">=</span> <span class="nam">parse_nmd_subfields</span><span class="op">(</span><span class="nam">df</span><span class="op">,</span> <span class="nam">field_list</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t254" href="#t254">254</a></span><span class="t">            <span class="com"># Write header-only output</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t255" href="#t255">255</a></span><span class="t">            <span class="key">if</span> <span class="nam">output_file</span><span class="op">.</span><span class="nam">endswith</span><span class="op">(</span><span class="str">&quot;.gz&quot;</span><span class="op">)</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t256" href="#t256">256</a></span><span class="t">                <span class="key">with</span> <span class="nam">gzip</span><span class="op">.</span><span class="nam">open</span><span class="op">(</span><span class="nam">output_file</span><span class="op">,</span> <span class="str">&quot;wt&quot;</span><span class="op">,</span> <span class="nam">compresslevel</span><span class="op">=</span><span class="num">1</span><span class="op">)</span> <span class="key">as</span> <span class="nam">f</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
-    <p class="mis show_mis"><span class="n"><a id="t257" href="#t257">257</a></span><span class="t">                    <span class="nam">df</span><span class="op">.</span><span class="nam">to_csv</span><span class="op">(</span><span class="nam">f</span><span class="op">,</span> <span class="nam">sep</span><span class="op">=</span><span class="str">&quot;\t&quot;</span><span class="op">,</span> <span class="nam">index</span><span class="op">=</span><span class="key">False</span><span class="op">,</span> <span class="nam">na_rep</span><span class="op">=</span><span class="str">&quot;NA&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t256" href="#t256">256</a></span><span class="t">                <span class="key">with</span> <span class="nam">gzip</span><span class="op">.</span><span class="nam">open</span><span class="op">(</span><span class="nam">output_file</span><span class="op">,</span> <span class="str">&quot;wt&quot;</span><span class="op">,</span> <span class="nam">compresslevel</span><span class="op">=</span><span class="num">1</span><span class="op">)</span> <span class="key">as</span> <span class="nam">f</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
+    <p class="run"><span class="n"><a id="t257" href="#t257">257</a></span><span class="t">                    <span class="nam">df</span><span class="op">.</span><span class="nam">to_csv</span><span class="op">(</span><span class="nam">f</span><span class="op">,</span> <span class="nam">sep</span><span class="op">=</span><span class="str">&quot;\t&quot;</span><span class="op">,</span> <span class="nam">index</span><span class="op">=</span><span class="key">False</span><span class="op">,</span> <span class="nam">na_rep</span><span class="op">=</span><span class="str">&quot;NA&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="pln"><span class="n"><a id="t258" href="#t258">258</a></span><span class="t">            <span class="key">else</span><span class="op">:</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t259" href="#t259">259</a></span><span class="t">                <span class="nam">df</span><span class="op">.</span><span class="nam">to_csv</span><span class="op">(</span><span class="nam">output_file</span><span class="op">,</span> <span class="nam">sep</span><span class="op">=</span><span class="str">&quot;\t&quot;</span><span class="op">,</span> <span class="nam">index</span><span class="op">=</span><span class="key">False</span><span class="op">,</span> <span class="nam">na_rep</span><span class="op">=</span><span class="str">&quot;NA&quot;</span><span class="op">)</span>&nbsp;</span><span class="r"></span></p>
     <p class="run"><span class="n"><a id="t260" href="#t260">260</a></span><span class="t">            <span class="key">return</span> <span class="nam">output_file</span>&nbsp;</span><span class="r"></span></p>
@@ -535,7 +535,7 @@
             <a class="nav" href="z_87ce25bc451ae094_extractor_parsing_py.html">&#xbb; next</a>
             &nbsp; &nbsp; &nbsp;
             <a class="nav" href="https://coverage.readthedocs.io/en/7.16.2">coverage.py v7.16.2</a>,
-            created at 2026-10-21 06:44 +0000
+            created at 2026-10-21 11:54 +0000
         </p>
     </div>
 </footer>
