@@ -384,3 +384,21 @@ def test_nonfinite_statistic_is_skipped_not_floored(monkeypatch):
     assert np.isnan(out.loc["G000", "empirical_p"]) and pd.isna(out.loc["G000", "n_permutations"])
     assert out.loc["G000", "permutation_method"] == "skipped_nonfinite"
     assert pd.isna(out.loc["G001", "permutation_method"])
+
+
+@pytest.mark.unit
+def test_null_cache_is_bounded():
+    """One null fit per distinct sample mask: the cache keeps at most 8 (Codex: 226 MiB at 64)."""
+    from variantcentrifuge.association.meta.artifact import _MAX_CACHED_NULLS
+
+    config = SimpleNamespace(
+        variant_weights="beta:1,25", variant_weight_params=None, seed=0, permutations=20
+    )
+    genes = _gene_dicts(1, 200, 0.3, seed=1)
+    base = genes[0]["_genotype_matrix_builder"]()
+    nulls: dict = {}
+    for k in range(3 * _MAX_CACHED_NULLS):
+        b = {key: val[k:] if key != "variant_mafs" else val for key, val in base.items()}
+        perm._gene_empirical(f"G{k}", lambda b=b: b, config, "skat", nulls)
+        assert len(nulls) <= _MAX_CACHED_NULLS
+    assert len(nulls) == _MAX_CACHED_NULLS

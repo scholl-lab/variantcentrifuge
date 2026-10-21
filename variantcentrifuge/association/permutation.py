@@ -33,6 +33,7 @@ from variantcentrifuge.association.engine_workers import (
     fork_map,
     single_blas_thread,
 )
+from variantcentrifuge.association.meta.artifact import _MAX_CACHED_NULLS
 from variantcentrifuge.association.weights import get_weights
 
 logger = logging.getLogger("variantcentrifuge")
@@ -152,6 +153,8 @@ def _gene_empirical(
         return None
     key = (y.tobytes(), None if cov is None else cov.tobytes())
     if key not in nulls:
+        if len(nulls) >= _MAX_CACHED_NULLS:  # bounded, as artifact.null_for_mask
+            del nulls[next(iter(nulls))]
         try:
             nulls[key] = fit_glm_null_model(y, cov, "binary")
         except UntestableGeneError:
