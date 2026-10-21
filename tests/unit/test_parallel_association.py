@@ -616,7 +616,7 @@ def _yield_times(plan: list[tuple[int, int]], costs: list[int], workers: int) ->
 
 @pytest.mark.unit
 def test_task_plan_keeps_progress_flowing() -> None:
-    """Review P3-r1: only costly tasks jump the queue, so in-order results keep coming."""
+    """Only costly tasks jump the queue, so in-order results keep coming."""
     from variantcentrifuge.association.engine_workers import _task_bounds
 
     costs = [1 + (i * 37) % 97 for i in range(800)]  # uneven, costly genes not first

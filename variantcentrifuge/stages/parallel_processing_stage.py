@@ -92,7 +92,6 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
             "regions_bed",
             "transcript_list",
             "transcript_file",
-            "transcript_fallback",  # unused by workers; kept so chunk-cache hashes stay the same
         )
         data = {k: cfg.get(k) for k in keys}
         data["bed"] = hashlib.sha256(bed_bytes).hexdigest()[:16]

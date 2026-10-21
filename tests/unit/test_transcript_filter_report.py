@@ -292,7 +292,7 @@ def test_explicit_fallback_none_keeps_default_fingerprints(tmp_path: Path) -> No
 
 @pytest.mark.parametrize("fallback", ["keep-gene", None])
 def test_split_gene_bed_gives_single_pass_rows(tmp_path: Path, fallback) -> None:
-    """A regions BED can split one gene into intervals in different chunks (#231 final review)."""
+    """A regions BED can split one gene into intervals in different chunks."""
     from variantcentrifuge.pipeline import create_stages_from_config
     from variantcentrifuge.transcript_filter import filter_vcf_to_transcripts
     from variantcentrifuge.utils import split_bed_file
@@ -342,3 +342,18 @@ def test_keep_gene_routing_reads_args_when_config_is_a_path(tmp_path: Path) -> N
     )
     names = [s.name for s in build_pipeline_stages(args)]
     assert "parallel_complete_processing" not in names
+
+
+def test_default_chunk_fingerprint_equals_v0_24_0(tmp_path: Path) -> None:
+    """Chunk TSVs from a v0.24.0 run stay reusable: the default-config fingerprint is unchanged.
+
+    Pinned value computed with v0.24.0 (f751241b) ParallelCompleteProcessingStage._chunk_fingerprint
+    on exactly these inputs.
+    """
+    from types import SimpleNamespace
+
+    bed = tmp_path / "c.bed"
+    bed.write_text("chr1\t1\t100\n")
+    ctx = SimpleNamespace(config={"vcf_file": "in.vcf.gz", "transcript_list": "NM_1.1"}, data=None)
+    fp = ParallelCompleteProcessingStage()._chunk_fingerprint(ctx, bed, "CHROM POS")
+    assert fp == "4af64340f714d02f"

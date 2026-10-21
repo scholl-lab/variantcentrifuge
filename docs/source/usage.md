@@ -123,7 +123,7 @@ variantcentrifuge \
 | `-G` / `--gene-file PATH` | — | File with gene names, one per line |
 | `--transcript-list IDS` | — | Comma-separated transcript IDs. Matching `ANN` entries are retained and become `ANN[0]` for extraction |
 | `--transcript-file PATH` | — | File with transcript IDs, one per line. Use GRCh38 MANE Select lists for GRCh38 VCFs; use GRCh37 RefSeq Select lists for hg19/GRCh37 RefSeq VCFs |
-| `--transcript-fallback MODE` | `none` | For a gene none of whose transcripts is in the list: `none` drops it (reported as a WARNING), `keep-gene` keeps all of its transcripts. See [Transcript-Specific Extraction](guides/annotation_strategies.md) |
+| `--transcript-fallback MODE` | `none` | For a gene none of whose transcripts is in the list: `none` drops it (reported as a WARNING), `keep-gene` keeps all of its gene-body transcript annotations (needs `--transcript-list`/`--transcript-file`; runs without parallel chunks). See [Transcript-Specific Extraction](guides/annotation_strategies.md) |
 
 ### Filtering Options
 
