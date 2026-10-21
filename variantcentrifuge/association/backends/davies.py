@@ -58,9 +58,9 @@ _QFC_LOCK = threading.Lock()
 # converging below acc ~1e-9, so below p = 1e-9 / 1e-4 = 1e-5 the tilted evaluation is used.
 _DAVIES_REL_ACC, _DAVIES_MIN_ACC = 1e-4, 1e-9
 _TAIL_P = _DAVIES_MIN_ACC / _DAVIES_REL_ACC
-# Davies term cap for a retry after ifault=1 (term limit hit). qfc's result does not depend
-# on lim when the smaller cap converges, but lim=10_000 (R) fails for small q with few or
-# dominant eigenvalues, where saddlepoint/Liu are off by ~1%.
+# Davies term cap. qfc's result does not depend on lim when a smaller cap converges, but
+# lim=10_000 (R) fails (ifault=1) for small q with few or dominant eigenvalues, where
+# saddlepoint/Liu are off by ~1%.
 _DAVIES_RETRY_LIM = 1_000_000
 
 
@@ -327,8 +327,9 @@ def davies_pvalue(
     lib = _qfc_lib
 
     n = len(lambdas)
-    lb1 = ffi.new("double[]", list(lambdas))
-    nc1 = ffi.new("double[]", [0.0] * n)  # noncentrality params: all zero
+    lam = np.ascontiguousarray(lambdas, dtype=np.float64)  # qfc only reads it: no copy
+    lb1 = ffi.from_buffer("double[]", lam)
+    nc1 = ffi.new("double[]", n)  # noncentrality params: all zero (ffi.new zero-fills)
     n1 = ffi.new("int[]", [1] * n)  # degrees of freedom: all 1
     r1 = ffi.new("int[1]", [n])
     sigma = ffi.new("double[1]", [0.0])
@@ -398,8 +399,8 @@ def compute_pvalue(
     Compute P[Q > q] using R SKAT-compatible Davies -> Liu fallback chain.
 
     Matches R SKAT package ``Get_PValue.Lambda`` behavior with enhanced fallback:
-    - Davies called with acc=1e-6, lim=10000 (R defaults); on ifault=1 (term limit)
-      retried with lim=_DAVIES_RETRY_LIM, which is identical wherever lim=10000 converges
+    - Davies called with acc=1e-6 (R default) and lim=max(lim, _DAVIES_RETRY_LIM): identical
+      to R's lim=10000 wherever that converges, and to a retry after its ifault=1
     - Relative accuracy budget 1e-4: where acc is too coarse for p, Davies is refined to
       acc = 1e-4 * p; below p = 1e-5 (acc floor 1e-9) Davies on the exponentially tilted
       mixture is used ("davies_tilted"); if Davies fails, saddlepoint, then Liu
@@ -440,10 +441,9 @@ def compute_pvalue(
     if _try_load_davies():
 
         def davies(a: float) -> tuple[float | None, int]:
-            p, f = davies_pvalue(q, lambdas, acc=a, lim=lim)
-            if f == 1 and lim < _DAVIES_RETRY_LIM:
-                p, f = davies_pvalue(q, lambdas, acc=a, lim=_DAVIES_RETRY_LIM)
-            return p, f
+            # lim only caps qfc's term counts, so the larger cap is bit-identical wherever lim
+            # converges, and equals the former ifault=1 retry where it does not
+            return davies_pvalue(q, lambdas, acc=a, lim=max(lim, _DAVIES_RETRY_LIM))
 
         p_davies, ifault = davies(acc)
         if ifault != 0 and acc < 1e-6:  # requested accuracy unreachable: retry at R's
