@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.2] - 2026-10-21
+
+### Fixed
+
+- Snakemake workflow env and `conda/environment.yml` now include `xlsxwriter` and `cffi` (pinned as in `conda/environment-docker.yml`). Without `xlsxwriter`, the `excel_report` stage failed with `No module named 'xlsxwriter'` after the TSV, HTML and IGV reports were written.
+- New unit test `tests/unit/test_workflow_env_deps.py` fails when a `pyproject.toml` runtime dependency is missing from `workflow/envs/variantcentrifuge.yml`.
+
 ## [0.23.1] - 2026-10-21
 
 ### Fixed
