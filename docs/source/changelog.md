@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The transcript filter (`--transcript-list` / `--transcript-file`) now logs one summary — transcripts requested, matched exactly, matched with a different version, genes before -> after — and a WARNING naming the genes that had annotated variants but lost all of them because none of their transcripts is listed (first 10 shown). Up/downstream and intergenic annotations of a neighbouring gene do not count. With `--diagnostics-output` the full list is written to `transcript_filter_dropped_genes.tsv`. Parallel runs aggregate the counts over all chunks; a resumed run that reuses chunks skips the summary and says so (#231).
+- `--transcript-fallback {none,keep-gene}` (default `none`, unchanged behaviour): `keep-gene` keeps every transcript of a gene none of whose transcripts is in the list (readthrough genes included), so genes without a listed transcript are no longer lost silently; the result does not depend on `--threads` (#231).
+
+### Changed
+
+- Association: each gene's nuisance projection is computed once per input array and shared by SKAT-O, ACAT-V and the score artifact; with `--skat-robust` and a score artifact the per-variant saddlepoint p-values are computed once per gene; the score artifact reads variant keys from run-level site columns instead of a pandas lookup per gene. Results are byte-identical.
+
 ### Fixed
 
 - Parallel chunk processing now writes all its temporary files (bcftools view/query, SnpSift and its Java temp dir) under `--temp-dir` instead of the system temp dir, and no longer starts a `multiprocessing.Manager`, whose socket lived in `TMPDIR` and failed on long paths ("AF_UNIX path too long"); the snpEff gene BED temp file is created in the BED cache dir (#226).
