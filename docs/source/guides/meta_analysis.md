@@ -70,7 +70,7 @@ as build and annotation version, a hash of the variant selection (`--filters`,
 sample IDs for the overlap check. Run every cohort with the same reference and
 filters, or the meta step will refuse to pool them.
 
-The artifact (schema version 3) also records the missing-genotype policy as
+The artifact (schema version 2; 3 when it carries `v_robust`, see below) also records the missing-genotype policy as
 `missing_policy`: the imputation mode (`bestguess`, or `missing_as_ref` with
 `--missing-as-ref`) and the site and sample missingness thresholds. Version 1 artifacts
 still load. They are read as `bestguess` with unknown thresholds, which is what they used.
