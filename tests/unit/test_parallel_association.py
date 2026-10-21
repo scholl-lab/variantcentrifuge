@@ -656,3 +656,25 @@ def test_huge_gene_parallel_equals_sequential_hooks_in_order(
     pd.testing.assert_frame_equal(tables[0], tables[1], check_exact=True)
     assert hooks[0] == hooks[1] and [g for g, _ in hooks[0]] == names
     assert len(seen) == 1 and max(seen[0][2]) == 2000  # dispatch passed variant counts
+
+
+def _zeros(state: Any, lo: int, hi: int) -> np.ndarray:
+    return np.zeros(hi - lo)
+
+
+@pytest.mark.unit
+def test_fork_map_releases_consumed_results() -> None:
+    """Codex FINAL2-1: a yielded result is not kept alive until fork_map ends."""
+    import gc
+    import weakref
+
+    from variantcentrifuge.association.engine_workers import fork_map
+
+    gen = fork_map(_zeros, None, 40, 2)
+    _lo, _hi, first = next(gen)
+    ref = weakref.ref(first)
+    del first
+    next(gen)
+    gc.collect()
+    assert ref() is None
+    gen.close()
