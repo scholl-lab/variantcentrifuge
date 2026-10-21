@@ -53,6 +53,7 @@ VALID_ASSOCIATION_KEYS: frozenset[str] = frozenset(
         "gene_prior_weight_column",
         "primary_test",
         "acat_o_exclude",
+        "skat_robust",
     }
 )
 
@@ -151,9 +152,9 @@ def _validate_association_config_dict(d: dict) -> None:
         if isinstance(v, bool) or not isinstance(v, (int, float)) or not 0.0 <= v <= 1.0:
             errors.append(f"'{key}' must be a number between 0 and 1, got {v!r}")
 
-    if "missing_as_ref" in d and not isinstance(d["missing_as_ref"], bool):
-        got = type(d["missing_as_ref"]).__name__
-        errors.append(f"'missing_as_ref' must be a boolean, got {got}")
+    for key in ("missing_as_ref", "skat_robust"):
+        if key in d and not isinstance(d[key], bool):
+            errors.append(f"'{key}' must be a boolean, got {type(d[key]).__name__}")
 
     # Enum-like value validation
     if "correction_method" in d and d["correction_method"] not in ("fdr", "bonferroni"):
@@ -306,6 +307,7 @@ def _build_assoc_config_from_context(context: "PipelineContext") -> AssociationC
         skat_method=_get("skat_method", default="SKAT", nullable=False),
         primary_test=_get("primary_test", default="acat_o", nullable=True),
         acat_o_exclude=_get("acat_o_exclude", default=None, nullable=True),
+        skat_robust=bool(_get("skat_robust", default=False, nullable=True)),
         coast_backend=_get("coast_backend", default="python", nullable=False),
         min_cases=_get("association_min_cases", json_key="min_cases", default=200, nullable=False),
         max_case_control_ratio=_get(

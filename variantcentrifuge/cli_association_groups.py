@@ -234,6 +234,17 @@ def add_association_argument_group(parser: argparse.ArgumentParser) -> None:
         ),
     )
     stats_group.add_argument(
+        "--skat-robust",
+        action="store_true",
+        default=None,
+        help=(
+            "Imbalance-robust binary SKAT/SKAT-O (port of R SKAT::SKATBinary_Robust): "
+            "saddlepoint p-values for variants with MAC >= 10, exact for MAC < 10, "
+            "calibrated variance. Binary traits, python SKAT backend, --skat-method "
+            "SKAT or SKATO."
+        ),
+    )
+    stats_group.add_argument(
         "--acat-o-exclude",
         choices=["acat_v"],
         default=None,

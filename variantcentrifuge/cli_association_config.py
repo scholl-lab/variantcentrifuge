@@ -107,6 +107,7 @@ def populate_association_config(
     cfg["skat_method"] = getattr(args, "skat_method", "SKAT")
     cfg["primary_test"] = getattr(args, "primary_test", None)
     cfg["acat_o_exclude"] = getattr(args, "acat_o_exclude", None)
+    cfg["skat_robust"] = getattr(args, "skat_robust", None)
     # Phase 33: Gene-level FDR weighting
     _gpw = getattr(args, "gene_prior_weights", None)
     if _gpw and not Path(_gpw).is_file():
@@ -235,6 +236,7 @@ def validate_association_args(
         "missing_as_ref",
         "primary_test",
         "acat_o_exclude",
+        "skat_robust",
     ):
         if getattr(args, dest, None) is not None and not args.perform_association:
             _fail(f"--{dest.replace('_', '-')} requires --perform-association to be set")
@@ -280,3 +282,17 @@ def validate_association_args(
             resolve_primary_test(list(tests), merged)
         except ValueError as e:
             _fail(str(e))
+    if (getattr(args, "skat_robust", None) or file_assoc.get("skat_robust")) and (
+        args.perform_association
+    ):
+        tests = raw_tests or file_assoc.get("association_tests") or ["fisher"]
+        if isinstance(tests, str):
+            tests = [t.strip() for t in tests.split(",")]
+        if trait_type != "binary":
+            _fail("--skat-robust supports binary traits only")
+        if not {"skat", "skat_python"} & set(tests):
+            _fail("--skat-robust requires 'skat' in --association-tests")
+        if getattr(args, "skat_backend", "python") == "r":
+            _fail("--skat-robust requires the python SKAT backend (--skat-backend python)")
+        if merged.skat_method not in ("SKAT", "SKATO"):
+            _fail("--skat-robust requires --skat-method SKAT or SKATO")

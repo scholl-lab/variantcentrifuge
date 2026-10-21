@@ -163,6 +163,8 @@ def run_stage(df, samples, args, tmp):
     }
     if args.missing_as_ref:
         cfg["missing_as_ref"] = True
+    if args.skat_robust:
+        cfg["skat_robust"] = True
     if args.covariates:
         cfg["covariate_file"] = str(tmp / "covariates.tsv")
         write_covariates(cfg["covariate_file"], samples, args.covariates, args.seed)
@@ -361,6 +363,7 @@ def parse_args(argv=None):
     p.add_argument("--controls", type=int, help="number of controls (overrides --unassigned)")
     p.add_argument("--covariates", type=int, default=0, help=f"first N of {COVARIATES}")
     p.add_argument("--missing-as-ref", action="store_true")
+    p.add_argument("--skat-robust", action="store_true", help="imbalance-robust SKAT (#223)")
     p.add_argument("--artifact", action="store_true", help="also write a score artifact")
     p.add_argument("--repeat", type=int, default=1, help="run N times; report the fastest")
     p.add_argument("--out", help="write the association result table (TSV)")

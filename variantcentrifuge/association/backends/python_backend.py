@@ -28,8 +28,7 @@ import time
 from typing import Any
 
 import numpy as np
-import scipy.linalg
-import scipy.stats
+import scipy.linalg  # noqa: F401  (tests patch python_backend.scipy.linalg.eigh)
 
 from variantcentrifuge.association.backends.base import NullModelResult, SKATBackend
 from variantcentrifuge.association.backends.davies import (
@@ -39,8 +38,8 @@ from variantcentrifuge.association.backends.davies import (
 from variantcentrifuge.association.backends.null_model import (
     explained_columns,
     fit_glm_null_model,
-    project_out_nuisance,
 )
+from variantcentrifuge.association.backends.python_burden import burden_score_test, skip_result
 from variantcentrifuge.association.backends.skat_math import (
     _GL_A,
     _GL_B,
@@ -55,6 +54,7 @@ from variantcentrifuge.association.backends.skat_math import (
     compute_skato_q_and_z1,
 )
 from variantcentrifuge.association.backends.skato_integrate import _skato_last_converged
+from variantcentrifuge.association.spa import robust_skat
 
 __all__ = [
     "_GL_A",
@@ -188,6 +188,7 @@ class PythonSKATBackend(SKATBackend):
         method: str,
         weights: np.ndarray | None = None,
         weights_beta: tuple[float, float] | None = None,
+        robust: bool = False,
     ) -> dict[str, Any]:
         """
         Run the SKAT test for a single gene.
@@ -208,6 +209,8 @@ class PythonSKATBackend(SKATBackend):
             Concrete per-variant weights aligned to genotype_matrix columns.
         weights_beta : tuple of (float, float) or None
             Deprecated legacy parameter accepted only for API compatibility.
+        robust : bool
+            Binary SKAT/SKAT-O with SPA/ER calibration (``--skat-robust``, see spa.py).
 
         Returns
         -------
@@ -234,7 +237,9 @@ class PythonSKATBackend(SKATBackend):
         method_upper = method.upper()
         # Map R SKAT method names to our internal names
         # "optimal.adj" and "optimal" are R's names for SKAT-O
-        if method_upper == "SKAT":
+        if robust:
+            result = self._test_robust(genotype_matrix, null_model, weights_arr, method_upper)
+        elif method_upper == "SKAT":
             result = self._test_skat(gene, genotype_matrix, null_model, weights_arr)
         elif method_upper == "BURDEN":
             result = self._test_burden(gene, genotype_matrix, null_model, weights_arr)
@@ -251,19 +256,7 @@ class PythonSKATBackend(SKATBackend):
         )
         return result
 
-    @staticmethod
-    def _skip_result(n_variants: int, n_marker_test: int, reason: str) -> dict[str, Any]:
-        """Untestable-gene result (``p_value=None``) carrying ``reason`` as skip_reason."""
-        return {
-            "p_value": None,
-            "rho": None,
-            "n_variants": n_variants,
-            "n_marker_test": n_marker_test,
-            "warnings": [reason],
-            "p_method": None,
-            "p_converged": False,
-            "skip_reason": reason,
-        }
+    _skip_result = staticmethod(skip_result)
 
     def _validate_variant_weights(
         self, genotype_matrix: np.ndarray, weights: np.ndarray | None
@@ -390,76 +383,31 @@ class PythonSKATBackend(SKATBackend):
             "skip_reason": None,
         }
 
-    def _test_burden(
-        self,
-        gene: str,
-        geno: np.ndarray,
-        null_model: NullModelResult,
-        weights: np.ndarray,
+    @staticmethod
+    def _test_robust(
+        geno: np.ndarray, null_model: NullModelResult, weights: np.ndarray, method: str
     ) -> dict[str, Any]:
-        """
-        Burden score test for a single gene.
-
-        Collapses variants to a weighted burden score and performs a score test
-        against the null model residuals.
-
-        Parameters
-        ----------
-        gene : str
-            Gene symbol (for logging).
-        geno : np.ndarray, shape (n_samples, n_variants)
-            Genotype dosage matrix.
-        null_model : NullModelResult
-            Fitted null model.
-        weights : np.ndarray
-            Concrete per-variant weights aligned to genotype columns.
-
-        Returns
-        -------
-        dict with burden result fields.
-        """
-        _n_samples, n_variants = geno.shape
-        residuals: np.ndarray = null_model.extra["residuals"]
-        sigma2: float = null_model.extra["sigma2"]
-
-        # Collapse to burden score per sample: b = geno @ weights
-        burden = geno @ weights  # shape: (n_samples,)
-
-        # Score test: score = r^T b; Var(score) = sigma2 * b^T P b (null-model score covariance)
-        score = float(residuals @ burden)
-        burden_adj = project_out_nuisance(burden, null_model)
-        variance = sigma2 * float(burden_adj @ burden_adj)
-
-        # Shared three-way rule on the collapsed burden (as in LinearBurdenTest):
-        # indeterminate -> skip; in the covariate span -> zero variance.
-        burden_status = explained_columns(burden[:, np.newaxis], null_model)
-        if burden_status is None:
-            return self._skip_result(n_variants, n_variants, "ill_conditioned_covariates")
-        if burden_status[0]:
-            return {
-                "p_value": None,
-                "rho": None,
-                "n_variants": n_variants,
-                "n_marker_test": n_variants,
-                "warnings": ["burden_zero_variance"],
-                "p_method": "analytical",
-                "p_converged": True,
-                "skip_reason": "zero_variance",
-            }
-
-        z_stat = score / np.sqrt(variance)
-        p_value = float(2.0 * scipy.stats.norm.sf(abs(z_stat)))
-
+        """Imbalance-robust binary SKAT / SKAT-O (port of R ``SKATBinary_Robust``)."""
+        tested = weights != 0.0
+        mu = null_model.extra["mu_hat"]
+        y = np.round(null_model.extra["residuals"] + mu)
+        design = null_model.extra["design_matrix"]
+        p, rho = robust_skat(geno[:, tested], weights[tested], y, mu, design, method)
         return {
-            "p_value": p_value,
-            "rho": None,
-            "n_variants": n_variants,
-            "n_marker_test": n_variants,
+            "p_value": p,
+            "rho": rho,
+            "n_variants": geno.shape[1],
             "warnings": [],
-            "p_method": "analytical",
-            "p_converged": True,
+            "p_method": "spa_er",
+            "p_converged": p is not None,
             "skip_reason": None,
         }
+
+    def _test_burden(
+        self, gene: str, geno: np.ndarray, null_model: NullModelResult, weights: np.ndarray
+    ) -> dict[str, Any]:
+        """Burden score test for a single gene (see ``python_burden.burden_score_test``)."""
+        return burden_score_test(geno, null_model, weights)
 
     def _test_skato(
         self,

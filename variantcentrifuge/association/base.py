@@ -156,6 +156,9 @@ class AssociationConfig:
     acat_o_exclude: str | None = None
     """ACAT-O component to leave out: None or "acat_v" (#210)."""
 
+    skat_robust: bool = False
+    """Binary SKAT/SKAT-O with SPA/exact calibration (port of SKATBinary_Robust, #223)."""
+
     # Phase 22: ACAT-O + diagnostics fields
     min_cases: int = 200
     """Cohort-level warning threshold: warn if n_cases < this value."""
