@@ -419,11 +419,11 @@ def build_genotype_matrix(
     zero = ~obs.any(axis=1) | (total_an <= 0.0) | (total_ac >= total_an)
     alt_freq = np.divide(total_ac, total_an, out=np.zeros_like(total_ac), where=~zero)
     mafs = np.where(zero, 0.0, np.minimum(alt_freq, 1.0 - alt_freq))
-    if missing.any():
+    if missing.any() or np.result_type(ploidy, alt_freq, raw) != raw.dtype:
         imputed = ploidy * alt_freq[:, None]
         geno = np.where(missing, np.round(imputed) if is_binary else imputed, raw)
     else:
-        geno = raw  # nothing to impute; raw is this function's own copy
+        geno = raw  # nothing to impute, same dtype; raw is this function's own copy
     flip = ~zero & (alt_freq > 0.5)
     geno[flip] = ploidy[flip] - geno[flip]
     geno[zero] = 0.0

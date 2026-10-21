@@ -78,7 +78,7 @@ def _null_converged(null_model: NullModelResult) -> bool:
 def _allele_counts(raw: np.ndarray, ploidy: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Per-variant AC and AN over the observed (non-NaN) calls of samples x variants arrays.
 
-    Dosages and ploidies are small integers, so the sums are exact in any order or layout.
+    Without missing calls the masked ``where`` copy equals the input, so the sums are too.
     """
     observed = ~np.isnan(raw)
     if observed.all():
@@ -293,8 +293,7 @@ def gene_score_record(
         raw[np.isnan(raw)] = 0.0  # same REF fill as build_genotype_matrix: full AN
     # C-order copy, as geno[mask] gave: the tests keep their matrix, and BLAS sums alike
     geno = np.array(built["qc_genotype_matrix"], dtype=np.float64, order="C")
-    # Retained samples x variants; only exact integer sums and elementwise ops read these.
-    raw, plo = (raw.T, plo.T) if mask.all() else (raw[:, mask].T, plo[:, mask].T)
+    raw, plo = raw.T[mask], plo.T[mask]  # C-order: fractional dosages keep this sum order
     ac, an = _allele_counts(raw, plo)
     flipped = (ac > an / 2.0) & (ac < an)  # build_genotype_matrix minor-allele recoding
     geno[:, flipped] = plo[:, flipped] - geno[:, flipped]

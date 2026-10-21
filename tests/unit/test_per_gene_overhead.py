@@ -322,3 +322,107 @@ def test_stage_matrix_builders_run_with_gc_paused(tmp_path) -> None:
         run_stage(df, samples, args, tmp_path)
     assert states and not any(states)
     assert gc.isenabled()
+
+
+@pytest.mark.unit
+def test_artifact_record_fractional_dosage_matches_v025() -> None:
+    """Supplied fractional dosages keep v0.25.0's AC bytes (reduction order, review #1)."""
+    df, builders = _builders(0, missing_as_ref=True)
+    hook = _score_artifact_hook(builders, df=df)
+    b = builders["common"]
+    built = b()
+    assert built["sample_mask"].all()  # the all-retained path
+    raw, plo, kind = built["parsed"]
+    frac = np.where(np.isnan(raw), np.nan, 2.0**-53)
+    frac[:, 0] = 1.0
+    built["parsed"] = (frac, plo, kind)
+    mask = built["sample_mask"]
+    null = fit_stratum_null(b.phenotype_vector[mask], b.covariate_matrix[mask], "binary")
+    ref = _ref_record(b, {**built, "parsed": (frac.copy(), plo, kind)}, null)
+    score = hook("common", b, built)[2]
+    for got, want in zip((score.u, score.v, score.ac, score.an), ref[1:5], strict=True):
+        _same(got, want)
+    assert score.n_carriers == ref[5]
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("missing_as_ref", [False, True])
+def test_build_mixed_dtype_parsed_matches_v025(missing_as_ref: bool) -> None:
+    """float32 dosages with float64 ploidy still give v0.25.0's float64 matrix (review #2)."""
+    _df, builders = _builders(1, missing_as_ref)
+    for name in ("no_missing", "common", "haploid"):
+        b = builders[name]
+        raw, plo, kind = b.gene_arrays()
+        parsed = (raw.astype(np.float32), plo, kind)
+        ref = _ref_build(parsed, N, True, 0.2, 0.5, b.phenotype_vector, missing_as_ref)
+        got = build_genotype_matrix(
+            b.gene_df,
+            b.vcf_samples,
+            [],
+            missing_site_threshold=0.2,
+            missing_sample_threshold=0.5,
+            phenotype_vector=b.phenotype_vector,
+            return_keep_mask=True,
+            missing_as_ref=missing_as_ref,
+            parsed=tuple(a.copy() for a in parsed),
+        )
+        _same(got[0], ref[0])
+        _same(got[1], ref[1])
+
+
+@pytest.mark.unit
+def test_gc_paused_restores_collector_on_error_and_when_already_disabled() -> None:
+    """gc_paused leaves the collector exactly as it found it (review #3)."""
+    from variantcentrifuge.association.engine_workers import gc_paused
+
+    was = gc.isenabled()
+    try:
+        gc.enable()
+        with pytest.raises(RuntimeError), gc_paused():
+            assert not gc.isenabled()
+            raise RuntimeError("builder failed")
+        assert gc.isenabled()
+        gc.disable()
+        with gc_paused():
+            assert not gc.isenabled()
+        assert not gc.isenabled()
+        with pytest.raises(RuntimeError), gc_paused():
+            raise RuntimeError("builder failed")
+        assert not gc.isenabled()
+    finally:
+        if was:
+            gc.enable()
+        else:
+            gc.disable()
+
+
+@pytest.mark.unit
+def test_acat_v_with_null_model_matches_loop() -> None:
+    """With a null model and every variant tested (projection reused), as the v0.25.0 loop."""
+    from variantcentrifuge.association.backends import null_model as nm
+
+    rng = np.random.default_rng(8)
+    pheno = np.r_[np.ones(60), np.zeros(N - 60)]
+    null = fit_stratum_null(pheno, rng.normal(size=(N, 2)), "binary")
+    residuals = null.extra["residuals"]
+    for gene in range(40):
+        p = int(rng.integers(1, 10))
+        geno = rng.binomial(2, rng.uniform(0.005, 0.2, p), size=(N, p)).astype(float)
+        w = rng.uniform(0.1, 3.0, p)
+        projection = _project(geno, null)
+        z_adj = projection[0]
+        explained = nm.classify_projected(*projection)
+        g_ss = np.where(explained, 0.0, np.sum(z_adj**2, axis=0))
+        score = geno.T @ residuals
+        ps, ws = [], []
+        for j in range(p):
+            if g_ss[j] <= 1e-12 or g_ss[j] <= 0.0:
+                continue
+            ps.append(2.0 * float(norm.sf(abs(score[j] / np.sqrt(g_ss[j])))))
+            ws.append(float(w[j]))
+        want = cauchy_combination(ps, ws) if ps else None
+        got = compute_acat_v(
+            geno, residuals, "binary", 1.0, null.extra["mu_hat"], w, null_model=null,
+            projection=projection,
+        )  # fmt: skip
+        assert got == want, gene
