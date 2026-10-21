@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.4] - 2026-10-21
+
+### Fixed
+
+- IGV reports: carriers of split multi-allelic Mutect2 calls (`GT` such as `0/1/0` or `0/1/0/0`) are no longer skipped. `genotype_utils.is_variant` accepts only diploid or haploid genotypes, so these rows got no IGV report, and multi-allelic sites are typical at force-called hotspots. The IGV step now uses `_carries_alt`; `is_variant` and the association genotype parsing are unchanged.
+
 ## [0.24.0] - 2026-10-21
 
 ### Added
