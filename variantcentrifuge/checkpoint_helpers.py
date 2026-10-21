@@ -102,6 +102,8 @@ ASSOCIATION_CONFIG_KEYS: tuple[str, ...] = (
     "association_min_cases",
     "association_max_case_control_ratio",
     "association_min_case_carriers",
+    "pca",  # --pca path or "akt"; pca_file is set at run time, after the hash
+    "pca_sites",
     "pca_file",
     "pca_tool",
     "pca_components",

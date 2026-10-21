@@ -627,6 +627,8 @@ def test_association_options_change_checkpoint_hash():
         "acat_o_exclude": ["fisher"],
         "covariate_columns": ["age"],
         "pca_components": 5,
+        "pca": "akt",  # --pca (pca_file is only set at run time, after the hash)
+        "pca_sites": "sites.vcf.gz",
         "variant_weights": "uniform",
         "association_min_cases": 10,
         "missing_site_threshold": 0.2,
