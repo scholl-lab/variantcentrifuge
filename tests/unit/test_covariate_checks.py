@@ -136,6 +136,15 @@ def test_collinear_covariates_fail_naming_them(tmp_path):
         _run(_context(tmp_path, y, cov, n_genes=1))
 
 
+def test_fisher_only_run_skips_preflight(tmp_path):
+    """Fisher ignores covariates: a collinear covariate file must not stop it (as v0.23.0)."""
+    y, cov = _cohort()
+    cov["PC1_copy"] = cov["PC1"] * 2.0 + 3.0
+    context = _context(tmp_path, y, cov, n_genes=1)
+    context.config["association_tests"] = ["fisher"]
+    assert _run(context)["fisher_pvalue"].notna().all()
+
+
 def _cov(*cols: np.ndarray) -> np.ndarray:
     return np.column_stack(cols).astype(float)
 

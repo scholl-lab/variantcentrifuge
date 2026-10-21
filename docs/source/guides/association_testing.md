@@ -291,8 +291,9 @@ analysis raises a validation error at startup.
 
 ### Covariate Pre-flight Checks
 
-Before the gene loop, the covariates (including `--pca-file` PCs) are checked once, for every
-test:
+Before the gene loop, the covariates (including `--pca-file` PCs) are checked once whenever a
+covariate-using test (logistic/linear burden, SKAT/SKAT-O, COAST) or `--score-artifact` runs;
+Fisher-only runs ignore covariates and skip the check:
 
 - A covariate with fewer than 5 values that differ from its most common value (for example an
   indicator equal to 1 in a single sample) is **dropped** with a warning naming it and its count.
