@@ -52,3 +52,28 @@ def test_non_af_preset_does_not_warn(tmp_path, caplog):
     with caplog.at_level(logging.WARNING, logger="variantcentrifuge"):
         _resolve(_vcf(tmp_path, False), "not_artefact")
     assert not any("INFO/AF" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.unit
+def test_af_preset_with_missing_vcf_defers_to_not_found_error(tmp_path):
+    from variantcentrifuge.validators import validate_vcf_file
+
+    missing = str(tmp_path / "missing.vcf.gz")
+    _resolve(missing, "not_artefact_af5")  # must not crash reading the header
+    with pytest.raises(FileNotFoundError, match="VCF file not found"):
+        validate_vcf_file(missing)
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(not shutil.which("bcftools"), reason="bcftools required")
+@pytest.mark.parametrize("kind", ["filter", "final_filter"])
+def test_af_in_filter_or_final_filter_warns_without_info_af(tmp_path, caplog, kind):
+    expr = "(AF[ANY] <= 0.01)"
+    args = argparse.Namespace(
+        preset=None,
+        final_filter=expr if kind == "final_filter" else None,
+        vcf_file=_vcf(tmp_path, False),
+    )
+    with caplog.at_level(logging.WARNING, logger="variantcentrifuge"):
+        resolve_presets_and_tumor_normal(args, load_config(), expr if kind == "filter" else None)
+    assert any("INFO/AF" in r.getMessage() for r in caplog.records)
