@@ -248,6 +248,8 @@ def populate_cli_config(
         cfg[_cfg_k] = resolved
         if resolved is not None:
             setattr(args, _cfg_k, resolved)
+    if cfg.get("transcript_fallback") == "none":  # same as default: keep checkpoint/chunk hashes
+        cfg["transcript_fallback"] = None
 
     if cfg.get("filter_exception_file") and cfg.get("fields_to_extract"):
         raw_fields = str(cfg["fields_to_extract"])

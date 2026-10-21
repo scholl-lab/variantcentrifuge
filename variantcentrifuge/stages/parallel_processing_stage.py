@@ -512,7 +512,13 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                         raise
             if subtask_times:
                 self._aggregate_subtask_times(subtask_times)
-            if tx_stats:  # aggregated over the chunks processed in this run
+            reused = len(bed_chunks) - len(chunks_to_process)
+            if tx_stats and reused:  # reused chunks carry no stats: a partial list would be wrong
+                logger.info(
+                    f"Transcript filter summary skipped on resume: {reused} of {len(bed_chunks)} "
+                    "chunks reused"
+                )
+            elif tx_stats:
                 log_transcript_filter_summary(
                     tx_stats, worker_config["transcript_ids"], cfg.get("diagnostics_output")
                 )

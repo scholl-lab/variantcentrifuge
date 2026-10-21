@@ -16,6 +16,14 @@ logger = logging.getLogger(__name__)
 ANN_GENE_NAME_INDEX = 3
 ANN_FEATURE_ID_INDEX = 6
 DROPPED_GENES_TSV = "transcript_filter_dropped_genes.tsv"
+# Entries snpEff adds for neighbouring genes; they may sit in another BED chunk than the gene body.
+NEIGHBOUR_EFFECTS = frozenset(
+    {"upstream_gene_variant", "downstream_gene_variant", "intergenic_region"}
+)
+
+
+def _is_gene_body(parts: list[str]) -> bool:
+    return not set(parts[1].split("&")) <= NEIGHBOUR_EFFECTS
 
 
 def _base_transcript_id(transcript_id: str) -> str:
@@ -84,7 +92,7 @@ def filter_ann_value_by_transcripts(
         if len(parts) > ANN_FEATURE_ID_INDEX:
             feature_id = parts[ANN_FEATURE_ID_INDEX].strip()
             if feature_id:
-                gene = parts[ANN_GENE_NAME_INDEX]
+                gene = parts[ANN_GENE_NAME_INDEX] if _is_gene_body(parts) else None
                 parsed.append((entry, feature_id, _base_transcript_id(feature_id), gene))
 
     exact_bases = {base for _, fid, base, _ in parsed if fid in transcript_ids}
@@ -177,10 +185,11 @@ def filter_vcf_line_by_transcripts(
 
 
 def _entry_genes(entries: list[str]) -> set[str]:
+    """Genes of gene-body ANN entries (up/downstream/intergenic entries are not counted)."""
     genes = set()
     for entry in entries:
         parts = entry.split("|")
-        if len(parts) > ANN_GENE_NAME_INDEX and parts[ANN_GENE_NAME_INDEX]:
+        if len(parts) > ANN_GENE_NAME_INDEX and parts[ANN_GENE_NAME_INDEX] and _is_gene_body(parts):
             genes.add(parts[ANN_GENE_NAME_INDEX])
     return genes
 
@@ -188,7 +197,10 @@ def _entry_genes(entries: list[str]) -> set[str]:
 def _genes_without_matched_transcript(
     input_vcf: str, transcript_ids: set[str], base_ids: set[str]
 ) -> set[str]:
-    """First pass for --transcript-fallback keep-gene: genes none of whose ANN entries match."""
+    """First pass for --transcript-fallback keep-gene: genes none of whose gene-body entries match.
+
+    A gene body lies in one merged BED line, hence one chunk, so per-chunk == single pass.
+    """
     genes_before: set[str] = set()
     genes_after: set[str] = set()
     with _open_text(input_vcf) as handle:
@@ -390,7 +402,7 @@ def filter_vcf_to_transcripts(
 
     With ``stats`` the run's counts are merged into it and the caller logs the summary
     (``log_transcript_filter_summary``); otherwise it is logged here.
-    ``fallback="keep-gene"`` keeps every ANN entry of a gene with no matched transcript.
+    ``fallback="keep-gene"`` keeps every gene-body ANN entry of a gene with no matched transcript.
     """
     exceptions = filter_exceptions or load_filter_exceptions(filter_exception_file)
     input_records = 0
@@ -399,8 +411,6 @@ def filter_vcf_to_transcripts(
     matched_features: set[str] = set()
     genes_before: set[str] = set()
     genes_after: set[str] = set()
-    # ponytail: decided per input file, so per chunk in the parallel path; a gene whose
-    # variants span two chunks may be kept in one and dropped in the other.
     keep_genes = (
         _genes_without_matched_transcript(input_vcf, transcript_ids, base_ids)
         if fallback == "keep-gene"
