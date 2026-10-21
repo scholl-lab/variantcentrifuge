@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The transcript filter (`--transcript-list` / `--transcript-file`) now logs one summary — transcripts requested, matched exactly, matched with a different version, genes before -> after — and a WARNING naming the genes that had annotated variants but lost all of them because none of their transcripts is listed (first 10 shown). Up/downstream and intergenic annotations of a neighbouring gene do not count. With `--diagnostics-output` the full list is written to `transcript_filter_dropped_genes.tsv`. Parallel runs aggregate the counts over all chunks; a resumed run that reuses chunks skips the summary and says so (#231).
+- The transcript filter (`--transcript-list` / `--transcript-file`) now logs one summary — transcripts requested, matched exactly, matched with a different version, genes before -> after — and a WARNING naming the genes that had annotated variants but lost all of them because none of their transcripts is listed (first 10 shown). Up/downstream and intergenic annotations of a neighbouring gene do not count. With `--diagnostics-output` the full list is written to `transcript_filter_dropped_genes.tsv`. Parallel runs aggregate the counts over all chunks; a resumed run that reuses chunks skips the summary (#231).
 - `--transcript-fallback {none,keep-gene}` (default `none`, unchanged behaviour): `keep-gene` keeps every transcript of a gene none of whose transcripts is in the list (readthrough genes included), so genes without a listed transcript are no longer lost silently; the result does not depend on `--threads` (#231).
 
 ### Changed
