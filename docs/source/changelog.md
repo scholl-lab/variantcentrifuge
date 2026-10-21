@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Ill-conditioned covariates no longer turn logistic burden results into a silent all-NA table. Covariates (including PCs) are checked once before the gene loop: a covariate with fewer than 5 non-modal values is dropped with a warning naming it; rank-deficient/collinear covariates (condition number > 1e8 after centring and scaling) and, for binary traits, a covariate that separates cases from controls stop the run with an error naming the columns. NA logistic burden genes record why Logit failed (`CONVERGENCE_SEPARATION`, `CONVERGENCE_MAX_ITER`, `CONVERGENCE_SINGULAR_HESSIAN`, `CONVERGENCE_FIT_ERROR`) in `warnings`; the stage logs the counts and fails when one reason hits more than 50 % of tested genes, naming suspect covariates (#222).
+
+### Changed
+
+- The logistic burden fit centres and scales covariates when `[1, covariates]` has a condition number above 1e6; burden beta/SE/p do not depend on it, and well-conditioned inputs are fitted unchanged (bit-identical results on the benchmark presets) (#222).
+
 ## [0.23.0] - 2026-10-21
 
 ### Added

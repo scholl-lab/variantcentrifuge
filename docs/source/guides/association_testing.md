@@ -289,6 +289,25 @@ variantcentrifuge \
 analysis raises a validation error at startup.
 :::
 
+### Covariate Pre-flight Checks
+
+Before the gene loop, the covariates (including `--pca-file` PCs) are checked once, for every
+test:
+
+- A covariate with fewer than 5 values that differ from its most common value (for example an
+  indicator equal to 1 in a single sample) is **dropped** with a warning naming it and its count.
+  Such a column carries almost no information and can separate the phenotype by itself, which
+  used to make every logistic burden fit fail.
+- Rank-deficient or collinear covariates (condition number above 1e8 after centring and scaling)
+  **stop the run** with an error naming the columns involved.
+- For binary traits, a covariate whose case and control values do not overlap (it separates the
+  phenotype, so no logistic model has a finite estimate) **stops the run** with an error naming it.
+
+Well-conditioned covariates pass through unchanged. For the logistic burden fit only, covariates
+are centred and scaled when `[1, covariates]` has a condition number above 1e6 (for example
+values in very different units); the burden beta, SE and p-value do not depend on this, so beta
+stays on the dosage scale.
+
 ---
 
 ## Setup: PCA
@@ -477,6 +496,13 @@ SKAT/SAIGE-GENE convention.
 
 **Separation warning codes:** `PERFECT_SEPARATION`, `QUASI_SEPARATION`, `FIRTH_CONVERGE_FAIL`,
 `ZERO_CARRIERS_ONE_GROUP`, `LOW_CARRIER_COUNT`. These appear in the `warnings` column.
+
+**Convergence failures:** a gene where both Logit and Firth fail is reported as NA with
+`FIRTH_CONVERGE_FAIL` plus the reason Logit failed: `CONVERGENCE_SEPARATION` (BSE > 100),
+`CONVERGENCE_MAX_ITER`, `CONVERGENCE_SINGULAR_HESSIAN` or `CONVERGENCE_FIT_ERROR`. The stage logs
+the count per reason, and **fails** (non-zero exit, no results table) when one reason hits more
+than 50 % of the tested genes, listing the reason counts and the covariates whose null-model
+standard error exceeds 100.
 
 ### Linear Burden Test (Quantitative Traits)
 
