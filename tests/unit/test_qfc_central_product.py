@@ -78,6 +78,32 @@ def test_reference_matches_closed_form():
         assert abs(_qfc(lam, q)[0] - chi2.sf(q, k)) < 1e-6
 
 
+@pytest.mark.parametrize("q", [-30.0, -5.0, 2.0])
+def test_negative_eigenvalues_run_the_original_loop_bit_exact(q):
+    # lb < 0 turns the product clockwise (the crossing count assumes counter-clockwise): qfc
+    # must keep the original loop, so the result equals the reference bit for bit
+    lam = np.r_[-np.ones(6), 0.5, 0.2]
+    p, f, tr = _qfc(lam, q)
+    assert (p, f, tr) == _qfc_original_loop(lam, q)
+    assert np.sum(np.arctan(2 * lam * tr[4])) < -np.pi  # angle sum past -pi
+
+
+def test_nan_from_scaled_mixture_propagates_as_in_the_original_loop():
+    # codex E2: u*u = inf with sigsq = 0 makes sum3 NaN at every node; the original loop returns
+    # NaN (v0.25.0: p = nan, ifault 0), which callers reject; it must not become p = 0.5
+    lam, q = np.array([2.0**-520, 2.0**-520]), 2.0**-519
+    p, f, tr = _qfc(lam, q)
+    p_ref, f_ref, tr_ref = _qfc_original_loop(lam, q)
+    assert np.isnan(p_ref)
+    assert np.isnan(p) and f == f_ref and tr[1:] == tr_ref[1:]
+
+
+def test_two_degrees_of_freedom_run_the_original_loop():
+    # n != 1 must not take the chi2_1 product path: P[chi2_2 > 6] = exp(-3)
+    p, f, _tr = _qfc([1.0], 6.0, n=[2])
+    assert f == 0 and abs(p - np.exp(-3.0)) < 1e-6
+
+
 def _max_angle(lam, tr):
     return float(np.sum(np.arctan(2 * lam * tr[4])))  # sum atan(x_j) at the truncation point
 

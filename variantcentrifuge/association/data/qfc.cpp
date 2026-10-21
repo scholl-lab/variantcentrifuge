@@ -217,7 +217,7 @@ static double exp1(double x)               /* to avoid underflows  */
          {
             /* sum_j atan(x_j) = arg prod_j (1 + i x_j) and sum_j log(1 + x_j^2) = log|prod|^2,
                x_j >= 0: one atan2 and one log per term instead of one each per lb[j] */
-            double re = 1.0, im = 0.0, t; int w = 0;
+            double re = 1.0, im = 0.0, t, nrm; int w = 0;
             for ( j = r - 1; j >= 0; j--)
             {
                x = 2.0 * lb[j] * u;
@@ -225,10 +225,14 @@ static double exp1(double x)               /* to avoid underflows  */
                w += (im >= 0.0 && y < 0.0);  /* angle grows by < pi/2 per factor: count crossings of pi */
                re = t;  im = y;
             }
-            sum3 = sum3 - 0.25 * std::log(re * re + im * im);
-            /* exp1(sum3) = 0: the term adds 0. |prod|^2 >= 1e308 (overflow: inf or NaN) means
-               sum3 <= -177, so overflow always lands here; findu keeps it far below that anyway */
-            if (!(sum3 >= -50.0)) continue;
+            nrm = re * re + im * im;
+            /* exp1(sum3) = 0: the term adds 0, as in the original loop. An overflowed product (inf or
+               NaN) with a finite Gaussian part means |prod|^2 >= 1e308, sum3 <= -177: also 0 (findu
+               keeps |prod|^2 far below that anyway). Any other NaN propagates as in the original. */
+            if (!std::isfinite(nrm) && std::isfinite(sum3)) continue;
+            sum3 = sum3 - 0.25 * std::log(nrm);
+            if (sum3 < -50.0) continue;
+            /* exact 2*pi: the `pi` macro (3.14159265358979) is 3e-15 short, 6e-15 per crossing */
             z = std::atan2(im, re) + 2.0 * 3.141592653589793 * w;
             sum1 = sum1 + z;  sum2 = sum2 + z;
          }
