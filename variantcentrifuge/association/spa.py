@@ -21,6 +21,7 @@ import numpy as np
 import scipy.special
 import scipy.stats
 
+from variantcentrifuge.association.backends.base import NullModelResult
 from variantcentrifuge.association.meta.combine import meta_skat, meta_skato
 
 _CUTOFF = 2.0  # |z| above which SPA / ER replace the normal approximation
@@ -207,6 +208,13 @@ def calibrated_variance(score: np.ndarray, p: np.ndarray) -> np.ndarray:
     return np.where(np.isfinite(v), v, 0.0)
 
 
+def null_arrays(null_model: NullModelResult) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """``(y, mu, design)`` of a fitted binary null model (y recovered as round(r + mu))."""
+    mu = np.asarray(null_model.extra["mu_hat"], dtype=np.float64)
+    y = np.round(np.asarray(null_model.extra["residuals"], dtype=np.float64) + mu)
+    return y, mu, np.asarray(null_model.extra["design_matrix"], dtype=np.float64)
+
+
 def robust_moments(
     geno: np.ndarray, weights: np.ndarray, y: np.ndarray, mu: np.ndarray, design: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray | None, float]:
@@ -261,6 +269,7 @@ def robust_skat(
 __all__ = [
     "calibrated_variance",
     "exact_pvalue",
+    "null_arrays",
     "robust_moments",
     "robust_skat",
     "saddle_pvalues",

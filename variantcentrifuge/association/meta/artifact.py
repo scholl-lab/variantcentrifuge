@@ -17,9 +17,7 @@ support is deferred (spec revision 1).
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
-from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -30,68 +28,16 @@ from variantcentrifuge.association.backends.null_model import (
     explained_columns,
     project_out_nuisance,
 )
+from variantcentrifuge.association.meta.artifact_schema import (
+    SCHEMA_VERSION,
+    V1_MISSING_POLICY,
+    GeneScore,
+    ScoreCovarianceArtifact,
+    load_artifact,
+    save_artifact,
+)
 
 logger = logging.getLogger("variantcentrifuge")
-
-SCHEMA_VERSION = 2
-# v1 artifacts predate the recorded policy: they always used bestguess imputation (#200).
-V1_MISSING_POLICY = {"imputation": "bestguess", "site_threshold": None, "sample_threshold": None}
-
-
-@dataclass
-class GeneScore:
-    """Aggregate score/covariance for one gene in one stratum.
-
-    Fields
-    ------
-    variant_keys : list[str]
-        Canonical ``chrom:pos:ref:alt`` keys, one per column of ``u``/``v``.
-    u : np.ndarray, shape (p,)
-        Unweighted score vector ``Gᵀ r`` (r = null residuals).
-    v : np.ndarray, shape (p, p)
-        Unweighted projection-adjusted covariance ``Gᵀ P G`` (== Var(u) for binary).
-    ac : np.ndarray, shape (p,)
-        Observed ALT-allele counts (pre-imputation).
-    an : np.ndarray, shape (p,)
-        Observed allele numbers = 2 * non-missing samples (pre-imputation).
-    null_converged : bool
-        Whether the stratum null model converged.
-    n_carriers : int | None
-        Samples with >= 1 observed ALT allele over the gene's variants (#194);
-        None for artifacts written before it was recorded.
-    """
-
-    variant_keys: list[str]
-    u: np.ndarray
-    v: np.ndarray
-    ac: np.ndarray
-    an: np.ndarray
-    null_converged: bool
-    n_carriers: int | None = None
-
-
-@dataclass
-class ScoreCovarianceArtifact:
-    """A stratum's meta-analysis artifact: metadata + per-gene scores."""
-
-    stratum_id: str
-    genome_build: str
-    annotation_version: str
-    mask_id: str
-    mask_hash: str
-    trait_type: str
-    n_cases: int
-    n_controls: int
-    sample_id_hashes: list[str]
-    genes: dict[str, GeneScore]
-    schema_version: int = SCHEMA_VERSION
-    # imputation ("bestguess" | "missing_as_ref") + site/sample missingness thresholds
-    # Required, keyword-only: how missing genotypes were handled must be stated, never
-    # defaulted (V1_MISSING_POLICY applies only when loading a v1 artifact).
-    missing_policy: dict[str, Any] = field(kw_only=True)
-    # Optional v2 fields (#197): readable mask name; annotation provenance (meta/provenance.py)
-    mask_label: str | None = None
-    provenance: dict[str, Any] = field(default_factory=dict)
 
 
 def fit_stratum_null(
@@ -135,6 +81,7 @@ def compute_gene_score(
     null_model: NullModelResult,
     variant_keys: list[str],
     ploidy: np.ndarray | None = None,
+    robust: bool = False,
 ) -> GeneScore:
     """Compute the unweighted score vector and projection-adjusted covariance.
 
@@ -151,6 +98,8 @@ def compute_gene_score(
         Canonical keys aligned to the columns of ``genotype_matrix``.
     ploidy : np.ndarray | None, shape (n_samples, p)
         Per-genotype ploidy for AN (haploid chrX/Y calls count 1); default diploid.
+    robust : bool
+        Also store the SPA/exact-calibrated variances ``v_robust`` (``--skat-robust``).
 
     Returns
     -------
@@ -181,6 +130,19 @@ def compute_gene_score(
     v = z_adj.T @ z_adj
     v = 0.5 * (v + v.T)  # enforce exact symmetry against round-off
 
+    v_robust = None
+    if robust:
+        from variantcentrifuge.association.spa import (
+            calibrated_variance,
+            null_arrays,
+            variant_pvalues,
+        )
+
+        v_robust = np.zeros(p)
+        if not explained.all():
+            score, p_cal, _g1 = variant_pvalues(geno[:, ~explained], *null_arrays(null_model))
+            v_robust[~explained] = calibrated_variance(score, p_cal)
+
     # AC/AN from the PRE-IMPUTATION dosage (never the imputed matrix)
     raw = np.asarray(raw_dosage, dtype=np.float64)
     if raw.shape != geno.shape:
@@ -198,6 +160,7 @@ def compute_gene_score(
         an=an,
         null_converged=_null_converged(null_model),
         n_carriers=int((raw > 0).any(axis=1).sum()),  # NaN (missing) is not a carrier
+        v_robust=v_robust,
     )
 
 
@@ -239,90 +202,6 @@ def build_stratum_artifact(
         sample_id_hashes=list(sample_id_hashes or []),
         genes=gene_scores,
         missing_policy=dict(missing_policy),
-    )
-
-
-def save_artifact(artifact: ScoreCovarianceArtifact, path: str) -> None:
-    """Serialise to ``<path>`` (arrays, .npz) + ``<path>.meta.json`` (metadata)."""
-    arrays: dict[str, np.ndarray] = {}
-    gene_meta: dict[str, dict] = {}
-    for gene, gs in artifact.genes.items():
-        arrays[f"{gene}::u"] = gs.u
-        arrays[f"{gene}::v"] = gs.v
-        arrays[f"{gene}::ac"] = gs.ac
-        arrays[f"{gene}::an"] = gs.an
-        gene_meta[gene] = {
-            "variant_keys": gs.variant_keys,
-            "null_converged": gs.null_converged,
-            "n_carriers": gs.n_carriers,
-        }
-    np.savez_compressed(path, **arrays)  # type: ignore[arg-type]
-    meta = {
-        "schema_version": artifact.schema_version,
-        "stratum_id": artifact.stratum_id,
-        "genome_build": artifact.genome_build,
-        "annotation_version": artifact.annotation_version,
-        "mask_id": artifact.mask_id,
-        "mask_hash": artifact.mask_hash,
-        "trait_type": artifact.trait_type,
-        "n_cases": artifact.n_cases,
-        "n_controls": artifact.n_controls,
-        "sample_id_hashes": artifact.sample_id_hashes,
-        "missing_policy": artifact.missing_policy,
-        "mask_label": artifact.mask_label,
-        "provenance": artifact.provenance,
-        "genes": gene_meta,
-    }
-    with open(f"{path}.meta.json", "w", encoding="utf-8") as fh:
-        json.dump(meta, fh, indent=2)
-
-
-def load_artifact(path: str) -> ScoreCovarianceArtifact:
-    """Load an artifact written by :func:`save_artifact`."""
-    with open(f"{path}.meta.json", encoding="utf-8") as fh:
-        meta = json.load(fh)
-    if meta.get("schema_version") not in (1, SCHEMA_VERSION):
-        raise ValueError(
-            f"Artifact '{path}' has schema_version {meta.get('schema_version')!r}; "
-            f"this version reads only 1 and {SCHEMA_VERSION}."
-        )
-    policy = meta.get("missing_policy") if meta["schema_version"] > 1 else V1_MISSING_POLICY
-    if not isinstance(policy, dict) or policy.get("imputation") not in (
-        "bestguess",
-        "missing_as_ref",
-    ):
-        raise ValueError(
-            f"Artifact '{path}' (schema_version 2) has no valid missing_policy "
-            f"(got {policy!r}); refusing to guess how its missing genotypes were handled."
-        )
-    npz_path = path if path.endswith(".npz") else f"{path}.npz"
-    with np.load(npz_path) as data:
-        genes: dict[str, GeneScore] = {}
-        for gene, gmeta in meta["genes"].items():
-            genes[gene] = GeneScore(
-                variant_keys=list(gmeta["variant_keys"]),
-                u=data[f"{gene}::u"],
-                v=data[f"{gene}::v"],
-                ac=data[f"{gene}::ac"],
-                an=data[f"{gene}::an"],
-                null_converged=bool(gmeta["null_converged"]),
-                n_carriers=gmeta.get("n_carriers"),
-            )
-    return ScoreCovarianceArtifact(
-        stratum_id=meta["stratum_id"],
-        genome_build=meta["genome_build"],
-        annotation_version=meta["annotation_version"],
-        mask_id=meta["mask_id"],
-        mask_hash=meta["mask_hash"],
-        trait_type=meta["trait_type"],
-        n_cases=int(meta["n_cases"]),
-        n_controls=int(meta["n_controls"]),
-        sample_id_hashes=list(meta["sample_id_hashes"]),
-        genes=genes,
-        schema_version=int(meta["schema_version"]),
-        missing_policy=dict(policy),
-        mask_label=meta.get("mask_label"),
-        provenance=dict(meta.get("provenance") or {}),
     )
 
 
@@ -383,6 +262,7 @@ def gene_score_record(
     built: dict[str, Any],
     pheno_all: np.ndarray,
     nulls: dict[bytes, NullModelResult | UntestableGeneError],
+    robust: bool = False,
 ) -> tuple[int, int, GeneScore | str | None]:
     """One gene's artifact entry from its builder and that builder's result.
 
@@ -431,7 +311,8 @@ def gene_score_record(
         return n_sites, n_kept, "ONE_CLASS"
     try:
         null_model = null_for_mask(nulls, mask, pheno_all, b.covariate_matrix)
-        return n_sites, n_kept, compute_gene_score(geno, raw, null_model, keys, ploidy=plo)
+        score = compute_gene_score(geno, raw, null_model, keys, ploidy=plo, robust=robust)
+        return n_sites, n_kept, score
     except UntestableGeneError as exc:
         logger.warning("Score artifact: omitting gene %s: %s", gene, exc.reason)
         return n_sites, n_kept, exc.reason
@@ -474,6 +355,7 @@ def emit_stratum_artifact(
     mask_hash: str,
     mask_label: str | None = None,
     provenance: dict[str, Any] | None = None,
+    robust: bool = False,
 ) -> ScoreCovarianceArtifact:
     """Write a stratum artifact from the association stage's per-gene matrix builders.
 
@@ -485,7 +367,8 @@ def emit_stratum_artifact(
 
     ``records`` (gene -> ``gene_score_record`` result, computed by the engine's workers
     from the matrices they built for the tests, #212) skips building here for those
-    genes; genes are written in ``builders`` order either way.
+    genes; genes are written in ``builders`` order either way. ``robust``
+    (``--skat-robust``) also stores each gene's calibrated variances ``v_robust``.
 
     A gene whose retained samples (after its missingness QC) are all cases or all
     controls has no estimable null model; it is omitted with a warning. A phenotype
@@ -502,7 +385,8 @@ def emit_stratum_artifact(
             continue
         record = None if records is None else records.get(gene)
         if record is None:  # no engine result for this gene: build its matrix here
-            record = gene_score_record(gene, b, _build_for_artifact(b), pheno_all, nulls)
+            built = _build_for_artifact(b)
+            record = gene_score_record(gene, b, built, pheno_all, nulls, robust)
         sites, kept, entry = record
         n_sites, n_kept = n_sites + sites, n_kept + kept
         if isinstance(entry, GeneScore):

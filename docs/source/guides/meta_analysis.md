@@ -9,8 +9,9 @@ preserved so burden direction and kernel (SKAT) evidence are retained.
 
 > **Scope.** This is an analysis-engine feature for **binary traits**. Study-specific
 > phenotype eligibility, covariate choice, and QC remain caller responsibilities.
-> Quantitative traits, a mixed-model/GRM null, and a genotype-level saddlepoint
-> (SPA) for *severe* imbalance are deferred (see *Limitations*).
+> Quantitative traits and a mixed-model/GRM null are deferred. For *severe*
+> case:control imbalance, strata run with `--skat-robust` carry saddlepoint/exact
+> calibrated variances that the meta uses (see *Calibration and limitations*).
 
 ## How it works
 
@@ -69,11 +70,16 @@ as build and annotation version, a hash of the variant selection (`--filters`,
 sample IDs for the overlap check. Run every cohort with the same reference and
 filters, or the meta step will refuse to pool them.
 
-The artifact (schema version 2) also records the missing-genotype policy as
+The artifact (schema version 3) also records the missing-genotype policy as
 `missing_policy`: the imputation mode (`bestguess`, or `missing_as_ref` with
 `--missing-as-ref`) and the site and sample missingness thresholds. Version 1 artifacts
 still load. They are read as `bestguess` with unknown thresholds, which is what they used.
 With `--missing-as-ref`, the stored `AN` counts every sample.
+
+With `--skat-robust`, each gene additionally stores `v_robust` (array key
+`<gene>::v_robust`): the per-variant score variance recalibrated from the
+saddlepoint/exact p-value, `V~ = U² / qchisq(1 − p~, 1)` (R `SKATBinary_Robust`).
+Artifacts written without the flag have no such key; schema 1 and 2 artifacts still load.
 
 `--mask-label NAME` stores a readable name for the mask (e.g. `pLoF`) next to its
 hash. The artifact also records annotation provenance: the snpEff version
@@ -251,10 +257,16 @@ gate that ties the meta engine to the validated backend.
 The common-effect score meta uses a normal/Davies approximation that is well
 calibrated under **moderate** imbalance. Under **severe** case:control imbalance the
 per-variant/burden normal approximation is anti-conservative in the tail; a
-calibrated result there requires a genotype-level saddlepoint (SPA) backend, which
-is **deferred**. The artifact stores the raw `U`/`V`, so an SPA meta path can be
-added without changing the schema. Likewise, `V` is stored as a full matrix, so a
-future relatedness-aware (GLMM/GRM) null drops in without a schema change.
+calibrated result there needs the genotype-level saddlepoint: run every stratum with
+`--skat-robust`. When **every** stratum's artifact carries `v_robust`, each stratum's
+covariance is rescaled to the calibrated variances, `V~ = D V D` with
+`D = sqrt(v_robust / diag V)`, before the burden, SKAT and SKAT-O meta (and the
+leave-one-out and heterogeneity statistics) are computed. If only some strata carry it,
+the meta warns once and uses the uncalibrated `V` for all strata. Unlike the
+single-cohort `--skat-robust` test, the meta does not recalibrate the burden direction
+(that step needs genotypes), so its burden component is calibrated per variant only.
+`V` is stored as a full matrix, so a future relatedness-aware (GLMM/GRM) null drops in
+without a schema change.
 
 The meta engine is cross-validated against R MetaSKAT 0.90 (`MetaSKAT_wZ`,
 `combined.weight=TRUE`, `weights.beta=c(1,25)`): burden and SKAT agree to ~1e-15 and

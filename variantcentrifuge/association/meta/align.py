@@ -42,6 +42,10 @@ def align_strata(
 ) -> tuple[list[np.ndarray], list[np.ndarray], np.ndarray, np.ndarray, list[str]]:
     """Embed each stratum's ``U``/``V`` into the shared union of variant keys.
 
+    When every stratum carries calibrated variances (``v_robust``, ``--skat-robust``),
+    each ``V`` is rescaled to them, ``V~ = D V D`` with ``D = sqrt(v_robust / diag V)``
+    (R ``SKATBinary_spa``); otherwise the uncalibrated ``V`` is used.
+
     Returns
     -------
     (u_list, v_list, ac_pooled, an_pooled, union_keys)
@@ -60,12 +64,19 @@ def align_strata(
     ac_pooled = np.zeros(m, dtype=np.float64)
     an_pooled = np.zeros(m, dtype=np.float64)
 
+    robust = all(gs.v_robust is not None for gs in gene_scores)
     for gs in gene_scores:
         cols = np.array([index[k] for k in gs.variant_keys], dtype=int)
         u_full = np.zeros(m, dtype=np.float64)
         v_full = np.zeros((m, m), dtype=np.float64)
         u_full[cols] = gs.u
-        v_full[np.ix_(cols, cols)] = gs.v
+        v = gs.v
+        if robust and gs.v_robust is not None:
+            diag = np.diag(v)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                d = np.where(diag > 0, np.sqrt(gs.v_robust / diag), 0.0)
+            v = v * np.outer(d, d)
+        v_full[np.ix_(cols, cols)] = v
         u_list.append(u_full)
         v_list.append(v_full)
         ac_pooled[cols] += gs.ac

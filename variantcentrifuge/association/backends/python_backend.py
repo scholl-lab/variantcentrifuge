@@ -54,7 +54,7 @@ from variantcentrifuge.association.backends.skat_math import (
     compute_skato_q_and_z1,
 )
 from variantcentrifuge.association.backends.skato_integrate import _skato_last_converged
-from variantcentrifuge.association.spa import robust_skat
+from variantcentrifuge.association.spa import null_arrays, robust_skat
 
 __all__ = [
     "_GL_A",
@@ -389,10 +389,7 @@ class PythonSKATBackend(SKATBackend):
     ) -> dict[str, Any]:
         """Imbalance-robust binary SKAT / SKAT-O (port of R ``SKATBinary_Robust``)."""
         tested = weights != 0.0
-        mu = null_model.extra["mu_hat"]
-        y = np.round(null_model.extra["residuals"] + mu)
-        design = null_model.extra["design_matrix"]
-        p, rho = robust_skat(geno[:, tested], weights[tested], y, mu, design, method)
+        p, rho = robust_skat(geno[:, tested], weights[tested], *null_arrays(null_model), method)
         return {
             "p_value": p,
             "rho": rho,

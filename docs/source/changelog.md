@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Per-stage table at pipeline end (wall, CPU user+sys including children, peak RSS as a process high-water mark; CPU of concurrently running stages overlaps), also written to `stage_summary.tsv` in `--diagnostics-output` when given. The chunked/non-chunked decision logs file size, estimated memory and thresholds for both outcomes, and each `parallel_safe=False` stage that runs sequentially logs why. Log only; results unchanged (#220).
 - `--skat-robust` (config key `skat_robust`): imbalance-robust binary SKAT/SKAT-O, a port of R `SKAT::SKATBinary_Robust` (saddlepoint p-values for MAC ≥ 10, exact for MAC < 10, calibrated score variances); matches R SKAT 2.2.5 on synthetic 1:9 and 8:1 cohorts. Off by default; default results are unchanged (#223).
+- Score artifacts (schema 3) from `--skat-robust` runs store per-gene calibrated variances `v_robust`; `variantcentrifuge meta` rescales each stratum's covariance to them when every stratum has them, and warns once and uses the raw covariance for mixed strata. Schema 1/2 artifacts still load; default artifacts differ only in `schema_version` (#223, #198).
 
 ### Changed
 
