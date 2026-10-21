@@ -219,7 +219,7 @@ def test_transcript_fallback_cli_choices() -> None:
 
 # GENEG matched in chunk 0, where GENEB appears only as an upstream entry; chunk 1 holds GENEG/LOCX
 # only as neighbour entries of a GENEH variant, GENEB whose only transcript is unlisted, and a
-# conserved_intergenic_variant between two genes (#231 review).
+# conserved_intergenic_variant between two genes.
 NB_TX = "NM_100001.1,NM_300003.1"
 NB_PARTS = {
     "c0.bed": [
@@ -292,7 +292,7 @@ def test_explicit_fallback_none_keeps_default_fingerprints(tmp_path: Path) -> No
 
 @pytest.mark.parametrize("fallback", ["keep-gene", None])
 def test_split_gene_bed_gives_single_pass_rows(tmp_path: Path, fallback) -> None:
-    """A regions BED can split one gene into intervals in different chunks (#231 final review)."""
+    """A regions BED can split one gene into intervals in different chunks."""
     from variantcentrifuge.pipeline import create_stages_from_config
     from variantcentrifuge.transcript_filter import filter_vcf_to_transcripts
     from variantcentrifuge.utils import split_bed_file
@@ -328,7 +328,7 @@ def test_split_gene_bed_gives_single_pass_rows(tmp_path: Path, fallback) -> None
 
 
 def test_keep_gene_routing_reads_args_when_config_is_a_path(tmp_path: Path) -> None:
-    """Python API: args.config may be a file path, so keep-gene must also be read from args."""
+    """Python API: args.config may be a file path, so transcript options are read from args too."""
     from variantcentrifuge.pipeline import build_pipeline_stages
 
     cfg_file = tmp_path / "config.json"
@@ -336,9 +336,33 @@ def test_keep_gene_routing_reads_args_when_config_is_a_path(tmp_path: Path) -> N
     args = Namespace(
         config=str(cfg_file),
         threads=4,
-        transcript_list="NM_1.1",
+        transcript_list=TX_LIST,
         transcript_fallback="keep-gene",
         fields_to_extract="CHROM POS",
     )
-    names = [s.name for s in build_pipeline_stages(args)]
-    assert "parallel_complete_processing" not in names
+    stages = {s.name: s for s in build_pipeline_stages(args)}
+    assert "parallel_complete_processing" not in stages
+    assert "transcript_filtering" in stages
+
+    vcf = tmp_path / "in.vcf"
+    vcf.write_text(_vcf_text(RECORDS), encoding="utf-8")
+    ctx = PipelineContext(args=args, config={}, workspace=Workspace(tmp_path / "out", "s"))
+    ctx = stages["configuration_loading"]._process(ctx)
+    ctx.extracted_vcf = vcf
+    ctx = stages["transcript_filtering"]._process(ctx)
+    assert sorted(_genes(ctx.transcript_filtered_vcf)) == ["GENEA", "GENEB", "GENEC"]
+
+
+def test_default_chunk_fingerprint_equals_v0_24_0(tmp_path: Path) -> None:
+    """Chunk TSVs from a v0.24.0 run stay reusable: the default-config fingerprint is unchanged.
+
+    Pinned value computed with v0.24.0 (f751241b) ParallelCompleteProcessingStage._chunk_fingerprint
+    on exactly these inputs.
+    """
+    from types import SimpleNamespace
+
+    bed = tmp_path / "c.bed"
+    bed.write_text("chr1\t1\t100\n")
+    ctx = SimpleNamespace(config={"vcf_file": "in.vcf.gz", "transcript_list": "NM_1.1"}, data=None)
+    fp = ParallelCompleteProcessingStage()._chunk_fingerprint(ctx, bed, "CHROM POS")
+    assert fp == "4af64340f714d02f"

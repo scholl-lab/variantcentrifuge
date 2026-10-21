@@ -132,7 +132,7 @@ def test_skato_debug_log_does_not_present_skipped_bound_as_p(monkeypatch, caplog
     backend.detect_environment()
     null = backend.fit_null_model(rng.integers(0, 2, 60).astype(np.float64), None, "binary")
     rho = np.array(_SKATO_RHO_GRID)
-    # codex input: rho < 0.999 have small p, so rho=0.999 is skipped
+    # Input where rho < 0.999 have small p, so rho=0.999 is skipped
     monkeypatch.setattr(
         python_backend, "compute_skato_q_and_z1", lambda *a: (5 * (1 - rho), np.eye(2))
     )

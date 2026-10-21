@@ -37,8 +37,9 @@ def add_analysis_argument_groups(parser: argparse.ArgumentParser) -> None:
             "What to do with a gene none of whose annotated transcripts is in the transcript "
             "list. 'none' (default): drop it (reported as a WARNING and, with "
             "--diagnostics-output, in transcript_filter_dropped_genes.tsv). 'keep-gene': keep "
-            "all of that gene's annotations, i.e. every transcript of the gene becomes a row, and "
-            "readthrough genes without a listed transcript are kept too."
+            "the gene-body annotations of that gene (every transcript becomes a row; readthrough "
+            "genes without a listed transcript are kept too). keep-gene needs --transcript-list or "
+            "--transcript-file and runs without parallel chunks."
         ),
     )
     gene_group.add_argument(
