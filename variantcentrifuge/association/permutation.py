@@ -94,12 +94,13 @@ def empirical_p(
     t_obs = float(stat(a.T @ e_obs))
     # Ties count as exceedances; the margin absorbs round-off between GEMV and GEMM.
     thresh = t_obs - 1e-9 * abs(t_obs)
-    phi = np.sqrt(mu * (1.0 - mu))[:, np.newaxis]
+    phi = np.sqrt(mu * (1.0 - mu))
+    case, control, mu_col = ((1.0 - mu) / phi)[:, None], (-mu / phi)[:, None], mu[:, None]
     done = exceed = 0
     batch = FIRST_BATCH
     while done < n_perm:
         batch = min(batch, n_perm - done)
-        e = ((rng.random((mu.size, batch)) < mu[:, np.newaxis]) - mu[:, np.newaxis]) / phi
+        e = np.where(rng.random((mu.size, batch)) < mu_col, case, control)
         cum = exceed + np.cumsum(stat(a.T @ e) >= thresh)  # the batch's one GEMM
         if cum[-1] >= h:
             used = done + int(np.argmax(cum >= h)) + 1
