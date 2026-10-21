@@ -103,3 +103,14 @@ def test_lambda_max_chi2_bound_is_a_lower_bound():
         p, f = davies_pvalue(q, lam, acc=1e-9, lim=1_000_000)
         if f == 0:
             assert chi2.sf(q / lam.max(), 1) <= p + 1e-9
+
+
+def test_meta_skato_underflowed_rhos_keep_v024_p():
+    """Zero-recovery returns the smallest positive per-rho p: rho=0.999 must stay exact.
+
+    Rhos 0..0.5 underflow to p = 0 here; the expected value is v0.24.0's output.
+    """
+    from variantcentrifuge.association.meta.combine import meta_skato
+
+    u = [np.sqrt(5000.0) * np.array([1.0, -1.0])]
+    assert meta_skato(u, [2.0 * np.eye(2)], np.ones(2)) == (0.11379218388721413, 0.0)

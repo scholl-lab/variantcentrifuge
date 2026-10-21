@@ -219,7 +219,9 @@ def _skato_each_q(
                 # acc, rho=0.999 cannot be the min (pmin, pmin_q, argmin unchanged): skip Davies.
                 # ponytail: assumes its Davies would converge (else p_converged could differ)
                 bound = float(scipy.stats.chi2.sf(q_all[j, i] / lam.max(), df=1))
-                if bound > pval[j, :i].min() + 1e-6:
+                others = pval[j, :i]
+                # an underflowed p (<= 0) lets _skato_get_pvalue report the smallest positive one
+                if np.all(np.isfinite(others) & (others > 0)) and bound > others.min() + 1e-6:
                     pval[j, i] = bound
                     continue
             p_val, _method, conv = compute_pvalue(q_all[j, i], lam)
