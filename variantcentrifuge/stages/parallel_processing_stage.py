@@ -9,7 +9,6 @@ import logging
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import Manager
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +17,12 @@ from ..filters import apply_snpsift_filter, extract_variants
 from ..memory.resource_manager import ResourceManager
 from ..pipeline_core import PipelineContext, Stage
 from ..sample_subset import resolve_sample_subset
-from ..transcript_filter import filter_vcf_to_transcripts, load_transcript_ids
+from ..transcript_filter import (
+    filter_vcf_to_transcripts,
+    load_transcript_ids,
+    log_transcript_filter_summary,
+    merge_filter_stats,
+)
 from ..utils import ensure_fields_in_extract, split_bed_file
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
 from .chunk_tsv_merge import ChunkTsvMergeMixin
@@ -282,9 +286,11 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
         base_name: str,
         intermediate_dir: Path,
         config: dict[str, Any],
-        subtask_times: Any = None,
-    ) -> Path:
-        """Process a single BED chunk through complete pipeline."""
+    ) -> tuple[Path, dict[str, float], dict]:
+        """Process one BED chunk through the complete pipeline.
+
+        Return (TSV, subtask times, transcript-filter stats).
+        """
         chunk_base = f"{base_name}.chunk_{chunk_index}"
         extract_start = time.time()
         chunk_vcf = intermediate_dir / f"{chunk_base}.variants.vcf.gz"
@@ -314,6 +320,7 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
             transcript_ids = load_tx_fn(
                 config.get("transcript_list"), config.get("transcript_file")
             )
+        tx_stats: dict = {}
         if transcript_ids:
             transcript_filtered_vcf = intermediate_dir / f"{chunk_base}.transcript_filtered.vcf.gz"
             _ps_attr("filter_vcf_to_transcripts", filter_vcf_to_transcripts)(
@@ -322,6 +329,7 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                 transcript_ids,
                 index_output=False,
                 filter_exception_file=config.get("filter_exception_file"),
+                stats=tx_stats,
             )
             working_vcf = transcript_filtered_vcf
 
@@ -377,12 +385,16 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
         )
         field_extract_time = time.time() - field_extract_start
 
-        if subtask_times is not None:
-            subtask_times[f"chunk_{chunk_index}_extraction"] = extract_time
-            subtask_times[f"chunk_{chunk_index}_filtering"] = filter_time
-            subtask_times[f"chunk_{chunk_index}_field_extraction"] = field_extract_time
         logger.debug(f"Completed processing chunk {chunk_index}")
-        return chunk_tsv
+        return (
+            chunk_tsv,
+            {
+                f"chunk_{chunk_index}_extraction": extract_time,
+                f"chunk_{chunk_index}_filtering": filter_time,
+                f"chunk_{chunk_index}_field_extraction": field_extract_time,
+            },
+            tx_stats,
+        )
 
     def _process_chunks_parallel(
         self, context: PipelineContext, bed_chunks: list[Path]
@@ -449,6 +461,7 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                 "max_memory_gb": worker_max_memory_gb,
                 "snpsift_memory_gb": worker_snpsift_gb,
                 "bcftools_prefilter": cfg.get("bcftools_prefilter"),
+                "temp_dir": cfg.get("temp_dir"),
                 "late_filtering": cfg.get("late_filtering", False),
                 "snpeff_splitting_mode": cfg.get("snpeff_splitting_mode"),
                 "filter": cfg.get("filter"),
@@ -465,7 +478,8 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                     cfg.get("transcript_list"), cfg.get("transcript_file")
                 ),
             }
-            shared_subtask_times = Manager().dict()
+            subtask_times: dict[str, float] = {}
+            tx_stats: dict = {}
             executor_cls = _ps_attr("ProcessPoolExecutor", ProcessPoolExecutor)
             as_completed_fn = _ps_attr("as_completed", as_completed)
             with executor_cls(max_workers=active_workers) as executor:
@@ -478,22 +492,33 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                         base_name,
                         intermediate_dir,
                         worker_config,
-                        shared_subtask_times,
                     ): (i, chunk_bed, expected_tsv, chunk_fp)
                     for i, chunk_bed, expected_tsv, chunk_fp in chunks_to_process
                 }
                 for future in as_completed_fn(future_to_chunk):
                     chunk_index, chunk_bed, _expected_tsv, chunk_fp = future_to_chunk[future]
                     try:
-                        chunk_tsv = future.result()
+                        chunk_tsv, chunk_times, chunk_tx_stats = future.result()
+                        subtask_times.update(chunk_times)
+                        merge_filter_stats(tx_stats, chunk_tx_stats)
                         if chunk_tsv.parent.exists():
                             Path(f"{chunk_tsv}.meta").write_text(chunk_fp, encoding="utf-8")
                         logger.debug(f"Completed chunk {chunk_index}: {chunk_bed.name}")
                     except Exception as e:
                         logger.error(f"Failed to process chunk {chunk_bed}: {e}")
                         raise
-            if shared_subtask_times:
-                self._aggregate_subtask_times(shared_subtask_times)
+            if subtask_times:
+                self._aggregate_subtask_times(subtask_times)
+            reused = len(bed_chunks) - len(chunks_to_process)
+            if tx_stats and reused:  # reused chunks carry no stats: a partial list would be wrong
+                logger.info(
+                    f"Transcript filter summary skipped on resume: {reused} of {len(bed_chunks)} "
+                    "chunks reused"
+                )
+            elif tx_stats:
+                log_transcript_filter_summary(
+                    tx_stats, worker_config["transcript_ids"], cfg.get("diagnostics_output")
+                )
         else:
             logger.info("All chunk TSVs already exist and are valid - no processing needed")
 
@@ -501,14 +526,14 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
             intermediate_dir / f"{base_name}.chunk_{i}{tsv_suffix}" for i in range(len(bed_chunks))
         ]
 
-    def _aggregate_subtask_times(self, shared_subtask_times: Any) -> None:
+    def _aggregate_subtask_times(self, subtask_times: dict[str, float]) -> None:
         """Aggregate subtask times from parallel processing."""
         groups: dict[str, list[float]] = {
             "variant_extraction": [],
             "snpsift_filtering": [],
             "field_extraction": [],
         }
-        for k, v in shared_subtask_times.items():
+        for k, v in subtask_times.items():
             if "_field_extraction" in k:
                 groups["field_extraction"].append(v)
             elif "_extraction" in k:

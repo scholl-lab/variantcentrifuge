@@ -12,8 +12,8 @@ full commit hash and its GitHub commit URL. An archive's concept DOI identifies
 all versions; use the version-specific DOI when reproducibility requires a
 particular release.
 
-The current source version is **0.24.1**, which is not yet released. The latest
-published release is [v0.24.0 (2026-10-21)](https://github.com/scholl-lab/variantcentrifuge/releases/tag/v0.24.0).
+The current source version is **0.25.0**, which is not yet released. The latest
+published release is [v0.24.1 (2026-10-21)](https://github.com/scholl-lab/variantcentrifuge/releases/tag/v0.24.1).
 Citation metadata follows the current source version and omits release dates
 until that version is released.
 

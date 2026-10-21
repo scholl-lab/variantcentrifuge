@@ -252,18 +252,6 @@ def project_out_nuisance(geno_weighted: np.ndarray, null_model: NullModelResult)
     return adjusted if geno_weighted.ndim == 2 else adjusted[:, 0]
 
 
-def projection_noise_floor(geno_weighted: np.ndarray, null_model: NullModelResult) -> float:
-    """
-    Singular-value floor below which ``project_out_nuisance`` output is round-off.
-
-    The per-column round-off bound of :func:`_project` times ``sigma_max`` of the
-    UNprojected (variance-weighted) matrix.  Use after :func:`explained_columns`
-    has zeroed individually explained columns, so they cannot inflate ``sigma_max``.
-    """
-    _adjusted, z, bound = _project(geno_weighted, null_model)
-    return float(bound * np.linalg.norm(z, 2))
-
-
 def explained_columns(geno: np.ndarray, null_model: NullModelResult) -> np.ndarray | None:
     """
     Classify unweighted genotype columns against the nuisance (covariate) space.
@@ -278,7 +266,11 @@ def explained_columns(geno: np.ndarray, null_model: NullModelResult) -> np.ndarr
 
     Zero columns count as explained.  Returns the boolean explained mask.
     """
-    adjusted, z, bound = _project(geno, null_model)
+    return classify_projected(*_project(geno, null_model))
+
+
+def classify_projected(adjusted: np.ndarray, z: np.ndarray, bound: float) -> np.ndarray | None:
+    """:func:`explained_columns` from a :func:`_project` result (reuse one projection)."""
     z_norm = np.linalg.norm(z, axis=0)
     ratio = np.linalg.norm(adjusted, axis=0) / np.maximum(z_norm, np.finfo(np.float64).tiny)
     explained = ((ratio <= bound) & (bound <= _DECISION_ACC)) | (z_norm == 0.0)

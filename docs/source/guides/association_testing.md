@@ -581,6 +581,11 @@ only as fallbacks; they are reported with `skat_p_converged = False`.
 survival form (no "1 − ..." cancellation and no truncation at 40) with an adaptive outer
 integral and an error estimate. If Davies or the integral cannot meet the accuracy budget, the
 Liu approximation is used instead and the result is reported with `skat_p_converged = False`.
+When the closed-form lower bound shows that rho = 0.999 cannot give the smallest per-rho p, its
+Davies evaluation is skipped, and a gene's nuisance projections are computed once per input matrix
+and shared by SKAT-O, ACAT-V, the burden score test and the score artifact. Both only save time:
+p-values, optimal rho and output were byte-identical to v0.24.0 on the benchmark. The skip assumes
+Davies would converge at rho = 0.999; where it would not, `skat_p_converged` may now read True.
 
 **Agreement with R.** SKAT, SKAT-O and Burden match R SKAT 2.2.5 for moderate p-values. In
 the deep tail and in some edge cases (Davies at R's 1e-6 absolute accuracy, R's
@@ -1357,7 +1362,7 @@ Use this for reproducible analyses or when parameters are too numerous for the c
 | `missing_as_ref` | bool | `false` | Treat missing genotypes as reference before missingness QC (`--missing-as-ref`) |
 | `skat_method` | str | `"SKAT"` | SKAT variant: `"SKAT"` (default), `"Burden"`, or `"SKATO"` (omnibus) |
 | `confidence_interval_method` | str | `"normal_approx"` | Odds ratio CI method: tries score → normal → logit in sequence |
-| `association_workers` | int | `0` | Worker processes for the per-gene tests (`--association-workers`). `0` = one per `--threads`, `-1` = CPUs available to the job (respects SLURM/cgroup affinity), `1` = sequential. Each worker uses one BLAS thread; panels under 50 genes and R backends run sequentially. Parallel runs need Linux (fork); elsewhere genes run sequentially. Results are identical for any worker count |
+| `association_workers` | int | `0` | Worker processes for the per-gene tests (`--association-workers`). `0` = one per `--threads`, `-1` = CPUs available to the job (respects SLURM/cgroup affinity), `1` = sequential. Each worker uses one BLAS thread; panels under 50 genes and R backends run sequentially. Parallel runs need Linux (fork); elsewhere genes run sequentially. Genes go to the workers in tasks of at most 8 genes; tasks with more than twice the mean variant count go first, so one huge gene does not leave the other workers idle at the end. Results and their order are byte-identical for any worker count, and the progress line keeps updating |
 | `firth_max_iter` | int | `25` | Newton-Raphson iterations for Firth penalised likelihood |
 | `primary_test` | str | `"acat_o"` | Test whose p-value drives the primary FDR and ranking: `"acat_o"`, `"skato"` or `"burden"` (`--primary-test`) |
 | `acat_o_exclude` | str or null | `null` | `"acat_v"` drops ACAT-V from the ACAT-O combination (`--acat-o-exclude`) |

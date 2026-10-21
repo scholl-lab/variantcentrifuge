@@ -36,6 +36,8 @@ from variantcentrifuge.association.backends.davies import (
     compute_pvalue,
 )
 from variantcentrifuge.association.backends.null_model import (
+    _project,
+    classify_projected,
     explained_columns,
     fit_glm_null_model,
 )
@@ -224,7 +226,8 @@ class PythonSKATBackend(SKATBackend):
         # before aggregation so their size cannot mask small independent variants.
         # Only columns that are actually tested (nonzero weight) are classified.
         tested = weights_arr != 0.0
-        explained = explained_columns(genotype_matrix[:, tested], null_model)
+        projection = _project(genotype_matrix[:, tested], null_model)
+        explained = classify_projected(*projection)
         if explained is None:
             logger.warning(f"Gene {gene}: covariates too ill-conditioned to test; skipping")
             return self._skip_result(n_variants, 0, "ill_conditioned_covariates")
@@ -250,6 +253,7 @@ class PythonSKATBackend(SKATBackend):
             result = self._test_skat(gene, genotype_matrix, null_model, weights_arr)
 
         result["n_marker_test"] = n_marker_test
+        result["projection"] = projection  # of the tested columns, reused by ACAT-V
         logger.debug(
             f"Gene {gene}: method={method}, p={result.get('p_value')}, "
             f"n_variants={n_variants}, p_method={result.get('p_method')}"
@@ -278,9 +282,10 @@ class PythonSKATBackend(SKATBackend):
         self,
         geno_weighted: np.ndarray,
         null_model: NullModelResult,
+        projected: tuple[np.ndarray, np.ndarray, float] | None = None,
     ) -> np.ndarray:
         """Compute filtered eigenvalues of a SKAT kernel matrix."""
-        return compute_eigenvalues_filtered(geno_weighted, null_model)
+        return compute_eigenvalues_filtered(geno_weighted, null_model, projected)
 
     def _test_skat(
         self,
@@ -489,11 +494,14 @@ class PythonSKATBackend(SKATBackend):
             return self._skip_result(n_variants, n_variants, "ill_conditioned_covariates")
         # Effective rank of the nuisance-projected kernel: the SKAT-O decomposition
         # needs >= 2 non-round-off eigenvalues (same floors as SKAT)
-        if len(self._compute_eigenvalues_filtered(geno_weighted, null_model)) < 2:
+        projected = _project(geno_weighted, null_model)  # one projection for both steps
+        if len(self._compute_eigenvalues_filtered(geno_weighted, null_model, projected)) < 2:
             return self._skip_result(n_variants, n_variants, "rank_deficient")
 
         # ── Step 1-2: Compute Q_rho and projection-adjusted Z1/sqrt(2) ──
-        q_rho, z1_half = compute_skato_q_and_z1(geno_weighted, null_model, _SKATO_RHO_GRID)
+        q_rho, z1_half = compute_skato_q_and_z1(
+            geno_weighted, null_model, _SKATO_RHO_GRID, projected[0]
+        )
 
         # ── Step 3-5: Full omnibus p-value ──
         pvalue, pval_each = _skato_get_pvalue(q_rho, z1_half, _SKATO_RHO_GRID)
@@ -506,7 +514,8 @@ class PythonSKATBackend(SKATBackend):
 
         logger.debug(
             f"Gene {gene} SKAT-O: p={pvalue:.6e}, rho={best_rho}, "
-            f"per-rho: {[f'{p:.2e}' for p in pval_each]}"
+            f"per-rho: {[f'{p:.2e}' for p in pval_each]} "
+            "(rho=0.999 entry may be a lower bound when it is not the minimum)"
         )
 
         return {

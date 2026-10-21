@@ -9,7 +9,7 @@ import argparse
 import logging
 import tempfile
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from .config import load_config, normalize_annotation_config
 from .disk_preflight import check_free_space
@@ -150,7 +150,18 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
         threads = resolve_threads(
             getattr(args, "threads", None) or config.get("threads", 1), config
         )
-        if threads > 1:
+
+        def _tx_option(key: str) -> Any:
+            # args.config may be a file path (Python API): config is then empty at planning time
+            return getattr(args, key, None) or config.get(key)
+
+        keep_gene = _tx_option("transcript_fallback") == "keep-gene"
+        if threads > 1 and keep_gene:
+            logger.info(
+                "--transcript-fallback keep-gene: using sequential processing stages, because the "
+                "keep-gene decision needs all variants of a gene and BED chunks can split a gene"
+            )
+        if threads > 1 and not keep_gene:
             # Use the new complete parallel processing stage that runs the entire
             # pipeline (extraction -> filtering -> field extraction) for each chunk
             stages.append(ParallelCompleteProcessingStage())
@@ -164,7 +175,7 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
             if snpeff_splitting_mode:
                 stages.append(MultiAllelicSplitStage(snpeff_splitting_mode))
 
-            if config.get("transcript_list") or config.get("transcript_file"):
+            if _tx_option("transcript_list") or _tx_option("transcript_file"):
                 stages.append(TranscriptFilterStage(split_before_filtering=split_before_filtering))
 
             # Add SnpSift filtering stage (it will check config for filters at runtime)

@@ -300,7 +300,11 @@ def meta_analyze_artifacts(
             logger.info("Parallel meta-analysis needs fork (Linux); running genes sequentially")
         if n_workers > 1 and len(all_genes) > 1 and fork_available():
             logger.info("Meta-analysis: %d workers for %d genes", n_workers, len(all_genes))
-            for _lo, hi, chunk in fork_map(_gene_rows, state, len(all_genes), n_workers):
+            costs = [
+                sum(len(a.genes[g].variant_keys) for a in artifacts if g in a.genes)
+                for g in all_genes
+            ]
+            for _lo, hi, chunk in fork_map(_gene_rows, state, len(all_genes), n_workers, costs):
                 rows.extend(chunk)
                 progress.update(hi)
         else:

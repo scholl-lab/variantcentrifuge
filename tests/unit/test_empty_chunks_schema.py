@@ -267,7 +267,7 @@ def test_cached_chunk_rejected_on_header_mismatch(tmp_path: Path) -> None:
     assert not stage._validate_chunk_tsv(stale_chunk, expected_header=expected_header)
 
     mock_future = Future()
-    mock_future.set_result(stale_chunk)
+    mock_future.set_result((stale_chunk, {}, {}))
     mock_executor = Mock()
     mock_executor.submit.return_value = mock_future
     mock_executor.__enter__ = Mock(return_value=mock_executor)
