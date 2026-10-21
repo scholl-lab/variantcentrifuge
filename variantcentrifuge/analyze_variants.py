@@ -31,6 +31,7 @@ from .helpers import (
     assign_case_control_counts,
     determine_case_control_sets,
 )
+from .vcf_header_parser import comp_het_phase_usable
 
 logger = logging.getLogger("variantcentrifuge")
 
@@ -256,6 +257,7 @@ def analyze_variants(lines: Iterator[str], cfg: dict[str, Any]) -> Iterator[str]
             sample_list,
             use_vectorized_comp_het=use_vectorized,
             reference=cfg.get("reference"),
+            use_phase=comp_het_phase_usable(cfg),
         )
         logger.info("Inheritance analysis complete.")
     elif inheritance_already_done:

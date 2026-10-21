@@ -169,7 +169,7 @@ def phased_alt_haplotypes(
     het, or None when unphased.
 
     GATK PGT/PID is used when PID is set; otherwise a phased GT counts within its
-    FORMAT/PS, or within the whole record set when PS was not extracted (WhatsHap/Beagle).
+    FORMAT/PS, or within the whole record set when neither PS nor PID was extracted (Beagle).
     *fmt* holds the sample's FORMAT columns (from :func:`phase_format_columns`).
     """
     if sample_id not in df.columns:
@@ -184,7 +184,8 @@ def phased_alt_haplotypes(
     for i, row in enumerate(map(int, rows)):
         if pgt and pid and pid[i] not in _MISSING and pgt[i] in _PHASED_HET:
             out[row] = (("PID", pid[i]), pgt[i])
-        elif gts[i] in _PHASED_HET and not (ps and ps[i] in _MISSING):
+        # GT phase needs an extracted PS, or no PS and no PID column (one global block)
+        elif gts[i] in _PHASED_HET and (ps[i] not in _MISSING if ps else pid is None):
             out[row] = (("PS", ps[i] if ps else ""), gts[i])
         else:
             out[row] = None

@@ -13,17 +13,13 @@ import re
 import subprocess
 from dataclasses import dataclass, field
 
+from .utils import ensure_fields_in_extract
+
 logger = logging.getLogger("variantcentrifuge")
 
-# Regex for standard VCF meta-information lines (INFO / FORMAT).
-# Handles optional extra attributes (Source=, Version=) after Description.
-HEADER_RE = re.compile(
-    r"##(?P<source>INFO|FORMAT)=<"
-    r"ID=(?P<id>[^,]+),"
-    r"Number=(?P<number>[^,]+),"
-    r"Type=(?P<type>[^,]+),"
-    r'Description="(?P<desc>[^"]*)"'
-)
+# VCF meta-information lines (INFO / FORMAT); keys may come in any order.
+HEADER_RE = re.compile(r"##(?P<source>INFO|FORMAT)=<(?P<body>.*)>\s*$")
+HEADER_KEY_RE = re.compile(r'(\w+)=("(?:[^"\\]|\\.)*"|[^,]*)')
 TUMOR_SAMPLE_RE = re.compile(r"^##tumor_sample=(?P<sample>\S+)\s*$")
 NORMAL_SAMPLE_RE = re.compile(r"^##normal_sample=(?P<sample>\S+)\s*$")
 
@@ -67,21 +63,23 @@ def parse_vcf_header(vcf_path: str) -> list[AnnotationField]:
         logger.warning("Empty or missing VCF header for %s", vcf_path)
         return []
 
+    fields = _header_fields(header_text)
+    fields.sort(key=lambda f: (f.source, f.id.lower()))
+    return fields
+
+
+def _header_fields(header_text: str) -> list[AnnotationField]:
+    """INFO/FORMAT lines with ID, Number, Type and Description, in any key order."""
     fields: list[AnnotationField] = []
     for line in header_text.splitlines():
         m = HEADER_RE.match(line)
-        if m:
+        if not m:
+            continue
+        kv = {k: v.strip('"') for k, v in HEADER_KEY_RE.findall(m.group("body"))}
+        if {"ID", "Number", "Type", "Description"} <= kv.keys():
             fields.append(
-                AnnotationField(
-                    id=m.group("id"),
-                    number=m.group("number"),
-                    type=m.group("type"),
-                    description=m.group("desc"),
-                    source=m.group("source"),
-                )
+                AnnotationField(kv["ID"], kv["Number"], kv["Type"], kv["Description"], m["source"])
             )
-
-    fields.sort(key=lambda f: (f.source, f.id.lower()))
     return fields
 
 
@@ -256,16 +254,19 @@ def comp_het_phase_usable(config: dict) -> bool:
 
     Phased GT is only comparable within its PS/PID block, so comp-het then ignores phase.
     A VCF that declares neither is taken as one phase set; an unreadable header counts as
-    declaring PS (fail closed). Read once; cached in *config*.
+    declaring PS (fail closed), and no VCF (``--from-tsv``) turns phase off. Fields appended
+    by ``--append-extra-sample-fields`` count as extracted. Read once; cached in *config*.
     """
     if "comp_het_use_phase" not in config:
         vcf = str(config.get("vcf_file") or "")
+        if not vcf:  # --from-tsv / library use without a VCF: phase cannot be checked
+            config["comp_het_use_phase"] = False
+            return False
         try:
-            matches = (HEADER_RE.match(line) for line in _read_phase_header(vcf).splitlines())
             declared = {
-                m.group("id")
-                for m in matches
-                if m and m.group("source") == "FORMAT" and m.group("id") in ("PS", "PID")
+                f.id
+                for f in _header_fields(_read_phase_header(vcf))
+                if f.source == "FORMAT" and f.id in ("PS", "PID")
             }
         except (OSError, subprocess.CalledProcessError) as exc:
             logger.warning(
@@ -275,9 +276,10 @@ def comp_het_phase_usable(config: dict) -> bool:
                 exc,
             )
             declared = {"PS"}
-        extracted = set(
-            re.findall(r"GEN\[[^\]]*\]\.(PS|PID)\b", str(config.get("fields_to_extract") or ""))
-        )
+        fields = str(config.get("fields_to_extract") or "")
+        if config.get("append_extra_sample_fields") and config.get("extra_sample_fields"):
+            fields = ensure_fields_in_extract(fields, config["extra_sample_fields"])
+        extracted = set(re.findall(r"GEN\[[^\]]*\]\.(PS|PID)\b", fields))
         missing = sorted(declared - extracted)
         if missing:
             logger.info(
