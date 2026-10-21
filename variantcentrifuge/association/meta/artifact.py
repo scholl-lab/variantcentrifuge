@@ -81,7 +81,7 @@ def _allele_counts(raw: np.ndarray, ploidy: np.ndarray) -> tuple[np.ndarray, np.
     Without missing calls the masked ``where`` copy equals the input, so the sums are too.
     """
     observed = ~np.isnan(raw)
-    if observed.all():
+    if observed.all() and raw.dtype.kind == ploidy.dtype.kind == "f":  # where() made ints float
         return raw.sum(axis=0), ploidy.sum(axis=0)
     return np.where(observed, raw, 0.0).sum(axis=0), np.where(observed, ploidy, 0.0).sum(axis=0)
 

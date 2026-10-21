@@ -426,3 +426,21 @@ def test_acat_v_with_null_model_matches_loop() -> None:
             projection=projection,
         )  # fmt: skip
         assert got == want, gene
+
+
+@pytest.mark.unit
+def test_artifact_record_integer_parsed_arrays_match_v025() -> None:
+    """Caller-supplied int dosage/ploidy arrays keep v0.25.0's float64 AC/AN (re-review)."""
+    df, builders = _builders(2, missing_as_ref=True)
+    hook = _score_artifact_hook(builders, df=df)
+    b = builders["common"]
+    built = b()
+    raw, plo, kind = built["parsed"]
+    ints = (raw.astype(np.int64), plo.astype(np.int64), kind)
+    built["parsed"] = ints
+    mask = built["sample_mask"]
+    null = fit_stratum_null(b.phenotype_vector[mask], b.covariate_matrix[mask], "binary")
+    ref = _ref_record(b, {**built, "parsed": tuple(a.copy() for a in ints)}, null)
+    score = hook("common", b, built)[2]
+    for got, want in zip((score.u, score.v, score.ac, score.an), ref[1:5], strict=True):
+        _same(got, want)
