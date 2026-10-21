@@ -204,7 +204,7 @@ def _genes_without_matched_transcript(
 ) -> set[str]:
     """First pass for --transcript-fallback keep-gene: genes none of whose gene-body entries match.
 
-    A gene body lies in one merged BED line, hence one chunk, so per-chunk == single pass.
+    Needs every variant of a gene in one input, so keep-gene runs single-pass (pipeline.py).
     """
     genes_before: set[str] = set()
     genes_after: set[str] = set()

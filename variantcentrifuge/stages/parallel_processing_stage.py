@@ -92,7 +92,7 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
             "regions_bed",
             "transcript_list",
             "transcript_file",
-            "transcript_fallback",
+            "transcript_fallback",  # unused by workers; kept so chunk-cache hashes stay the same
         )
         data = {k: cfg.get(k) for k in keys}
         data["bed"] = hashlib.sha256(bed_bytes).hexdigest()[:16]
@@ -330,7 +330,6 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                 transcript_ids,
                 index_output=False,
                 filter_exception_file=config.get("filter_exception_file"),
-                fallback=config.get("transcript_fallback") or "none",
                 stats=tx_stats,
             )
             working_vcf = transcript_filtered_vcf
@@ -479,7 +478,6 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                 "transcript_ids": load_tx_fn(
                     cfg.get("transcript_list"), cfg.get("transcript_file")
                 ),
-                "transcript_fallback": cfg.get("transcript_fallback"),
             }
             subtask_times: dict[str, float] = {}
             tx_stats: dict = {}

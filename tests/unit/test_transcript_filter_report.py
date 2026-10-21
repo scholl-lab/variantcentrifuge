@@ -240,18 +240,14 @@ NB_PARTS = {
 }
 
 
-def test_keep_gene_ignores_neighbour_entries_so_chunked_equals_single(tmp_path: Path) -> None:
+def test_keep_gene_ignores_neighbour_entries(tmp_path: Path) -> None:
     single = _run_stage(
         tmp_path / "single",
         records=[r for recs in NB_PARTS.values() for r in recs],
         transcript_list=NB_TX,
         transcript_fallback="keep-gene",
     )
-    inter = _run_parallel(
-        tmp_path / "par", NB_PARTS, transcript_list=NB_TX, transcript_fallback="keep-gene"
-    )
-    chunked = _rows(sorted(inter.glob("*.transcript_filtered.vcf.gz")))
-    assert _rows([single]) == chunked == ["NM_100001.1", "NM_200001.1", "NM_300003.1"]
+    assert _rows([single]) == ["NM_100001.1", "NM_200001.1", "NM_300003.1"]
 
 
 def test_dropped_list_ignores_neighbour_only_genes(tmp_path: Path, caplog) -> None:
@@ -262,12 +258,6 @@ def test_dropped_list_ignores_neighbour_only_genes(tmp_path: Path, caplog) -> No
     assert len(warnings) == 1 and "GENEB" in warnings[0] and "LOCX" not in warnings[0]
     assert "LOCY-LOCZ" not in warnings[0]
     assert (diag / TSV_NAME).read_text().splitlines() == ["gene", "GENEB"]
-
-
-def test_parallel_path_passes_keep_gene_to_workers(tmp_path: Path) -> None:
-    parts = {"c0.bed": RECORDS[:2], "c1.bed": RECORDS[2:]}
-    inter = _run_parallel(tmp_path, parts, transcript_list=TX_LIST, transcript_fallback="keep-gene")
-    assert "NM_200001.1" in _rows(inter.glob("*.transcript_filtered.vcf.gz"))
 
 
 def test_resume_with_reused_chunks_skips_summary(tmp_path: Path, caplog) -> None:
@@ -298,3 +288,57 @@ def test_explicit_fallback_none_keeps_default_fingerprints(tmp_path: Path) -> No
         assert cfg.get("transcript_fallback") is None
         hashes.append(hash_configuration(cfg))
     assert hashes[0] == hashes[1]
+
+
+@pytest.mark.parametrize("fallback", ["keep-gene", None])
+def test_split_gene_bed_gives_single_pass_rows(tmp_path: Path, fallback) -> None:
+    """A regions BED can split one gene into intervals in different chunks (#231 final review)."""
+    from variantcentrifuge.pipeline import create_stages_from_config
+    from variantcentrifuge.transcript_filter import filter_vcf_to_transcripts
+    from variantcentrifuge.utils import split_bed_file
+
+    bed = tmp_path / "regions.bed"
+    bed.write_text("1\t90\t110\n1\t290\t310\n")
+    records = [(100, [("GENEG", "NM_1.1")]), (300, [("GENEG", "NM_2.1")])]
+    cfg = {"fields_to_extract": "CHROM POS", "threads": 4, "transcript_list": "NM_1.1"}
+    if fallback:
+        cfg["transcript_fallback"] = fallback
+    names = [s.name for s in create_stages_from_config(cfg)]
+
+    def run(recs, name: str) -> list[str]:
+        vcf = tmp_path / f"{name}.vcf"
+        vcf.write_text(_vcf_text(recs).replace("chr1", "1"))
+        out = tmp_path / f"{name}.out.vcf.gz"
+        filter_vcf_to_transcripts(str(vcf), str(out), {"NM_1.1"}, fallback=fallback or "none")
+        return _rows([out])
+
+    if "parallel_complete_processing" in names:  # what the chosen stages do with this BED
+        (tmp_path / "chunks").mkdir()
+        chunks = split_bed_file(str(bed), 2, str(tmp_path / "chunks"))
+        assert len(chunks) == 2
+        kept = []
+        for i, chunk in enumerate(chunks):
+            start, end = (int(x) for x in Path(chunk).read_text().split()[1:3])
+            kept += run([r for r in records if start <= r[0] < end], f"chunk{i}")
+    else:
+        assert "transcript_filtering" in names
+        kept = run(records, "single")
+    assert sorted(kept) == ["NM_1.1"]
+    assert ("parallel_complete_processing" in names) == (fallback is None)
+
+
+def test_keep_gene_routing_reads_args_when_config_is_a_path(tmp_path: Path) -> None:
+    """Python API: args.config may be a file path, so keep-gene must also be read from args."""
+    from variantcentrifuge.pipeline import build_pipeline_stages
+
+    cfg_file = tmp_path / "config.json"
+    cfg_file.write_text("{}")
+    args = Namespace(
+        config=str(cfg_file),
+        threads=4,
+        transcript_list="NM_1.1",
+        transcript_fallback="keep-gene",
+        fields_to_extract="CHROM POS",
+    )
+    names = [s.name for s in build_pipeline_stages(args)]
+    assert "parallel_complete_processing" not in names
