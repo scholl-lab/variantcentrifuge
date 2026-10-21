@@ -264,8 +264,10 @@ per-variant/burden normal approximation is anti-conservative in the tail; a
 calibrated result there needs the genotype-level saddlepoint: run every stratum with
 `--skat-robust`. When **every** stratum's artifact carries `v_robust`, each stratum's
 covariance is rescaled to the calibrated variances, `V~ = D V D` with
-`D = sqrt(v_robust / diag V)`, before the burden, SKAT and SKAT-O meta (and the
-leave-one-out and heterogeneity statistics) are computed. If only some strata carry it,
+`D = sqrt(v_robust / diag V)`, before the burden, SKAT and SKAT-O meta p-values (and the
+leave-one-out p-values) are computed. `V~` calibrates null p-values only: the burden effect
+`meta_burden_beta` and the heterogeneity statistics (`het_q`, `het_p`, `het_i2`) use the raw
+`V`. If only some strata carry it,
 the meta warns once and uses the uncalibrated `V` for all strata. Unlike the
 single-cohort `--skat-robust` test, the meta does not recalibrate the burden direction
 (that step needs genotypes), so its burden component is calibrated per variant only.
