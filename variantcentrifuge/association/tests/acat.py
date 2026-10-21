@@ -238,22 +238,13 @@ def compute_acat_v(
             g_ss = np.sum(geno**2, axis=0)  # (n_variants,)
             var_vec = sigma2 * g_ss
 
-    # Single-pass: compute per-variant z-statistics, p-values, and collect
-    # valid (p, weight) pairs in one loop
-    valid_p: list[float] = []
-    valid_w: list[float] = []
-    for j in range(n_variants):
-        if g_ss[j] <= 1e-12 or var_vec[j] <= 0.0:
-            continue  # skip zero-variance or collinear variants
-        z_j = score_vec[j] / np.sqrt(var_vec[j])
-        # Every marginal p in [0, 1] goes to ACAT, as STAAR; R ACAT() rules handle 0 and 1
-        valid_p.append(2.0 * float(norm.sf(abs(z_j))))
-        valid_w.append(float(weights[j]))
-
-    if not valid_p:
+    # Per-variant z and two-sided p, skipping zero-variance or collinear variants; every
+    # marginal p in [0, 1] goes to ACAT, as STAAR (R ACAT() rules handle 0 and 1).
+    valid = ~((g_ss <= 1e-12) | (var_vec <= 0.0))  # NaN stays in, as the loop kept it
+    if not valid.any():
         return None
-
-    return cauchy_combination(valid_p, valid_w)
+    z = score_vec[valid] / np.sqrt(var_vec[valid])
+    return cauchy_combination(2.0 * norm.sf(np.abs(z)), np.asarray(weights, dtype=float)[valid])
 
 
 def compute_acat_o(test_p_values: dict[str, float | None]) -> float | None:

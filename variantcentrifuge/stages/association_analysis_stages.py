@@ -13,7 +13,7 @@ import pandas as pd
 from ..association.aggregation import _aggregate_gene_burden_legacy
 from ..association.covariate_checks import check_convergence_failures, preflight_covariates
 from ..association.engine import AssociationEngine
-from ..association.engine_workers import available_cpus
+from ..association.engine_workers import available_cpus, gc_paused
 from ..association.gene_sets import add_gene_set_units, load_gene_sets, run_gene_and_set_units
 from ..association.gt_codes import aggregate_gene_counts, parse_genotype_codes
 from ..association.timing import log_stage_summary, substep
@@ -380,7 +380,7 @@ class AssociationAnalysisStage(Stage):
                 if needs_functional_annotations or score_weight_column is not None
                 else None
             )
-            with substep(timings, "matrix_builders"):
+            with substep(timings, "matrix_builders"), gc_paused():
                 # One take in gene order, then a contiguous slice per gene: the same rows
                 # and index labels as df.iloc[rows], without a pandas take per gene.
                 ordered_rows = [gene_rows[d["GENE"]] for d in gene_burden_data]

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -70,8 +71,8 @@ class GenotypeCodes:
     ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Return (dosage, ploidy, kind) for *rows*, exactly as the column parser does."""
         sub = self.codes[rows]
-        multi = self.multi[sub]
-        if multi.any():  # first offending sample, then row (column-major, like the parser)
+        multi = self.multi[sub] if self.multi.any() else None
+        if multi is not None and multi.any():  # first offending sample, then row (column-major)
             j, r = divmod(int(np.flatnonzero(multi.T)[0]), len(rows))
             raise _multiallelic_error(gene_df, r, self.labels[j], self.vocab[sub[r, j]])
         return self.dosage[sub], self.ploidy[sub], self.kind[sub]
@@ -99,6 +100,22 @@ def _store(codes: np.ndarray, vocab: _Vocab) -> np.ndarray:
     return codes
 
 
+def _zeros(shape: tuple[int, int], workers: int) -> np.ndarray:
+    """``np.zeros(shape, int8)`` with its pages first touched by ``workers`` threads.
+
+    A run-level code matrix is gigabytes; touching it in one thread (the merge's scattered
+    writes) costs seconds of serial page faults, while threads fault pages in parallel.
+    Done before any fork: no thread is left running.
+    """
+    if workers <= 1 or not fork_available():
+        return np.zeros(shape, dtype=np.int8)
+    codes = np.empty(shape, dtype=np.int8)
+    step = max(1, -(-shape[0] // (workers * 4)))
+    with ThreadPoolExecutor(workers) as pool:  # ndarray.fill releases the GIL
+        list(pool.map(lambda lo: codes[lo : lo + step].fill(0), range(0, shape[0], step)))
+    return codes
+
+
 def parse_genotype_codes(
     df: pd.DataFrame,
     samples: list[str],
@@ -115,7 +132,7 @@ def parse_genotype_codes(
     forked processes; the result is the same for any worker count.
     """
     vocab = _Vocab()
-    codes = np.zeros((len(df), len(samples)), dtype=np.int8)
+    codes = _zeros((len(df), len(samples)), workers)
     columns_ok = gt_columns_match_samples(gt_columns, vcf_samples)
     if not columns_ok and "GT" not in df.columns:
         raise ValueError(

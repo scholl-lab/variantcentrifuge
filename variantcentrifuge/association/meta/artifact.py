@@ -75,6 +75,17 @@ def _null_converged(null_model: NullModelResult) -> bool:
     return bool(True if converged is None else converged)
 
 
+def _allele_counts(raw: np.ndarray, ploidy: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Per-variant AC and AN over the observed (non-NaN) calls of samples x variants arrays.
+
+    Dosages and ploidies are small integers, so the sums are exact in any order or layout.
+    """
+    observed = ~np.isnan(raw)
+    if observed.all():
+        return raw.sum(axis=0), ploidy.sum(axis=0)
+    return np.where(observed, raw, 0.0).sum(axis=0), np.where(observed, ploidy, 0.0).sum(axis=0)
+
+
 def compute_gene_score(
     genotype_matrix: np.ndarray,
     raw_dosage: np.ndarray,
@@ -142,10 +153,8 @@ def compute_gene_score(
     raw = np.asarray(raw_dosage, dtype=np.float64)
     if raw.shape != geno.shape:
         raise ValueError("raw_dosage must have the same shape as genotype_matrix")
-    observed = ~np.isnan(raw)
     plo = np.full(raw.shape, 2.0) if ploidy is None else np.asarray(ploidy, dtype=np.float64)
-    an = np.where(observed, plo, 0.0).sum(axis=0)
-    ac = np.where(observed, raw, 0.0).sum(axis=0)
+    ac, an = _allele_counts(raw, plo)
 
     return GeneScore(
         variant_keys=list(variant_keys),
@@ -284,10 +293,9 @@ def gene_score_record(
         raw[np.isnan(raw)] = 0.0  # same REF fill as build_genotype_matrix: full AN
     # C-order copy, as geno[mask] gave: the tests keep their matrix, and BLAS sums alike
     geno = np.array(built["qc_genotype_matrix"], dtype=np.float64, order="C")
-    raw, plo = raw.T[mask], plo.T[mask]
-    observed = ~np.isnan(raw)
-    ac = np.where(observed, raw, 0.0).sum(axis=0)
-    an = np.where(observed, plo, 0.0).sum(axis=0)
+    # Retained samples x variants; only exact integer sums and elementwise ops read these.
+    raw, plo = (raw.T, plo.T) if mask.all() else (raw[:, mask].T, plo[:, mask].T)
+    ac, an = _allele_counts(raw, plo)
     flipped = (ac > an / 2.0) & (ac < an)  # build_genotype_matrix minor-allele recoding
     geno[:, flipped] = plo[:, flipped] - geno[:, flipped]
 
