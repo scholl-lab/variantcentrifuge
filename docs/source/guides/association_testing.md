@@ -300,8 +300,10 @@ test:
   used to make every logistic burden fit fail.
 - Rank-deficient or collinear covariates (condition number above 1e8 after centring and scaling)
   **stop the run** with an error naming the columns involved.
-- For binary traits, a covariate whose case and control values do not overlap (it separates the
-  phenotype, so no logistic model has a finite estimate) **stops the run** with an error naming it.
+- For binary traits, a covariate whose case and control values do not overlap or touch (it
+  completely separates the phenotype, so no logistic model has a finite estimate) **stops the run**
+  with an error naming it. Quasi-separation, such as a batch with controls only, is left to the
+  Firth fallback (and to the batch warning of `--diagnostics-output`).
 
 Well-conditioned covariates pass through unchanged. For the logistic burden fit only, covariates
 are centred and scaled when `[1, covariates]` has a condition number above 1e6 (for example

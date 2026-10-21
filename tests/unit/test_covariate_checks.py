@@ -170,15 +170,46 @@ def test_preflight_near_collinear_above_limit():
         preflight_covariates(bad, ["a", "b", "c"], y, binary=True)
 
 
-def test_preflight_quasi_separating_indicator_and_quantitative_skip():
+def test_preflight_separation_is_complete_only_and_binary_only():
     y = np.r_[np.ones(20), np.zeros(80)]
     ind = np.zeros(100)
-    ind[20:30] = 1.0  # 10 non-modal values, all controls: quasi-complete separation
-    with pytest.raises(ValueError, match="ind"):
-        preflight_covariates(_cov(ind), ["ind"], y, binary=True)
-    assert preflight_covariates(_cov(ind), ["ind"], y, binary=False)[1] == ["ind"]
+    ind[20:30] = 1.0  # 10 non-modal values, all controls: quasi-complete, left to Firth
+    assert preflight_covariates(_cov(ind), ["ind"], y, binary=True)[1] == ["ind"]
+    score = np.r_[np.linspace(1, 2, 20), np.linspace(0, 0.9, 80)]  # complete separation
+    with pytest.raises(ValueError, match=r"separate cases from controls.*: score"):
+        preflight_covariates(_cov(score), ["score"], y, binary=True)
+    tied = np.r_[np.linspace(1, 2, 20), np.linspace(0, 1, 80)]  # touching at 1: quasi only
+    assert preflight_covariates(_cov(tied), ["tied"], y, binary=True)[1] == ["tied"]
+    assert preflight_covariates(_cov(score), ["score"], y, binary=False)[1] == ["score"]
     # A single-class phenotype is left to the cohort checks.
-    assert preflight_covariates(_cov(ind), ["ind"], np.zeros(100), binary=True)[1] == ["ind"]
+    assert preflight_covariates(_cov(score), ["score"], np.zeros(100), binary=True)[1] == ["score"]
+
+
+def test_controls_only_batch_runs_like_base(tmp_path):
+    """Review r1 #2: a dummy with 100 controls and 0 cases (quasi-separation) ran on v0.23.0
+    (Firth converged for every gene); the pre-flight must not reject it."""
+    y, cov = _cohort()
+    cov = cov.drop(columns="age_imputed")
+    batch = np.zeros(N)
+    batch[np.random.default_rng(9).choice(np.flatnonzero(y == 0), 100, replace=False)] = 1.0
+    cov["batchB"] = batch
+    res = _run(_context(tmp_path, y, cov))
+    assert res["logistic_burden_pvalue"].notna().all()
+
+
+def test_preflight_memory_is_independent_of_n_squared():
+    """Review r1 #1: a full SVD allocates an n x n U (288 MB at 6,000 samples)."""
+    import tracemalloc
+
+    rng = np.random.default_rng(6)
+    n = 6000
+    cov = _cov(rng.normal(50, 15, n), rng.integers(0, 2, n), rng.normal(0, 1, n))
+    y = (rng.random(n) < 0.1).astype(float)
+    tracemalloc.start()
+    preflight_covariates(cov, ["age", "sex", "PC1"], y, binary=True)
+    peak = tracemalloc.get_traced_memory()[1]
+    tracemalloc.stop()
+    assert peak < 20 * cov.nbytes  # O(n k), far below n * n * 8 bytes
 
 
 # --- standardisation of ill-conditioned covariates for the logistic fit ---------------------

@@ -532,33 +532,29 @@ def test_cohort_size_ok_imbalance_warning_is_two_sided(caplog):
     assert "cases outnumber controls 100.0:1" in caplog.text
 
 
-def test_covariate_case_control_table_written_by_stage(tmp_path):
-    """Review C-r1 #2: stage writes covariate_case_control.tsv with raw batch labels."""
+def test_covariate_case_control_table_written_by_stage(tmp_path, caplog):
+    """Review C-r1 #2: stage writes covariate_case_control.tsv with raw batch labels and warns
+    about a level with no cases (quasi-separation is left to Firth, #222)."""
     config = {
         **_BINARY,
         "diagnostics_output": str(tmp_path / "d"),
         "categorical_covariates": ["batch"],
     }
     context = _context(tmp_path, config)
-    cases = set(context.config["case_samples"])
-    # One sample of each class in the other batch: a fully confounded batch separates the
-    # phenotype and now fails the covariate pre-flight (#222).
-    in_x = (cases - {SAMPLES[0]}) | {SAMPLES[-1]}
+    level = dict.fromkeys(SAMPLES[:10] + SAMPLES[100:220], "Y")
+    level.update(dict.fromkeys(SAMPLES[220:], "Z"))  # 20 controls, 0 cases
     Path(context.config["covariate_file"]).write_text(
-        "sample\tbatch\n" + "".join(f"{s}\t{'X' if s in in_x else 'Y'}\n" for s in SAMPLES)
+        "sample\tbatch\n" + "".join(f"{s}\t{level.get(s, 'X')}\n" for s in SAMPLES)
     )
-    _run(context)
+    with caplog.at_level("WARNING", logger="variantcentrifuge"):
+        _run(context)
     table = pd.read_csv(tmp_path / "d" / "covariate_case_control.tsv", sep="\t")
-    n_cases = len(cases)
     assert table.to_dict("records") == [
-        {"covariate": "batch", "level": "X", "n_cases": n_cases - 1, "n_controls": 1},
-        {
-            "covariate": "batch",
-            "level": "Y",
-            "n_cases": 1,
-            "n_controls": len(SAMPLES) - n_cases - 1,
-        },
+        {"covariate": "batch", "level": "X", "n_cases": 50, "n_controls": 40},
+        {"covariate": "batch", "level": "Y", "n_cases": 10, "n_controls": 120},
+        {"covariate": "batch", "level": "Z", "n_cases": 0, "n_controls": 20},
     ]
+    assert "level 'Z' has 0 cases and 20 controls; possible confounding" in caplog.text
 
 
 def test_cohort_size_ok_uses_configured_ratio(caplog):

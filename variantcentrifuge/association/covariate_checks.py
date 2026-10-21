@@ -40,7 +40,8 @@ def preflight_covariates(
     Drops (with a warning) covariates with fewer than ``MIN_NON_MODAL`` non-modal
     values.  Raises ``ValueError`` naming the columns when the remaining design is
     rank-deficient or its condition number after centring and scaling exceeds
-    ``MAX_CONDITION``, or (binary traits) a covariate separates cases from controls.
+    ``MAX_CONDITION``, or (binary traits) a covariate completely separates cases from
+    controls (case and control ranges do not touch).
     """
     if covariates is None or covariates.shape[1] == 0:
         return covariates, names
@@ -64,7 +65,7 @@ def preflight_covariates(
     centred = covariates - covariates.mean(axis=0)
     scaled = centred / np.linalg.norm(centred, axis=0)
     n = len(scaled)
-    _u, sv, vt = np.linalg.svd(np.column_stack([np.full(n, n**-0.5), scaled]))
+    _u, sv, vt = np.linalg.svd(np.column_stack([np.full(n, n**-0.5), scaled]), full_matrices=False)
     condition = sv[0] / sv[-1] if sv[-1] > 0 else np.inf
     if condition > MAX_CONDITION:
         loadings = np.abs(vt[-1, 1:])
@@ -87,7 +88,8 @@ def preflight_covariates(
                 controls.max(axis=0),
                 strict=True,
             )
-            if hi_ca <= lo_co or hi_co <= lo_ca
+            # Complete separation only; quasi-separation (ties) is what Firth handles.
+            if hi_ca < lo_co or hi_co < lo_ca
         ]
         if separating:
             raise ValueError(
