@@ -336,3 +336,51 @@ def test_skato_selection_ignores_reported_skato_p():
     assert out.loc["G001", "empirical_p"] > 0  # SKAT Q p 5e-4 < P: selected and permuted
     assert np.isnan(out.loc["G000", "empirical_p"])  # null gene: SKAT Q p >= P
     assert out.loc["G002", "permutation_method"] == "skipped_no_pvalue"
+
+
+@pytest.mark.unit
+def test_fitted_probabilities_of_one_do_not_give_the_floor():
+    """Five outlier cases get mu_hat == 1.0 exactly (no separation): v0.24 dev gave 1/(N+1)."""
+    rng = np.random.default_rng(0)
+    n = 1000
+    x = rng.normal(size=n)
+    y = (rng.random(n) < 1 / (1 + np.exp(-x))).astype(float)
+    x[:5], y[:5] = 200.0, 1.0
+    g = (rng.random((n, 4)) < 0.02).astype(float)
+    built = {
+        "genotype_matrix": g,
+        "variant_mafs": g.mean(0) / 2,
+        "phenotype_vector": y,
+        "covariate_matrix": x[:, None],
+    }
+    config = SimpleNamespace(
+        variant_weights="uniform", variant_weight_params=None, seed=0, permutations=1000
+    )
+    nulls: dict = {}
+    p, used = perm._gene_empirical("A", lambda: dict(built), config, "skat", nulls)
+    assert (next(iter(nulls.values())).extra["mu_hat"] == 1.0).sum() == 5  # repro shape
+    assert p > 0.05 and used < 1000
+
+
+@pytest.mark.unit
+def test_nonfinite_statistic_is_skipped_not_floored(monkeypatch):
+    n = 50
+    stat, a, mu = perm._STATISTICS["skat"], np.ones((n, 2)), np.full(n, 0.3)
+    e_obs = np.zeros(n)
+    e_obs[0] = np.nan
+    p, used = perm.empirical_p(stat, a, mu, e_obs, np.random.default_rng(0), 100)
+    assert np.isnan(p) and used == 0
+    mu_bad = mu.copy()
+    mu_bad[0] = np.nan  # a replicate statistic turns NaN
+    p, used = perm.empirical_p(stat, a, mu_bad, np.zeros(n), np.random.default_rng(0), 100)
+    assert np.isnan(p) and used == 0
+
+    genes = _gene_dicts(2, 400, 0.2, seed=4)
+    builders = {d["GENE"]: d["_genotype_matrix_builder"] for d in genes}
+    frame = pd.DataFrame({"gene": list(builders), "skat_pvalue": [0.01, 0.9]})
+    config = AssociationConfig(permutations=100, permute_below_p=0.5, association_workers=1)
+    monkeypatch.setattr(perm, "empirical_p", lambda *args, **kw: (np.nan, 0))
+    out = perm.add_empirical_p(frame, builders, ["skat"], config, "skat").set_index("gene")
+    assert np.isnan(out.loc["G000", "empirical_p"]) and pd.isna(out.loc["G000", "n_permutations"])
+    assert out.loc["G000", "permutation_method"] == "skipped_nonfinite"
+    assert pd.isna(out.loc["G001", "permutation_method"])

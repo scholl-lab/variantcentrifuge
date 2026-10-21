@@ -854,6 +854,9 @@ written), `logistic_burden_pvalue` when the burden score is. Binary traits, sing
   another component drove.
 - **Skipped genes:** a gene the permuted test gave no p (e.g. SKAT `rank_deficient`) is not
   permuted; `permutation_method` is `skipped_<skip reason>` (`skipped_no_pvalue` without one).
+  Samples with a fitted probability of exactly 0 or 1 have zero null weight and contribute
+  nothing; if a statistic is still not finite, the gene gets no `empirical_p` and
+  `permutation_method` is `skipped_nonfinite`.
 - **Stopping:** Besag–Clifford: stop at the 10th replicate at least as extreme as the
   observed statistic, `p = 10 / replicates`; otherwise `p = (exceedances + 1) / (N + 1)`.
   The p-value is never 0, and the smallest reachable value is `1 / (N + 1)`.

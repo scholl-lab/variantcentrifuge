@@ -91,6 +91,13 @@ def gene_rng(seed: int, gene: str) -> np.random.Generator:
     return np.random.default_rng([seed, digest])
 
 
+def _standardise(r: np.ndarray, mu: np.ndarray) -> np.ndarray:
+    """(r) / sqrt(mu (1 - mu)); 0 where mu is 0 or 1 and r is 0 (zero null weight, as in SKAT)."""
+    phi = np.sqrt(mu * (1.0 - mu))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where((phi == 0) & (r == 0), 0.0, r / phi)
+
+
 def empirical_p(
     stat: Callable[[np.ndarray], np.ndarray],
     a: np.ndarray,
@@ -100,18 +107,26 @@ def empirical_p(
     n_perm: int,
     h: int = H_STOP,
 ) -> tuple[float, int]:
-    """Return (empirical p, replicates used); Besag-Clifford h / L, else (r + 1) / (N + 1)."""
+    """Return (empirical p, replicates used); Besag-Clifford h / L, else (r + 1) / (N + 1).
+
+    (nan, 0) when the observed or a replicate statistic is not finite: never the p floor.
+    """
     t_obs = float(stat(a.T @ e_obs))
+    if not np.isfinite(t_obs):
+        return np.nan, 0
     # Ties count as exceedances; the margin absorbs round-off between GEMV and GEMM.
     thresh = t_obs - 1e-9 * abs(t_obs)
-    phi = np.sqrt(mu * (1.0 - mu))
-    case, control, mu_col = ((1.0 - mu) / phi)[:, None], (-mu / phi)[:, None], mu[:, None]
+    case, control = _standardise(1.0 - mu, mu)[:, None], _standardise(-mu, mu)[:, None]
+    mu_col = mu[:, None]
     done = exceed = 0
     batch = FIRST_BATCH
     while done < n_perm:
         batch = min(batch, n_perm - done)
         e = np.where(rng.random((mu.size, batch)) < mu_col, case, control)
-        cum = exceed + np.cumsum(stat(a.T @ e) >= thresh)  # the batch's one GEMM
+        t = stat(a.T @ e)  # the batch's one GEMM
+        if not np.isfinite(t).all():
+            return np.nan, 0
+        cum = exceed + np.cumsum(t >= thresh)
         if cum[-1] >= h:
             used = done + int(np.argmax(cum >= h)) + 1
             return h / used, used
@@ -155,7 +170,7 @@ def _gene_empirical(
     )
     a = project_out_nuisance(geno * weights[np.newaxis, :], null)
     mu = null.extra["mu_hat"]
-    e_obs = null.extra["residuals"] / np.sqrt(mu * (1.0 - mu))
+    e_obs = _standardise(null.extra["residuals"], mu)
     if q_below is not None:
         lambdas = compute_eigenvalues_filtered(geno * weights[np.newaxis, :], null)
         q = float(_STATISTICS["skat"](a.T @ e_obs)) / 2.0  # SKAT Q = ||Z'r||^2 / 2
@@ -223,10 +238,12 @@ def add_empirical_p(
     return result_df.assign(
         empirical_p=[r[0] if isinstance(r, tuple) else np.nan for r in hits],
         n_permutations=pd.array(
-            [r[1] if isinstance(r, tuple) else None for r in hits], dtype="Int64"
+            [r[1] if isinstance(r, tuple) and r[1] else None for r in hits], dtype="Int64"
         ),
         permutation_method=[
-            METHOD_LABEL[stat] if isinstance(r, tuple) else (skip if np.isnan(p) else None)
+            ("skipped_nonfinite" if np.isnan(r[0]) else METHOD_LABEL[stat])
+            if isinstance(r, tuple)
+            else (skip if np.isnan(p) else None)
             for r, p, skip in zip(hits, source_p, skipped, strict=True)
         ],
     )
