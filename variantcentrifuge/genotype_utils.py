@@ -5,6 +5,12 @@ This module provides functions to parse and analyze genotype strings
 commonly found in VCF files.
 """
 
+import re
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
 
 def parse_genotype(gt: str) -> tuple[int | None, ...]:
     """
@@ -140,3 +146,102 @@ def could_be_de_novo(child_gt: str, father_gt: str, mother_gt: str) -> bool:
 
     # Both parents must be reference
     return not (not is_ref(father_gt) or not is_ref(mother_gt))
+
+
+_PHASE_FIELD = re.compile(r"^GEN[_\[](\d+)[_\]\.]+(PS|PGT|PID)$")
+_MISSING = {"", ".", "NA", "nan", "None", "<NA>"}
+_PHASED_HET = ("0|1", "1|0")
+
+
+def phase_format_columns(columns: pd.Index) -> dict[int, dict[str, str]]:
+    """``{GEN index: {"PS"|"PGT"|"PID": column}}`` (``GEN[i].PS`` or sanitized ``GEN_i__PS``)."""
+    out: dict[int, dict[str, str]] = {}
+    for col in columns[columns.astype(str).str.match(_PHASE_FIELD.pattern)]:
+        m = _PHASE_FIELD.match(col)
+        out.setdefault(int(m.group(1)), {})[m.group(2)] = col  # type: ignore[union-attr]
+    return out
+
+
+def phased_alt_haplotypes(
+    df: pd.DataFrame, sample_id: str, rows: Any, fmt: dict[str, str]
+) -> dict[int, tuple[tuple[str, str], str] | None]:
+    """For each row position in *rows*: ``((phase-set kind, id), phased GT)`` of *sample_id*'s
+    het, or None when unphased.
+
+    GATK PGT/PID is used when PID is set; otherwise a phased GT counts within its
+    FORMAT/PS, or within the whole record set when PS was not extracted (WhatsHap/Beagle).
+    *fmt* holds the sample's FORMAT columns (from :func:`phase_format_columns`).
+    """
+    if sample_id not in df.columns:
+        return dict.fromkeys(map(int, rows))
+
+    def take(col: str) -> list[str]:
+        return [str(v) for v in df[col].iloc[rows].tolist()]
+
+    gts = take(sample_id)
+    pgt, pid, ps = (take(fmt[f]) if f in fmt else None for f in ("PGT", "PID", "PS"))
+    out: dict[int, tuple[tuple[str, str], str] | None] = {}
+    for i, row in enumerate(map(int, rows)):
+        if pgt and pid and pid[i] not in _MISSING and pgt[i] in _PHASED_HET:
+            out[row] = (("PID", pid[i]), pgt[i])
+        elif gts[i] in _PHASED_HET and not (ps and ps[i] in _MISSING):
+            out[row] = (("PS", ps[i] if ps else ""), gts[i])
+        else:
+            out[row] = None
+    return out
+
+
+def gene_phase_setup(
+    df: pd.DataFrame, candidates: list[str], sample_list: list[str]
+) -> tuple[dict[str, np.ndarray], dict[str, dict[str, str]]]:
+    """Once per gene: per candidate, rows whose GT is a phased het, and its PS/PGT/PID columns."""
+    present = [s for s in candidates if s in df.columns]
+    phased = dict(
+        zip(present, np.isin(df[present].to_numpy(dtype=object), _PHASED_HET).T, strict=True)
+    )
+    cols = phase_format_columns(df.columns)
+    fmt = {s: cols.get(i, {}) for i, s in enumerate(sample_list) if s in phased} if cols else {}
+    return phased, fmt
+
+
+def phase_relations(
+    haps: dict[int, tuple[tuple[str, str], str] | None], var: int, partners: list[int]
+) -> dict[int, str]:
+    """``cis``/``trans``/``unknown`` of *var* with each partner."""
+    h1, rel = haps[var], {}
+    for p in partners:
+        h2 = haps[p]
+        if h1 is None or h2 is None or h1[0] != h2[0]:
+            rel[p] = "unknown"
+        else:
+            rel[p] = "cis" if h1[1] == h2[1] else "trans"
+    return rel
+
+
+def phase_partner_labels(
+    haps: dict[int, tuple[tuple[str, str], str] | None] | None,
+    var: int,
+    partners: list[int],
+    keys: Any,
+    possible: str,
+) -> tuple[list[int], str, str, dict[str, str], dict[str, str], list[str]]:
+    """Comp-het labels of *var* and its *partners* when parents cannot decide (#236).
+
+    Returns ``(partners kept, comp_het_type, inheritance_type, partner_types,
+    partner_comp_het_types, all_comp_het_types)``. Proven-cis partners are removed,
+    proven-trans ones become ``compound_heterozygous``/``trans_phased``, the rest keep
+    *possible*/``unknown``. *keys* maps row positions to variant keys.
+    """
+    if haps is None:  # no phase for this sample: the pre-#236 labels
+        pk = [keys[p] for p in partners]
+        pt, pct = dict.fromkeys(pk, "unknown"), dict.fromkeys(pk, possible)
+        return partners, possible, "unknown", pt, pct, [possible]
+    rel = phase_relations(haps, var, partners)
+    kept = [p for p in partners if rel[p] != "cis"]
+    trans = {keys[p]: rel[p] == "trans" for p in kept}
+    pt = {k: "trans_phased" if t else "unknown" for k, t in trans.items()}
+    pct = {k: "compound_heterozygous" if t else possible for k, t in trans.items()}
+    all_types = list(dict.fromkeys(pct.values()))
+    if any(trans.values()):
+        return kept, "compound_heterozygous", "trans_phased", pt, pct, all_types
+    return kept, possible, "unknown", pt, pct, all_types

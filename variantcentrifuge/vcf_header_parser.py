@@ -245,6 +245,51 @@ def _read_header(vcf_path: str) -> str:
         raise
 
 
+def _read_phase_header(vcf_path: str) -> str:
+    """VCF header text; raises without logging (the caller decides how loud to be)."""
+    cmd = ["bcftools", "view", "--header-only", vcf_path]
+    return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout
+
+
+def comp_het_phase_usable(config: dict) -> bool:
+    """False when the VCF header declares FORMAT/PS or PID that is not extracted (#236).
+
+    Phased GT is only comparable within its PS/PID block, so comp-het then ignores phase.
+    A VCF that declares neither is taken as one phase set; an unreadable header counts as
+    declaring PS (fail closed). Read once; cached in *config*.
+    """
+    if "comp_het_use_phase" not in config:
+        vcf = str(config.get("vcf_file") or "")
+        try:
+            matches = (HEADER_RE.match(line) for line in _read_phase_header(vcf).splitlines())
+            declared = {
+                m.group("id")
+                for m in matches
+                if m and m.group("source") == "FORMAT" and m.group("id") in ("PS", "PID")
+            }
+        except (OSError, subprocess.CalledProcessError) as exc:
+            logger.warning(
+                "Compound het: cannot read the VCF header of %r (%s); assuming FORMAT/PS, "
+                "so phase is ignored unless GEN[*].PS is extracted",
+                vcf,
+                exc,
+            )
+            declared = {"PS"}
+        extracted = set(
+            re.findall(r"GEN\[[^\]]*\]\.(PS|PID)\b", str(config.get("fields_to_extract") or ""))
+        )
+        missing = sorted(declared - extracted)
+        if missing:
+            logger.info(
+                "Compound het: phase ignored; the VCF declares FORMAT/%s but it is not extracted "
+                "(add %s to the fields to use phased genotypes)",
+                "/".join(missing),
+                " ".join(f"GEN[*].{f}" + (" GEN[*].PGT" if f == "PID" else "") for f in missing),
+            )
+        config["comp_het_use_phase"] = not missing
+    return bool(config["comp_het_use_phase"])
+
+
 def format_fields_table(
     fields: list[AnnotationField],
     *,

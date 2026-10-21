@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from ..genotype_utils import gene_phase_setup, phase_partner_labels, phased_alt_haplotypes
 from ..ped_reader import get_parents, is_affected
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,7 @@ def analyze_gene_for_compound_het_vectorized(
     sample_to_idx: dict[str, int] | None = None,
     gene_row_indices: np.ndarray | None = None,
     variant_keys: np.ndarray | None = None,
+    use_phase: bool = True,
 ) -> dict[str, dict[str, Any]]:
     """
     Vectorized analysis of compound heterozygous patterns in a gene.
@@ -110,6 +112,9 @@ def analyze_gene_for_compound_het_vectorized(
         Pre-computed variant key strings for gene_df rows (from
         ``build_variant_keys_array``).  When provided, avoids per-row
         ``create_variant_key_fast`` calls.
+    use_phase : bool
+        Use phased GT / PGT+PID for samples without both parents (#236); False keeps
+        the parent-free labels for every pair (see ``comp_het_phase_usable``).
 
     Returns
     -------
@@ -176,6 +181,11 @@ def analyze_gene_for_compound_het_vectorized(
     else:
         candidate_samples = []
 
+    phased, sample_fmt = (
+        gene_phase_setup(gene_df_unique, candidate_samples, sample_list)
+        if use_phase and candidate_samples
+        else ({}, {})
+    )
     for sample_id in candidate_samples:
         # Handle missing pedigree data — callers (analyzer.py, parallel_analyzer.py)
         # pre-populate pedigree_data before calling this function; this fallback
@@ -247,6 +257,15 @@ def analyze_gene_for_compound_het_vectorized(
                     if len(partners) > 0:
                         partners_by_variant_idx[int(var_idx)] = partners.tolist()  # type: ignore[assignment]
 
+        haps = None  # phase work only when one of this sample's hets is phased or has PID
+        fmt = sample_fmt.get(sample_id, {})
+        if (
+            sample_id in phased
+            and not (has_father and has_mother)
+            and ("PID" in fmt or phased[sample_id][het_indices].any())
+        ):
+            haps = phased_alt_haplotypes(gene_df_unique, sample_id, het_indices, fmt)
+
         # Store results based on the new partner structure
         for result_var_idx, partner_indices in partners_by_variant_idx.items():
             if has_father and has_mother:
@@ -301,20 +320,23 @@ def analyze_gene_for_compound_het_vectorized(
                     inheritance_type = "ambiguous" if has_ambiguous else "unknown"
 
                 partner_indices = valid_partner_indices
-            elif has_father or has_mother:
-                comp_het_type = "compound_heterozygous_possible_missing_parents"
-                inheritance_type = "unknown"
-                partner_keys = [unique_keys[pidx] for pidx in partner_indices]
-                partner_types = dict.fromkeys(partner_keys, inheritance_type)
-                partner_comp_het_types = dict.fromkeys(partner_keys, comp_het_type)
-                all_comp_het_types = [comp_het_type]
             else:
-                comp_het_type = "compound_heterozygous_possible_no_pedigree"
-                inheritance_type = "unknown"
-                partner_keys = [unique_keys[pidx] for pidx in partner_indices]
-                partner_types = dict.fromkeys(partner_keys, inheritance_type)
-                partner_comp_het_types = dict.fromkeys(partner_keys, comp_het_type)
-                all_comp_het_types = [comp_het_type]
+                possible = "compound_heterozygous_possible_" + (
+                    "missing_parents" if has_father or has_mother else "no_pedigree"
+                )
+                # Read-backed phase (#236): drop proven-cis partners, call proven-trans ones
+                (
+                    partner_indices,
+                    comp_het_type,
+                    inheritance_type,
+                    partner_types,
+                    partner_comp_het_types,
+                    all_comp_het_types,
+                ) = phase_partner_labels(
+                    haps, result_var_idx, partner_indices, unique_keys, possible
+                )
+                if not partner_indices:
+                    continue
 
             var_key = unique_keys[result_var_idx]
 

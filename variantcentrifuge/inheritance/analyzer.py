@@ -31,6 +31,7 @@ def analyze_inheritance(
     sample_list: list[str],
     use_vectorized_comp_het: bool = True,
     reference: str | None = None,
+    use_phase: bool = True,
 ) -> pd.DataFrame:
     """
     Orchestrates inheritance analysis and adds results to the DataFrame.
@@ -53,6 +54,8 @@ def analyze_inheritance(
         Vectorized implementation is now always used.
     reference : str, optional
         Genome build (e.g. "GRCh37", "hg38") used to place the X PAR regions.
+    use_phase : bool, optional
+        Use phased genotypes for compound hets without both parents (#236).
 
     Returns
     -------
@@ -150,6 +153,7 @@ def analyze_inheritance(
                 sample_to_idx=sample_to_idx,
                 gene_row_indices=gene_row_idx,
                 variant_keys=gene_vkeys,
+                use_phase=use_phase,
             )
 
             if comp_het_results:

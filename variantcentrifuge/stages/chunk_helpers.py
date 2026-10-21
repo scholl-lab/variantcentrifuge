@@ -489,6 +489,7 @@ def apply_chunk_inheritance_analysis(
                 n_workers=threads,
                 min_variants_for_parallel=min_variants_for_parallel,
                 reference=context.config.get("reference"),
+                use_phase=inheritance_config.get("use_phase", True),
             )
             comp_het_time = time.time() - comp_het_start
             if comp_het_time > 1.0:
@@ -500,6 +501,7 @@ def apply_chunk_inheritance_analysis(
                 sample_list=vcf_samples,
                 use_vectorized_comp_het=use_vectorized_comp_het,
                 reference=context.config.get("reference"),
+                use_phase=inheritance_config.get("use_phase", True),
             )
 
         analysis_time = time.time() - analysis_start

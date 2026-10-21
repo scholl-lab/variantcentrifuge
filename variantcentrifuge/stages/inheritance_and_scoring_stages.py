@@ -8,6 +8,7 @@ from typing import Any
 
 from ..gt_reconstruction import _copy_gt_columns_to_samples, _find_per_sample_gt_columns
 from ..pipeline_core import PipelineContext, Stage
+from ..vcf_header_parser import comp_het_phase_usable
 from .sample_column_helpers import (
     cleanup_sample_columns,
     create_sample_columns_from_gt_intelligent,
@@ -66,6 +67,7 @@ class InheritanceAnalysisStage(Stage):
                 "pedigree_data": context.pedigree_data,
                 "use_vectorized_comp_het": not context.config.get("no_vectorized_comp_het", False),
                 "preserve_details_for_scoring": preserve_details,
+                "use_phase": comp_het_phase_usable(context.config),
             }
             return context
 
@@ -142,6 +144,7 @@ class InheritanceAnalysisStage(Stage):
                     n_workers=threads,
                     min_variants_for_parallel=min_variants_for_parallel,
                     reference=context.config.get("reference"),
+                    use_phase=comp_het_phase_usable(context.config),
                 )
 
                 comp_het_time = time.time() - comp_het_start
@@ -154,6 +157,7 @@ class InheritanceAnalysisStage(Stage):
                     pedigree_data=pedigree_data or {},
                     use_vectorized_comp_het=not context.config.get("no_vectorized_comp_het", False),
                     reference=context.config.get("reference"),
+                    use_phase=comp_het_phase_usable(context.config),
                 )
 
         except Exception as e:
