@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Per-stage table at pipeline end (wall, CPU user+sys including children, peak RSS as a process high-water mark; CPU of concurrently running stages overlaps), also written to `stage_summary.tsv` in `--diagnostics-output` when given. The chunked/non-chunked decision logs file size, estimated memory and thresholds for both outcomes, and each `parallel_safe=False` stage that runs sequentially logs why. Log only; results unchanged (#220).
+
 ## [0.23.0] - 2026-10-21
 
 ### Added

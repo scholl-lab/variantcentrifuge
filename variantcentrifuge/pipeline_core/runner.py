@@ -17,6 +17,7 @@ try:
 except ImportError:
     psutil = None  # type: ignore[assignment]
 
+from ..association.timing import cpu_seconds, rss_mib
 from .context import PipelineContext
 from .runner_planner import (
     clear_stage_and_downstream,
@@ -25,6 +26,7 @@ from .runner_planner import (
     get_stages_to_execute_from,
     handle_selective_resume,
     log_runner_summary,
+    log_stage_table,
     ordered_stages,
     restore_completed_stage,
     restore_or_recompute_completed_stages,
@@ -79,6 +81,7 @@ class PipelineRunner:
         self.executor_type = executor_type
         self.enable_stage_batching = enable_stage_batching
         self._execution_times: dict[str, float] = {}
+        self._stage_table: dict[str, tuple[float, float, float]] = {}
         self._stage_metrics: dict[str, dict[str, float]] = {}
         self._subtask_times: dict[str, dict[str, float]] = {}
 
@@ -185,6 +188,8 @@ class PipelineRunner:
 
         # Log execution time summary
         self._log_execution_summary()
+        diag = context.config.get("diagnostics_output")
+        log_stage_table(self._stage_table, logger, diag if isinstance(diag, str) else None)
 
         # Log peak memory usage
         if self._stage_metrics:
@@ -293,6 +298,10 @@ class PipelineRunner:
 
         # Execute sequential stages first
         for stage in sequential_stages:
+            logger.info(
+                f"Stage '{stage.name}' has parallel_safe=False: running sequentially "
+                f"before {len(parallel_safe_stages)} parallel-safe stage(s) in level {level}"
+            )
             context = self._execute_stage(stage, context)
 
         # Execute parallel-safe stages concurrently
@@ -327,6 +336,7 @@ class PipelineRunner:
             Updated context
         """
         start_time = time.time()
+        cpu_before = cpu_seconds()
 
         mem_before_mb = self._get_process_memory_mb()
         if mem_before_mb is not None and logger.isEnabledFor(logging.DEBUG):
@@ -335,6 +345,7 @@ class PipelineRunner:
         result = stage(context)
         elapsed = time.time() - start_time
         self._execution_times[stage.name] = elapsed
+        self._stage_table[stage.name] = (elapsed, cpu_seconds() - cpu_before, rss_mib())
 
         # Capture subtask times if any were recorded
         if hasattr(stage, "subtask_times") and stage.subtask_times:
@@ -359,6 +370,11 @@ class PipelineRunner:
                 )
 
         return result
+
+    def _execute_stage_timed(self, stage: Stage, context: PipelineContext) -> tuple:
+        """Run a stage and return its timings too: a process-pool worker's runner is a copy."""
+        result = self._execute_stage(stage, context)
+        return result, self._execution_times[stage.name], self._stage_table[stage.name]
 
     def _execute_parallel_stages(
         self, stages: list[Stage], context: PipelineContext
@@ -399,7 +415,7 @@ class PipelineRunner:
             for stage in stages:
                 # Each parallel stage gets a copy of context to avoid conflicts
                 # The context has thread-safe methods for updating shared state
-                future = executor.submit(self._execute_stage, stage, context)
+                future = executor.submit(self._execute_stage_timed, stage, context)
                 future_to_stage[future] = stage
 
             # Wait for all to complete and collect results
@@ -408,7 +424,9 @@ class PipelineRunner:
                 stage = future_to_stage[future]
                 try:
                     # Get the updated context from the stage execution
-                    updated_context = future.result()
+                    updated_context, elapsed, row = future.result()
+                    self._execution_times[stage.name] = elapsed
+                    self._stage_table[stage.name] = row
                     if context.checkpoint_state and updated_context.checkpoint_state:
                         step_info = updated_context.checkpoint_state.state.get("steps", {}).get(
                             stage.name

@@ -58,13 +58,24 @@ class Progress:
             )  # fmt: skip
 
 
+def rss_mib() -> float:
+    """Peak RSS (high-water mark) of this process in MiB."""
+    unit = 1024 * 1024 if sys.platform == "darwin" else 1024  # ru_maxrss: bytes (macOS) / KiB
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / unit
+
+
+def cpu_seconds() -> float:
+    """User+system CPU seconds of this process and its reaped children."""
+    s, c = resource.getrusage(resource.RUSAGE_SELF), resource.getrusage(resource.RUSAGE_CHILDREN)
+    return s.ru_utime + s.ru_stime + c.ru_utime + c.ru_stime
+
+
 def log_stage_summary(timings: dict[str, float], facts: list[str]) -> None:
     """Log one INFO line per non-trivial sub-step, the total, parent peak RSS and ``facts``."""
     for name, seconds in timings.items():
         if seconds >= 0.05:
             logger.info("Association sub-step %s: %.1f s", name, seconds)
-    unit = 1024 * 1024 if sys.platform == "darwin" else 1024  # ru_maxrss: bytes (macOS) / KiB
-    own = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / unit
+    own = rss_mib()
     logger.info(
         "Association total: %.1f s, peak RSS %.0f MiB (parent process)",
         sum(timings.values()), own,
