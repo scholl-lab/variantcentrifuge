@@ -288,3 +288,33 @@ def test_null_calibration_imbalanced_with_covariates():
     u = prev + np.random.default_rng(0).random(p.size) * (p - prev)
     assert len(nulls) == 1 and p.size > 250
     assert scipy.stats.kstest(u, "uniform").pvalue > 0.01
+
+
+@pytest.mark.unit
+def test_skato_selects_on_skat_q_own_p():
+    """Under SKAT-O, genes are selected on SKAT Q's p (the permuted statistic), not SKAT-O's."""
+    genes = _gene_dicts(40, 2000, 0.2, seed=11)
+    for k, gd in enumerate(genes[:8]):  # burden-driven: SKAT-O p well below SKAT Q p
+        b = gd["_genotype_matrix_builder"]()
+        y, g, rng = (
+            b["phenotype_vector"],
+            b["genotype_matrix"].copy(),
+            np.random.default_rng(100 + k),
+        )
+        for j in range(g.shape[1]):
+            add = (y == 1) & (rng.random(y.size) < 0.012)
+            g[add, j] = np.maximum(g[add, j], 1)
+        b.update(genotype_matrix=g, variant_mafs=g.mean(0) / 2)
+        gd["_genotype_matrix_builder"] = lambda b=b: dict(b)
+
+    def run(method):
+        config = AssociationConfig(
+            permutations=2000, permute_below_p=1e-3, seed=1, skat_method=method
+        )
+        engine = AssociationEngine.from_names(["logistic_burden", "skat"], config)
+        return engine.run_all([dict(d) for d in genes]).set_index("gene")
+
+    skato, skat = run("SKATO"), run("SKAT")
+    assert ((skato["skat_o_pvalue"] < 1e-3) & (skat["skat_pvalue"] >= 1e-3)).any()  # repro shape
+    np.testing.assert_array_equal(skato["empirical_p"], skat["empirical_p"])
+    assert skato["empirical_p"].notna().sum() == (skat["skat_pvalue"] < 1e-3).sum() > 0

@@ -21,10 +21,15 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from variantcentrifuge.association.backends.davies import compute_pvalue
 from variantcentrifuge.association.backends.null_model import (
     UntestableGeneError,
     fit_glm_null_model,
     project_out_nuisance,
+)
+from variantcentrifuge.association.backends.skat_math import (
+    _SKATO_RHO_GRID,
+    compute_eigenvalues_filtered,
 )
 from variantcentrifuge.association.engine_workers import (
     fork_available,
@@ -119,9 +124,12 @@ def empirical_p(
 
 
 def _gene_empirical(
-    gene: str, builder: Any, config: Any, stat: str, nulls: dict
+    gene: str, builder: Any, config: Any, stat: str, nulls: dict, q_below: float | None = None
 ) -> tuple[float, int] | None:
-    """Empirical p for one gene from its rebuilt matrix; None when it cannot be tested."""
+    """Empirical p for one gene from its rebuilt matrix; None when it cannot be tested.
+
+    ``q_below``: skip the gene unless SKAT Q's own analytic p is below it (SKAT-O runs).
+    """
     built = builder()
     geno, y, cov = (
         built["genotype_matrix"],
@@ -151,15 +159,20 @@ def _gene_empirical(
     a = project_out_nuisance(geno * weights[np.newaxis, :], null)
     mu = null.extra["mu_hat"]
     e_obs = null.extra["residuals"] / np.sqrt(mu * (1.0 - mu))
+    if q_below is not None:
+        lambdas = compute_eigenvalues_filtered(geno * weights[np.newaxis, :], null)
+        q = float(_STATISTICS["skat"](a.T @ e_obs)) / 2.0  # SKAT Q = ||Z'r||^2 / 2
+        if len(lambdas) == 0 or not compute_pvalue(q, lambdas)[0] < q_below:
+            return None
     return empirical_p(
         _STATISTICS[stat], a, mu, e_obs, gene_rng(config.seed, gene), config.permutations
     )
 
 
 def _gene_range(state: tuple, lo: int, hi: int) -> list[tuple[float, int] | None]:
-    genes, builders, config, stat = state
+    genes, builders, config, stat, q_below = state
     nulls: dict = {}
-    return [_gene_empirical(g, builders[g], config, stat, nulls) for g in genes[lo:hi]]
+    return [_gene_empirical(g, builders[g], config, stat, nulls, q_below) for g in genes[lo:hi]]
 
 
 def add_empirical_p(
@@ -177,7 +190,10 @@ def add_empirical_p(
     stat = permutation_statistic(test_names, primary_id, config.skat_method, config.trait_type)
     column = source_pvalue_column(stat, test_names, list(result_df.columns))
     source_p = pd.to_numeric(result_df[column], errors="coerce")
-    below = source_p < config.permute_below_p
+    # Under SKAT-O the gene is selected on SKAT Q's own p, computed in the worker; the
+    # union bound p_SKATO <= len(grid) * p_Q pre-selects the candidates on skat_o_pvalue.
+    q_below = config.permute_below_p if column == "skat_o_pvalue" else None
+    below = source_p < config.permute_below_p * (len(_SKATO_RHO_GRID) if q_below else 1)
     genes = [g for g in result_df.loc[below, "gene"] if builders.get(g) is not None]
     reason = result_df.get("skat_skip_reason") if stat == "skat" else None
     skipped = [
@@ -189,7 +205,7 @@ def add_empirical_p(
             f"Permutation: primary result '{primary_id}' cannot be rebuilt from score "
             f"matrices; empirical_p is for the {METHOD_LABEL[stat]} statistic instead"
         )
-    state = (genes, builders, config, stat)
+    state = (genes, builders, config, stat, q_below)
     workers = config.association_workers
     workers = min((os.cpu_count() or 1) if workers == -1 else workers, len(genes))
     t0 = time.perf_counter()
