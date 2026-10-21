@@ -30,6 +30,17 @@ def add_analysis_argument_groups(parser: argparse.ArgumentParser) -> None:
         ),
     )
     gene_group.add_argument(
+        "--transcript-fallback",
+        choices=["none", "keep-gene"],
+        default=None,
+        help=(
+            "What to do with a gene none of whose annotated transcripts is in the transcript "
+            "list. 'none' (default): drop it (reported as a WARNING and, with "
+            "--diagnostics-output, in transcript_filter_dropped_genes.tsv). 'keep-gene': keep "
+            "all of that gene's annotations."
+        ),
+    )
+    gene_group.add_argument(
         "--regions-bed",
         help=(
             "BED file to restrict variant extraction to specified regions (e.g., capture kit BED). "

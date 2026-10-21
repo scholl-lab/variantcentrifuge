@@ -17,7 +17,12 @@ from ..filters import apply_snpsift_filter, extract_variants
 from ..memory.resource_manager import ResourceManager
 from ..pipeline_core import PipelineContext, Stage
 from ..sample_subset import resolve_sample_subset
-from ..transcript_filter import filter_vcf_to_transcripts, load_transcript_ids
+from ..transcript_filter import (
+    filter_vcf_to_transcripts,
+    load_transcript_ids,
+    log_transcript_filter_summary,
+    merge_filter_stats,
+)
 from ..utils import ensure_fields_in_extract, split_bed_file
 from ..vcf_eff_one_per_line import process_vcf_file as split_snpeff_annotations
 from .chunk_tsv_merge import ChunkTsvMergeMixin
@@ -87,6 +92,7 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
             "regions_bed",
             "transcript_list",
             "transcript_file",
+            "transcript_fallback",
         )
         data = {k: cfg.get(k) for k in keys}
         data["bed"] = hashlib.sha256(bed_bytes).hexdigest()[:16]
@@ -281,8 +287,11 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
         base_name: str,
         intermediate_dir: Path,
         config: dict[str, Any],
-    ) -> tuple[Path, dict[str, float]]:
-        """Process a single BED chunk through complete pipeline; return (TSV, subtask times)."""
+    ) -> tuple[Path, dict[str, float], dict]:
+        """Process one BED chunk through the complete pipeline.
+
+        Return (TSV, subtask times, transcript-filter stats).
+        """
         chunk_base = f"{base_name}.chunk_{chunk_index}"
         extract_start = time.time()
         chunk_vcf = intermediate_dir / f"{chunk_base}.variants.vcf.gz"
@@ -312,6 +321,7 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
             transcript_ids = load_tx_fn(
                 config.get("transcript_list"), config.get("transcript_file")
             )
+        tx_stats: dict = {}
         if transcript_ids:
             transcript_filtered_vcf = intermediate_dir / f"{chunk_base}.transcript_filtered.vcf.gz"
             _ps_attr("filter_vcf_to_transcripts", filter_vcf_to_transcripts)(
@@ -320,6 +330,8 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                 transcript_ids,
                 index_output=False,
                 filter_exception_file=config.get("filter_exception_file"),
+                fallback=config.get("transcript_fallback") or "none",
+                stats=tx_stats,
             )
             working_vcf = transcript_filtered_vcf
 
@@ -376,11 +388,15 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
         field_extract_time = time.time() - field_extract_start
 
         logger.debug(f"Completed processing chunk {chunk_index}")
-        return chunk_tsv, {
-            f"chunk_{chunk_index}_extraction": extract_time,
-            f"chunk_{chunk_index}_filtering": filter_time,
-            f"chunk_{chunk_index}_field_extraction": field_extract_time,
-        }
+        return (
+            chunk_tsv,
+            {
+                f"chunk_{chunk_index}_extraction": extract_time,
+                f"chunk_{chunk_index}_filtering": filter_time,
+                f"chunk_{chunk_index}_field_extraction": field_extract_time,
+            },
+            tx_stats,
+        )
 
     def _process_chunks_parallel(
         self, context: PipelineContext, bed_chunks: list[Path]
@@ -463,8 +479,10 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                 "transcript_ids": load_tx_fn(
                     cfg.get("transcript_list"), cfg.get("transcript_file")
                 ),
+                "transcript_fallback": cfg.get("transcript_fallback"),
             }
             subtask_times: dict[str, float] = {}
+            tx_stats: dict = {}
             executor_cls = _ps_attr("ProcessPoolExecutor", ProcessPoolExecutor)
             as_completed_fn = _ps_attr("as_completed", as_completed)
             with executor_cls(max_workers=active_workers) as executor:
@@ -483,8 +501,9 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                 for future in as_completed_fn(future_to_chunk):
                     chunk_index, chunk_bed, _expected_tsv, chunk_fp = future_to_chunk[future]
                     try:
-                        chunk_tsv, chunk_times = future.result()
+                        chunk_tsv, chunk_times, chunk_tx_stats = future.result()
                         subtask_times.update(chunk_times)
+                        merge_filter_stats(tx_stats, chunk_tx_stats)
                         if chunk_tsv.parent.exists():
                             Path(f"{chunk_tsv}.meta").write_text(chunk_fp, encoding="utf-8")
                         logger.debug(f"Completed chunk {chunk_index}: {chunk_bed.name}")
@@ -493,6 +512,10 @@ class ParallelCompleteProcessingStage(ChunkTsvMergeMixin, Stage):
                         raise
             if subtask_times:
                 self._aggregate_subtask_times(subtask_times)
+            if tx_stats:  # aggregated over the chunks processed in this run
+                log_transcript_filter_summary(
+                    tx_stats, worker_config["transcript_ids"], cfg.get("diagnostics_output")
+                )
         else:
             logger.info("All chunk TSVs already exist and are valid - no processing needed")
 

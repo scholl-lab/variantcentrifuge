@@ -215,6 +215,7 @@ def validate_from_tsv_args_and_file(
         ("--split-snpeff-lines", getattr(args, "split_snpeff_lines", None)),
         ("--transcript-list", getattr(args, "transcript_list", None)),
         ("--transcript-file", getattr(args, "transcript_file", None)),
+        ("--transcript-fallback", getattr(args, "transcript_fallback", None)),
         (
             "-g/--gene-name",
             None if not gene_name or str(gene_name).strip().lower() == "all" else gene_name,

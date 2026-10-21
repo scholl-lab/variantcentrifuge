@@ -231,6 +231,7 @@ def populate_cli_config(
     for _cfg_k, _arg_v in (
         ("transcript_list", args.transcript_list),
         ("transcript_file", args.transcript_file),
+        ("transcript_fallback", getattr(args, "transcript_fallback", None)),
         ("fields_file", getattr(args, "fields_file", None)),
         ("filter_exception_file", args.filter_exception_file),
         ("genotype_filter", args.genotype_filter),

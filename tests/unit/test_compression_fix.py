@@ -153,7 +153,7 @@ class TestParallelProcessingCompression:
                     "variantcentrifuge.stages.processing_stages.extract_fields_bcftools"
                 ) as mock_extract,
             ):
-                result_path, _ = stage._process_single_chunk(
+                result_path, _, _ = stage._process_single_chunk(
                     chunk_index=0,
                     chunk_bed=chunk_bed,
                     vcf_file="/tmp/test.vcf.gz",
@@ -192,7 +192,7 @@ class TestParallelProcessingCompression:
                     "variantcentrifuge.stages.processing_stages.extract_fields_bcftools"
                 ) as mock_extract,
             ):
-                result_path, _ = stage._process_single_chunk(
+                result_path, _, _ = stage._process_single_chunk(
                     chunk_index=0,
                     chunk_bed=chunk_bed,
                     vcf_file="/tmp/test.vcf.gz",
@@ -242,7 +242,7 @@ class TestParallelProcessingCompression:
                 patch("variantcentrifuge.stages.processing_stages.extract_variants"),
                 patch("variantcentrifuge.stages.processing_stages.extract_fields_bcftools"),
             ):
-                result_path, _ = stage._process_single_chunk(
+                result_path, _, _ = stage._process_single_chunk(
                     chunk_index=0,
                     chunk_bed=chunk_bed,
                     vcf_file="/tmp/test.vcf.gz",
