@@ -65,6 +65,10 @@ RELEVANT_CONFIG_KEYS: tuple[str, ...] = (
     "normal_sample_index",
     "gene_set_file",
     "mask_label",
+    "skat_robust",
+    "permutations",
+    "permute_below_p",
+    "seed",
 )
 
 # Association runs only: settings that change the extracted sample subset (#212).

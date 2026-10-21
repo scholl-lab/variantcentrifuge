@@ -584,3 +584,20 @@ class TestIntegration:
         # Only step3 should have been executed
         assert steps_executed == ["step3_fixed"]
         assert new_state.state["steps"]["step3"].status == "completed"
+
+
+def test_new_association_options_change_checkpoint_hash():
+    """0.24 result-affecting options must invalidate resume; unset keeps old hashes valid."""
+    from variantcentrifuge.checkpoint_helpers import hash_configuration
+
+    base = {"vcf_file": "in.vcf.gz", "perform_association": True}
+    unset = {"skat_robust": None, "permutations": None, "permute_below_p": None, "seed": None}
+    h_base = hash_configuration(base)
+    assert hash_configuration({**base, **unset}) == h_base
+    for key, value in {
+        "skat_robust": True,
+        "permutations": 1000,
+        "permute_below_p": 0.01,
+        "seed": 7,
+    }.items():
+        assert hash_configuration({**base, **unset, key: value}) != h_base, key
