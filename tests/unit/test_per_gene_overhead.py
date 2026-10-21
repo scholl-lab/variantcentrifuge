@@ -322,33 +322,3 @@ def test_stage_matrix_builders_run_with_gc_paused(tmp_path) -> None:
         run_stage(df, samples, args, tmp_path)
     assert states and not any(states)
     assert gc.isenabled()
-
-
-@pytest.mark.unit
-def test_code_matrix_prefaulted_after_parse_workers_fork(monkeypatch) -> None:
-    """Pages are touched by threads once the workers exist (fails on v0.25.0: no _prefault);
-    touching them before the fork would make the merge copy them on write."""
-    from variantcentrifuge.association import engine_workers, gt_codes
-
-    if not engine_workers.fork_available():
-        pytest.skip("fork only")
-    events = []
-    real_map, real_prefault = gt_codes.fork_map, gt_codes._prefault
-
-    def fork_map(*args):
-        events.append("fork")
-        yield from real_map(*args)
-
-    def prefault(codes, workers):
-        events.append(("prefault", codes.shape, workers))
-        real_prefault(codes, workers)
-
-    monkeypatch.setattr(gt_codes, "fork_map", fork_map)
-    monkeypatch.setattr(gt_codes, "_prefault", prefault)
-    df = pd.DataFrame({"GT": ["S0(0/1);S2(1/1)", "", "S1(./.)", "S3(0/1)"]})
-    samples = [f"S{i}" for i in range(4)]
-    got = gt_codes.parse_genotype_codes(df, samples, samples, [], workers=3)
-    want = gt_codes.parse_genotype_codes(df, samples, samples, [], workers=1)
-    assert events == ["fork", ("prefault", (4, 4), 3)]
-    _same(got.codes, want.codes)
-    assert got.vocab == want.vocab

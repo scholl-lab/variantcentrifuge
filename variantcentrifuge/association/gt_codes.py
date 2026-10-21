@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator, Sequence
-from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pandas as pd
@@ -98,19 +97,6 @@ def _store(codes: np.ndarray, vocab: _Vocab) -> np.ndarray:
     if codes.dtype == np.int8 and len(vocab.items) > 127:
         return codes.astype(np.int16)
     return codes
-
-
-def _prefault(codes: np.ndarray, workers: int) -> None:
-    """Touch the pages of a fresh ``np.zeros`` matrix from ``workers`` threads.
-
-    A run-level code matrix is gigabytes; first-touch page faults from the merge's
-    scattered writes cost seconds in one thread, and threads fault pages in parallel.
-    Call only once the parse workers are forked: pages populated before a fork would be
-    copied on write while the children live.
-    """
-    step = max(1, -(-codes.shape[0] // (workers * 4)))
-    with ThreadPoolExecutor(workers) as pool:  # ndarray.fill releases the GIL
-        list(pool.map(lambda lo: codes[lo : lo + step].fill(0), range(0, codes.shape[0], step)))
 
 
 def parse_genotype_codes(
@@ -237,15 +223,12 @@ def _parse_packed(
     text = gt.fillna("").astype(str).to_numpy(dtype=object)
     state = (text, pa.array(samples, type=pa.large_string()))
     named = np.zeros(len(text), dtype=bool)
-    forked = workers > 1 and len(text) > 1 and fork_available()
-    if forked:
+    if workers > 1 and len(text) > 1 and fork_available():
         parts = fork_map(_parse_packed_rows, state, len(text), workers)
     else:
         # One batch per call, merged as it comes: no run-wide list of entries.
         parts = ((lo, hi, _parse_packed_rows(state, lo, hi)) for lo, hi in _char_batches(text))
     for lo, hi, (row_named, rows, cols, gts, idx) in parts:
-        if forked and lo == 0:  # first result: every worker is forked by now
-            _prefault(codes, workers)
         named[lo:hi] = row_named
         lut = vocab.lut(gts)
         codes = _store(codes, vocab)
