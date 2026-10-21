@@ -255,7 +255,7 @@ def fork_map(
             futures = {b: executor.submit(_fork_task, b) for b in bounds}
             try:
                 for lo, hi in sorted(futures):
-                    yield lo, hi, futures[lo, hi].result()
+                    yield lo, hi, futures.pop((lo, hi)).result()  # pop: free consumed results
             finally:  # on error or early close, like executor.map: drop tasks not started
                 for future in futures.values():
                     future.cancel()
