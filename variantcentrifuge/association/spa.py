@@ -223,12 +223,13 @@ def null_arrays(null_model: NullModelResult) -> tuple[np.ndarray, np.ndarray, np
 
 def robust_moments(
     geno: np.ndarray, weights: np.ndarray, y: np.ndarray, mu: np.ndarray, design: np.ndarray
-) -> tuple[np.ndarray, np.ndarray | None, float]:
+) -> tuple[np.ndarray, np.ndarray | None, float, np.ndarray]:
     """Calibrated unweighted score and covariance of a gene (R ``SKATBinary_spa``).
 
-    Returns ``(score, cov, p_burden)``; ``diag(w) score`` and ``diag(w) cov diag(w)``
+    Returns ``(score, cov, p_burden, p)``; ``diag(w) score`` and ``diag(w) cov diag(w)``
     are R's ``Score`` / ``Phi``. ``cov`` is None where R falls back to the robust
-    burden p-value ``p_burden`` (degenerate burden recalibration).
+    burden p-value ``p_burden`` (degenerate burden recalibration); ``p`` are the
+    per-variant SPA/ER p-values.
     """
     score, p, g1, v_cal = variant_pvalues(geno, y, mu, design)
     score = np.where(v_cal > 0, score, 0.0)
@@ -251,8 +252,8 @@ def robust_moments(
             var_q2 = float(score @ weights) ** 2 / scipy.stats.chi2.isf(p_burden, 1)
     r = 1.0 if var_q2 == 0 else min(var_q / var_q2, 1.0)
     if not (r > 0 and np.isfinite(r)):
-        return score, None, p_burden
-    return score, cov / r, p_burden
+        return score, None, p_burden, p
+    return score, cov / r, p_burden, p
 
 
 def robust_skat(
@@ -262,20 +263,21 @@ def robust_skat(
     mu: np.ndarray,
     design: np.ndarray,
     method: str,
-) -> tuple[float | None, float | None]:
+) -> tuple[float | None, float | None, np.ndarray]:
     """Robust binary SKAT ("SKAT") or SKAT-O ("SKATO") p-value (R ``SKATBinary_Robust``).
 
-    Returns ``(p_value, rho)``; ``rho`` is None for SKAT.
+    Returns ``(p_value, rho, variant_p)``; ``rho`` is None for SKAT; ``variant_p`` are
+    the per-variant SPA/ER p-values (for ACAT-V).
     """
-    score, cov, p_burden = robust_moments(geno, weights, y, mu, design)
+    score, cov, p_burden, p = robust_moments(geno, weights, y, mu, design)
     if cov is None:
-        return p_burden, None  # R: Met_SKAT_Get_Pvalue fails -> robust burden only
+        return p_burden, None, p  # R: Met_SKAT_Get_Pvalue fails -> robust burden only
     if method.upper() == "SKATO" and geno.shape[1] > 1:
         p_o, rho = meta_skato([score], [cov], weights)
         if p_o is not None:
-            return p_o, rho
+            return p_o, rho, p
     p_skat = meta_skat([score], [cov], weights)[0]
-    return p_skat, (0.0 if method.upper() == "SKATO" else None)
+    return p_skat, (0.0 if method.upper() == "SKATO" else None), p
 
 
 __all__ = [

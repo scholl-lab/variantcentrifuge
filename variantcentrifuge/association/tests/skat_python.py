@@ -49,7 +49,7 @@ from variantcentrifuge.association.backends.null_model import (
     outcome_problem,
 )
 from variantcentrifuge.association.base import AssociationConfig, AssociationTest, TestResult
-from variantcentrifuge.association.tests.acat import compute_acat_v
+from variantcentrifuge.association.tests.acat import cauchy_combination, compute_acat_v
 from variantcentrifuge.association.weights import get_weights
 
 if TYPE_CHECKING:
@@ -369,15 +369,20 @@ class PurePythonSKATTest(AssociationTest):
 
         # Compute ACAT-V per-variant score test (Phase 25)
         # Uses the same resolved variant weights as SKAT for consistency.
+        # --skat-robust: ACAT-V combines the calibrated SPA/ER per-variant p-values.
         acat_v_weights = weights
-        acat_v_p = compute_acat_v(
-            geno=geno,
-            residuals=self._null_model.extra["residuals"],
-            trait_type=config.trait_type,
-            sigma2=self._null_model.extra["sigma2"],
-            mu_hat=self._null_model.extra.get("mu_hat"),  # None for quantitative
-            weights=acat_v_weights,
-            null_model=self._null_model,
+        acat_v_p = (
+            cauchy_combination(result["variant_p"], result["variant_weights"])
+            if result.get("variant_p") is not None
+            else compute_acat_v(
+                geno=geno,
+                residuals=self._null_model.extra["residuals"],
+                trait_type=config.trait_type,
+                sigma2=self._null_model.extra["sigma2"],
+                mu_hat=self._null_model.extra.get("mu_hat"),  # None for quantitative
+                weights=acat_v_weights,
+                null_model=self._null_model,
+            )
         )
 
         # Increment local counter

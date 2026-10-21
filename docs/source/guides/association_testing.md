@@ -602,7 +602,13 @@ config-file key `skat_robust: true`) switches binary SKAT/SKAT-O to a port of R
   Davies / SKAT-O integration as the default path.
 
 Results are reported in the usual `skat_*` columns with `skat_p_method = spa_er`. Genes with a
-single informative variant get a p-value (R behaviour) instead of being skipped. The option
+single informative variant get a p-value (R behaviour) instead of being skipped. ACAT-V
+(and through it the default ACAT-O primary) combines the same calibrated per-variant
+saddlepoint/exact p-values instead of the normal score p-values, so an ultra-rare variant
+cannot bring back the inflation through ACAT-V. When opposing variants cancel the burden
+score, the burden recalibration uses the exact normal-approximation variance instead of the
+round-off-prone `S² / qchisq(1 − p, 1)`; an exactly zero burden score keeps R's fallback
+(the robust burden p-value). The option
 needs `--trait-type binary`, `skat` in `--association-tests`, the Python backend and
 `--skat-method SKAT` or `SKATO`; other combinations fail before extraction. It is off by
 default; the default output is unchanged.

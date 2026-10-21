@@ -86,7 +86,7 @@ def test_variant_pvalues_match_r(cohort, gene):
 @pytest.mark.parametrize("cohort", COHORTS)
 def test_calibrated_moments_match_r(cohort, gene):
     geno, w, y, mu, design = _load(cohort, gene)
-    score, cov, _p_burden = robust_moments(geno, w, y, mu, design)
+    score, cov, _p_burden, _p = robust_moments(geno, w, y, mu, design)
     assert cov is not None
     r_score = np.array([s for s, _ in MOMENTS[(cohort, gene)]])
     r_phi = np.array([row for _, row in MOMENTS[(cohort, gene)]])
@@ -98,7 +98,7 @@ def test_calibrated_moments_match_r(cohort, gene):
 @pytest.mark.parametrize("cohort", COHORTS)
 def test_robust_skat_matches_r_tight_davies(cohort, gene):
     geno, w, y, mu, design = _load(cohort, gene)
-    p, rho = robust_skat(geno, w, y, mu, design, "SKAT")
+    p, rho, _ = robust_skat(geno, w, y, mu, design, "SKAT")
     assert rho is None
     ref = float(REF[(cohort, gene, "SKAT")]["p_davies_1e12"])
     assert p == pytest.approx(ref, rel=1e-4, abs=2e-12)
@@ -109,14 +109,14 @@ def test_robust_skat_matches_r_tight_davies(cohort, gene):
 @pytest.mark.parametrize("cohort", COHORTS)
 def test_robust_skat_matches_r_skatbinary_robust(cohort, gene, method):
     geno, w, y, mu, design = _load(cohort, gene)
-    p, _rho = robust_skat(geno, w, y, mu, design, method)
+    p, _rho, _ = robust_skat(geno, w, y, mu, design, method)
     ref = float(REF[(cohort, gene, method)]["p_value"])
     assert p == pytest.approx(ref, rel=1e-3, abs=1e-6)
 
 
 def test_single_variant_skato_is_skat():
     geno, w, y, mu, design = _load("r19", "single")
-    assert robust_skat(geno, w, y, mu, design, "SKATO") == (
+    assert robust_skat(geno, w, y, mu, design, "SKATO")[:2] == (
         robust_skat(geno, w, y, mu, design, "SKAT")[0],
         0.0,
     )
@@ -178,7 +178,7 @@ def test_rank_one_skato_falls_back_to_skat():
     geno2 = np.column_stack([geno[:, 0], geno[:, 0]])
     w2 = np.array([w[0], w[0]])
     p_skat = robust_skat(geno2, w2, y, mu, design, "SKAT")[0]
-    assert robust_skat(geno2, w2, y, mu, design, "SKATO") == (p_skat, 0.0)
+    assert robust_skat(geno2, w2, y, mu, design, "SKATO")[:2] == (p_skat, 0.0)
 
 
 def test_cancelling_burden_returns_robust_burden_p():
@@ -191,7 +191,7 @@ def test_cancelling_burden_returns_robust_burden_p():
     geno = np.zeros((n, 2))
     geno[0, 0] = 1.0  # one case carrier
     geno[30, 1] = 1.0  # one control carrier
-    p, rho = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKATO")
+    p, rho, _ = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKATO")
     assert (p, rho) == (1.0, None)
 
 
@@ -215,8 +215,8 @@ def test_opposing_variants_keep_their_signal(seed):
         order = np.random.default_rng(seed).permutation(n)
         y, geno = y[order], geno[order]
     mu = np.full(n, 0.5)
-    p_skat, _ = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKAT")
-    p_skato, _ = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKATO")
+    p_skat, *_ = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKAT")
+    p_skato, *_ = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKATO")
     assert p_skat == pytest.approx(5.1057684528e-23, rel=1e-6)
     assert p_skato < 1e-20
 
