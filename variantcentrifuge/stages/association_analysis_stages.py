@@ -12,7 +12,7 @@ import pandas as pd
 
 from ..association.aggregation import _aggregate_gene_burden_legacy
 from ..association.covariate_checks import check_convergence_failures, preflight_covariates
-from ..association.engine import AssociationEngine
+from ..association.engine import MIN_GENES_FOR_PARALLEL, AssociationEngine
 from ..association.gene_sets import add_gene_set_units, load_gene_sets, run_gene_and_set_units
 from ..association.gt_codes import aggregate_gene_counts, parse_genotype_codes
 from ..association.timing import log_stage_summary, substep
@@ -325,11 +325,19 @@ class AssociationAnalysisStage(Stage):
             if vcf_samples_list
             else list(dict.fromkeys([*case_samples, *control_samples]))
         )
+        # Set-up forks only where the engine's gene loop does: all tests parallel-safe (R-backed
+        # tests keep the embedded-R parent single-process) and enough genes.
+        setup_workers = (
+            assoc_config.association_workers
+            if all(getattr(t, "parallel_safe", False) for t in engine._tests.values())
+            and df["GENE"].nunique() >= MIN_GENES_FOR_PARALLEL
+            else 1
+        )
         genotypes = None
         if "GT" in df.columns or (gt_cols and vcf_samples_list):
             with substep(timings, "gt_parse"):  # once per run, assigned samples only (#219)
                 genotypes = parse_genotype_codes(
-                    df, samples, vcf_samples_list, gt_cols, assoc_config.association_workers
+                    df, samples, vcf_samples_list, gt_cols, setup_workers
                 )
             # Per-sample GEN[i].* columns are no longer needed: keep only annotations.
             # Packed GT too: genotypes come from the codes from here on.
@@ -350,7 +358,7 @@ class AssociationAnalysisStage(Stage):
                     np.array([s in case_set for s in samples], dtype=bool),
                     np.array([s in control_set for s in samples], dtype=bool),
                     assoc_config.missing_as_ref,
-                    assoc_config.association_workers,
+                    setup_workers,
                 )
             else:
                 logger.info(

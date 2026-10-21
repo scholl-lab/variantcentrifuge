@@ -65,3 +65,38 @@ def test_cli_rejects_bad_workers(tmp_path, bad):
     with pytest.raises(SystemExit) as exc:
         main(["--manifest", "m.tsv", "--output", str(tmp_path / "o.tsv"), "--workers", bad])
     assert exc.value.code == 2
+
+
+@pytest.mark.parametrize("workers", [1, 2])
+def test_gene_failure_names_the_gene(workers, monkeypatch):
+    import variantcentrifuge.association.meta.runner as runner
+
+    real = runner._gene_row
+
+    def flaky(gene, *a, **k):
+        if gene == "G05":
+            raise ValueError("boom")
+        return real(gene, *a, **k)
+
+    monkeypatch.setattr(runner, "_gene_row", flaky)
+    with pytest.raises(ValueError, match="boom") as exc:
+        meta_analyze_artifacts(_three_strata(), workers=workers)
+    assert "meta-analysis gene G05" in getattr(exc.value, "__notes__", [])
+
+
+def test_workers_capped_at_cpu_count(monkeypatch, caplog):
+    import variantcentrifuge.association.meta.runner as runner
+
+    monkeypatch.setattr(runner.os, "cpu_count", lambda: 2)
+    caplog.set_level(logging.INFO, logger="variantcentrifuge")
+    meta_analyze_artifacts(_three_strata(), workers=64)
+    assert "Meta-analysis: --workers 64 capped at 2 CPU cores" in caplog.text
+
+
+def test_sequential_fallback_without_fork_is_logged(monkeypatch, caplog):
+    import variantcentrifuge.association.meta.runner as runner
+
+    monkeypatch.setattr(runner, "fork_available", lambda: False)
+    caplog.set_level(logging.INFO, logger="variantcentrifuge")
+    meta_analyze_artifacts(_three_strata(), workers=2)
+    assert "Parallel meta-analysis needs fork (Linux); running genes sequentially" in caplog.text

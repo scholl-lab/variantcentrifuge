@@ -179,23 +179,30 @@ def _char_batches(text: np.ndarray) -> Iterator[tuple[int, int]]:
 def _parse_packed_rows(
     state: tuple[np.ndarray, pa.Array], lo: int, hi: int
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str], np.ndarray]:
-    """Parse packed GT rows text[lo:hi] (a ``fork_map`` task; also the sequential loop).
+    """Parse packed GT rows text[lo:hi] (a ``fork_map`` task; also the sequential path).
 
-    Returns (rows naming a sample, then for entries of wanted samples: absolute row,
-    sample column, the distinct GT strings and each entry's index into them).
+    Arrow work runs in batches of about ``_BATCH_CHARS`` characters. Returns (rows naming
+    a sample, then for entries of wanted samples: absolute row, sample column, the
+    distinct GT strings in order of appearance and each entry's index into them).
     """
     text, wanted = state
-    chunk = pa.array(text[lo:hi], type=pa.large_string())
-    named = pc.match_substring(chunk, "(").to_numpy(False)
-    lists = pc.split_pattern(chunk, ";")
-    rows = pc.list_parent_indices(lists).to_numpy() + lo
-    entries = pc.extract_regex(pc.list_flatten(lists), _ENTRY)
-    cols = pc.fill_null(pc.index_in(entries.field("name"), value_set=wanted), -1)
-    cols = cols.to_numpy(zero_copy_only=False)
-    keep = cols >= 0
-    enc = pc.dictionary_encode(pc.filter(entries.field("gt"), pa.array(keep)))
-    enc = enc.combine_chunks() if isinstance(enc, pa.ChunkedArray) else enc
-    return named, rows[keep], cols[keep], enc.dictionary.to_pylist(), enc.indices.to_numpy()
+    local = _Vocab()
+    parts: list[tuple[np.ndarray, ...]] = []
+    for b_lo, b_hi in _char_batches(text[lo:hi]):
+        chunk = pa.array(text[lo + b_lo : lo + b_hi], type=pa.large_string())
+        named = pc.match_substring(chunk, "(").to_numpy(False)
+        lists = pc.split_pattern(chunk, ";")
+        rows = pc.list_parent_indices(lists).to_numpy() + lo + b_lo
+        entries = pc.extract_regex(pc.list_flatten(lists), _ENTRY)
+        cols = pc.fill_null(pc.index_in(entries.field("name"), value_set=wanted), -1)
+        cols = cols.to_numpy(zero_copy_only=False)
+        keep = cols >= 0
+        enc = pc.dictionary_encode(pc.filter(entries.field("gt"), pa.array(keep)))
+        enc = enc.combine_chunks() if isinstance(enc, pa.ChunkedArray) else enc
+        lut = local.lut(enc.dictionary.to_pylist())
+        parts.append((named, rows[keep], cols[keep], lut[enc.indices.to_numpy()]))
+    named, rows, cols, idx = (np.concatenate(p) for p in zip(*parts, strict=True))
+    return named, rows, cols, local.items, idx
 
 
 def _parse_packed(
@@ -219,6 +226,7 @@ def _parse_packed(
     if workers > 1 and len(text) > 1 and fork_available():
         parts = fork_map(_parse_packed_rows, state, len(text), workers)
     else:
+        # One batch per call, merged as it comes: no run-wide list of entries.
         parts = ((lo, hi, _parse_packed_rows(state, lo, hi)) for lo, hi in _char_batches(text))
     for lo, hi, (row_named, rows, cols, gts, idx) in parts:
         named[lo:hi] = row_named

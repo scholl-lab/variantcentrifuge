@@ -238,17 +238,15 @@ def _gene_row(
 def _gene_rows(state: tuple, lo: int, hi: int) -> list[dict]:
     """Result rows for genes[lo:hi] (a ``fork_map`` task; also the sequential loop)."""
     genes, artifacts, mask_id, weight_scheme, min_mac, n_required = state
-    return [
-        _gene_row(
-            gene,
-            mask_id,
-            [(art, art.genes[gene]) for art in artifacts if gene in art.genes],
-            weight_scheme,
-            min_mac,
-            n_required,
-        )
-        for gene in genes[lo:hi]
-    ]
+    rows = []
+    for gene in genes[lo:hi]:
+        contributors = [(art, art.genes[gene]) for art in artifacts if gene in art.genes]
+        try:
+            rows.append(_gene_row(gene, mask_id, contributors, weight_scheme, min_mac, n_required))
+        except Exception as exc:  # re-raised unchanged; the note names the gene
+            exc.add_note(f"meta-analysis gene {gene}")
+            raise
+    return rows
 
 
 def meta_analyze_artifacts(
@@ -285,10 +283,15 @@ def meta_analyze_artifacts(
 
     n_required = len(artifacts) if require_variants_in_all_strata else 0
     state = (all_genes, artifacts, mask_id, weight_scheme, min_mac, n_required)
-    n_workers = (os.cpu_count() or 1) if workers == -1 else workers
+    cpus = os.cpu_count() or 1
+    n_workers = cpus if workers == -1 else min(workers, cpus)
+    if workers > cpus:
+        logger.info("Meta-analysis: --workers %d capped at %d CPU cores", workers, cpus)
     progress = Progress("Meta-analysis genes", len(all_genes))
     rows: list[dict] = []
     with single_blas_thread():  # gene-level parallelism only, never BLAS (#212)
+        if n_workers > 1 and not fork_available():
+            logger.info("Parallel meta-analysis needs fork (Linux); running genes sequentially")
         if n_workers > 1 and len(all_genes) > 1 and fork_available():
             logger.info("Meta-analysis: %d workers for %d genes", n_workers, len(all_genes))
             for _lo, hi, chunk in fork_map(_gene_rows, state, len(all_genes), n_workers):
