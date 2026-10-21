@@ -240,8 +240,15 @@ def robust_moments(
     p_burden = float(saddle_pvalues(np.array([g_sum @ y]), mu, g_sum[:, np.newaxis], _CUTOFF)[0])
     # Burden-direction recalibration: shrink the covariance so w'Σw matches the SPA burden
     var_q = float(weights @ cov @ weights)
-    with np.errstate(divide="ignore"):
-        var_q2 = float(score @ weights) ** 2 / scipy.stats.chi2.isf(p_burden, 1)
+    var_b = float((mu * (1.0 - mu)) @ g_sum**2)
+    if p_burden < 1.0 and (g_sum @ (y - mu)) ** 2 < _CUTOFF**2 * var_b:
+        # Normal branch: S^2 / qchisq(1 - p, 1) is exactly var_b; the ratio is round-off
+        # when opposing variants cancel (S ~ 0, p ~ 1), as for v_cal in variant_pvalues.
+        # p = 1 keeps R's 0/0 (try-error -> robust burden p) below.
+        var_q2 = var_b
+    else:
+        with np.errstate(divide="ignore"):
+            var_q2 = float(score @ weights) ** 2 / scipy.stats.chi2.isf(p_burden, 1)
     r = 1.0 if var_q2 == 0 else min(var_q / var_q2, 1.0)
     if not (r > 0 and np.isfinite(r)):
         return score, None, p_burden

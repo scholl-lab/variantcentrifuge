@@ -195,6 +195,32 @@ def test_cancelling_burden_returns_robust_burden_p():
     assert (p, rho) == (1.0, None)
 
 
+@pytest.mark.parametrize("seed", [None, 1, 2])
+def test_opposing_variants_keep_their_signal(seed):
+    """500:500, uniform weights, variant 1 in 50 cases only, variant 2 in 50 controls only.
+
+    The burden score cancels to round-off (S ~ 1e-13, p_burden ~ 1 - 2e-14), so
+    S^2 / qchisq(1 - p, 1) is noise. R SKAT 2.2.5 SKATBinary_Robust (intercept-only null,
+    weights.beta = c(1, 1)) prints SKAT p 2.5e-21 in sample order and 1.3e-16 after a
+    permutation (its own round-off: r = VarQ / VarQ_2 = 0.91 / 0.70); with the exact
+    normal-branch variance (r = 1) the port gives 5.1e-23 in every order (v0.24 dev: 0.905
+    and 0.968). The exact-zero case keeps R's robust burden p (test above).
+    """
+    n = 1000
+    y = np.r_[np.ones(500), np.zeros(500)]
+    geno = np.zeros((n, 2))
+    geno[:50, 0] = 1.0
+    geno[500:550, 1] = 1.0
+    if seed is not None:
+        order = np.random.default_rng(seed).permutation(n)
+        y, geno = y[order], geno[order]
+    mu = np.full(n, 0.5)
+    p_skat, _ = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKAT")
+    p_skato, _ = robust_skat(geno, np.ones(2), y, mu, np.ones((n, 1)), "SKATO")
+    assert p_skat == pytest.approx(5.1057684528e-23, rel=1e-6)
+    assert p_skato < 1e-20
+
+
 def test_unadjusted_variants_keep_the_exact_score_variance():
     # |z| <= 2: p~ is the normal p, so V~ = S^2 / qchisq(p~, 1) is the variance itself;
     # it is returned directly, without the qchisq round-off (large at a near-zero score).
