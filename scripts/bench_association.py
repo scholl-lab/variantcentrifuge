@@ -263,7 +263,6 @@ class PssPeak:
     def __enter__(self):
         import threading
 
-
         self.peak_mb, self._stop = 0.0, threading.Event()
 
         def poll():
