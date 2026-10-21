@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Parallel chunk processing now writes all its temporary files (bcftools view/query, SnpSift and its Java temp dir) under `--temp-dir` instead of the system temp dir, and no longer starts a `multiprocessing.Manager`, whose socket lived in `TMPDIR` and failed on long paths ("AF_UNIX path too long"); the snpEff gene BED temp file is created in the BED cache dir (#226).
+
 ## [0.24.0] - 2026-10-21
 
 ### Added
