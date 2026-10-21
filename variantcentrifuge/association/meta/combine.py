@@ -29,10 +29,7 @@ import scipy.stats
 
 from variantcentrifuge.association.backends.davies import compute_pvalue
 from variantcentrifuge.association.backends.null_model import _DECISION_ACC
-from variantcentrifuge.association.backends.python_backend import (
-    _SKATO_RHO_GRID,
-    _skato_get_pvalue,
-)
+from variantcentrifuge.association.backends.skat_math import _SKATO_RHO_GRID, _skato_get_pvalue
 
 logger = logging.getLogger("variantcentrifuge")
 

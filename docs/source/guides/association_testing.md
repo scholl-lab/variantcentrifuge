@@ -584,6 +584,55 @@ R itself is less accurate, and results can differ from R by more than 10%. These
 were checked against independent references (importance sampling, high-accuracy Davies, a fine
 grid of R's own integrand), which agree with VariantCentrifuge.
 
+### Imbalance-Robust SKAT (`--skat-robust`)
+
+With few cases or few controls and ultra-rare variants, the asymptotic SKAT/SKAT-O null is
+anti-conservative for binary traits (Zhao et al. 2020, AJHG). `--skat-robust` (or the
+config-file key `skat_robust: true`) switches binary SKAT/SKAT-O to a port of R
+`SKAT::SKATBinary_Robust`:
+
+- each variant's score is tested with the normal approximation; where |z| > 2 the p-value is
+  replaced by a saddlepoint p-value (MAC ≥ 10) or an exact p-value from enumerating the
+  carriers' case/control labels (MAC < 10, as R — not ≤ 10; mid-p);
+- each variant's score variance is recalibrated to `V~ = S² / qchisq(1 − p~, 1)`, the score
+  covariance is rescaled to these variances, and the burden direction is recalibrated with a
+  saddlepoint burden p-value;
+- SKAT or SKAT-O is then computed from the calibrated score and covariance, with the same
+  Davies / SKAT-O integration as the default path.
+
+Results are reported in the usual `skat_*` columns with `skat_p_method = spa_er`. Genes with a
+single informative variant get a p-value (R behaviour) instead of being skipped. The option
+needs `--trait-type binary`, `skat` in `--association-tests`, the Python backend and
+`--skat-method SKAT` or `SKATO`; other combinations fail before extraction. It is off by
+default; the default output is unchanged.
+
+**Calibration (synthetic null, 1e5 tests per cell).** Genes of 10 ultra-rare variants
+(MAC 1–10), case labels permuted, no covariates. Rejections observed / expected:
+
+| cohort | test | α = 1e-2 | α = 1e-4 | α = 2.5e-6 |
+|---|---|---|---|---|
+| 5,000 samples, 1:9 | SKAT-O default | 2103 / 1000 | 130 / 10 | 24 / 0.25 |
+| 5,000 samples, 1:9 | SKAT-O `--skat-robust` | 1446 / 1000 | 25 / 10 | 0 / 0.25 |
+| 900 samples, 8:1 | SKAT-O default | 1888 / 1000 | 133 / 10 | 19 / 0.25 |
+| 900 samples, 8:1 | SKAT-O `--skat-robust` | 1301 / 1000 | 38 / 10 | 1 / 0.25 |
+
+`--skat-robust` removes most, but not all, of the inflation: in this all-ultra-rare
+design it remains about 1.3–1.5x at 1e-2 and 2.5–3.8x at 1e-4 (SKAT behaves alike). R's
+own `SKATBinary_Robust` rejects at the same rate on the same data (147 vs 147 of 10,000 at
+1e-2), so this is a property of the method, not of the port. 1e5 tests cannot estimate
+the rate at 2.5e-6. Treat robust p-values near exome-wide significance with ultra-rare
+variants as approximate.
+
+**Agreement with R.** On synthetic 1:9 and 8:1 cohorts, the per-variant saddlepoint/exact
+p-values and the calibrated score/covariance match `SKATBinary_Robust` (SKAT 2.2.5, SPAtest
+3.1.2) to 1e-11 relative. Gene SKAT p-values agree with R's Davies at 1e-12 accuracy
+on R's own calibrated statistics (R's printed p differs only where its 1e-6 absolute Davies
+falls back to Liu). Gene SKAT-O p-values use the same SKAT-O omnibus as the default path;
+they differ from R's printed p by up to 4.7e-4 absolute (relative up to 6e-3 observed, at
+p ≈ 1e-4, where the difference is below 1e-6 absolute),
+which comes from R's SKAT-O integration (Davies at 1e-6 absolute inside the integrand),
+not from the calibration (`scripts/generate_skat_robust_parity.R`).
+
 ### CLI Example
 
 ```bash

@@ -31,7 +31,14 @@ def _make_test_with_capture(monkeypatch):
     captured: dict[str, np.ndarray] = {}
 
     def fake_test_gene(
-        self, gene, genotype_matrix, null_model, method, weights=None, weights_beta=None
+        self,
+        gene,
+        genotype_matrix,
+        null_model,
+        method,
+        weights=None,
+        weights_beta=None,
+        robust=False,
     ):
         captured["backend_weights"] = np.asarray(weights, dtype=np.float64).copy()
         return {

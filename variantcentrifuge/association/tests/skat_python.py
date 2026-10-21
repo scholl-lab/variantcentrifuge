@@ -364,6 +364,7 @@ class PurePythonSKATTest(AssociationTest):
             null_model=self._null_model,
             method=config.skat_method,
             weights=weights,
+            robust=config.skat_robust,
         )
 
         # Compute ACAT-V per-variant score test (Phase 25)

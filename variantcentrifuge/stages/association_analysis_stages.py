@@ -399,7 +399,11 @@ class AssociationAnalysisStage(Stage):
             for d in gene_burden_data
             if score_artifact and "_genotype_matrix_builder" in d
         }
-        gene_hook = _score_artifact_hook(artifact_builders) if artifact_builders else None
+        gene_hook = (
+            _score_artifact_hook(artifact_builders, assoc_config.skat_robust)
+            if artifact_builders
+            else None
+        )
 
         with substep(timings, "engine"):
             results_df = (
@@ -416,6 +420,7 @@ class AssociationAnalysisStage(Stage):
                     score_artifact,
                     artifact_builders,
                     getattr(engine, "gene_hook_results", None),
+                    assoc_config.skat_robust,
                 )
             if not regression_tests:  # matrices were built only for the artifact
                 for d in gene_burden_data:
