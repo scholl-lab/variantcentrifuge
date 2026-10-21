@@ -104,7 +104,8 @@ The default configuration includes many useful presets:
 - **`pathogenic_or_rare`** - Pathogenic OR rare variants
 
 #### Quality Filters
-- **`not_artefact`** - Quality-based artifact filtering
+- **`not_artefact`** - `QUAL >= 100` and in-cohort `AC <= 513`. 513 is a fixed allele count: it is about 5 % only for a cohort of ~5,100 samples (10,250 alleles); in smaller cohorts it is laxer, in larger ones stricter. For other cohort sizes use `not_artefact_af5`.
+- **`not_artefact_af5`** - `QUAL >= 100` and in-cohort `AF <= 0.05` (any ALT). Needs an `INFO/AF` that matches the analysed samples: GATK writes it by default; after merging or subsetting, recompute it with `bcftools +fill-tags -- -t AF,AN,AC`. VariantCentrifuge warns when the VCF header has no `INFO/AF`, because the filter would then drop every variant.
 - **`mutect2_TvsN_pass`** - Tumor vs Normal Mutect2 filters with PASS only
 
 ## Field Profiles

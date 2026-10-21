@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +15,7 @@ from .cli_association_config import (
 )
 from .cli_memory import calculate_sort_memory_limit as _calculate_sort_memory_limit
 from .config import normalize_annotation_config
-from .vcf_header_parser import resolve_tumor_normal_indices
+from .vcf_header_parser import parse_vcf_header, resolve_tumor_normal_indices
 from .version import __version__
 
 logger = logging.getLogger("variantcentrifuge")
@@ -109,6 +110,17 @@ def resolve_presets_and_tumor_normal(
                 msg = f"Preset '{p_str}' not found in config."
                 logger.error(msg)
                 raise ValueError(msg)
+        uses_info_af = any(re.search(r"(?<![\w.])AF\[", e) for e in chosen_presets)
+        if (
+            vcf_arg
+            and uses_info_af
+            and not any(f.source == "INFO" and f.id == "AF" for f in parse_vcf_header(vcf_arg))
+        ):
+            logger.warning(
+                "A selected preset filters on INFO/AF, but %s has no INFO/AF header; SnpSift "
+                "would drop every variant. Add it, e.g. bcftools +fill-tags -- -t AF,AN,AC.",
+                vcf_arg,
+            )
         if chosen_presets:
             combined_preset_filter = " & ".join(chosen_presets)
             filters = (
