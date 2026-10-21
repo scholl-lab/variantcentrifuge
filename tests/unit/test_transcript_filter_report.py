@@ -298,3 +298,40 @@ def test_explicit_fallback_none_keeps_default_fingerprints(tmp_path: Path) -> No
         assert cfg.get("transcript_fallback") is None
         hashes.append(hash_configuration(cfg))
     assert hashes[0] == hashes[1]
+
+
+@pytest.mark.parametrize("fallback", ["keep-gene", None])
+def test_split_gene_bed_gives_single_pass_rows(tmp_path: Path, fallback) -> None:
+    """A regions BED can split one gene into intervals in different chunks (#231 final review)."""
+    from variantcentrifuge.pipeline import create_stages_from_config
+    from variantcentrifuge.transcript_filter import filter_vcf_to_transcripts
+    from variantcentrifuge.utils import split_bed_file
+
+    bed = tmp_path / "regions.bed"
+    bed.write_text("1\t90\t110\n1\t290\t310\n")
+    records = [(100, [("GENEG", "NM_1.1")]), (300, [("GENEG", "NM_2.1")])]
+    cfg = {"fields_to_extract": "CHROM POS", "threads": 4, "transcript_list": "NM_1.1"}
+    if fallback:
+        cfg["transcript_fallback"] = fallback
+    names = [s.name for s in create_stages_from_config(cfg)]
+
+    def run(recs, name: str) -> list[str]:
+        vcf = tmp_path / f"{name}.vcf"
+        vcf.write_text(_vcf_text(recs).replace("chr1", "1"))
+        out = tmp_path / f"{name}.out.vcf.gz"
+        filter_vcf_to_transcripts(str(vcf), str(out), {"NM_1.1"}, fallback=fallback or "none")
+        return _rows([out])
+
+    if "parallel_complete_processing" in names:  # what the chosen stages do with this BED
+        (tmp_path / "chunks").mkdir()
+        chunks = split_bed_file(str(bed), 2, str(tmp_path / "chunks"))
+        assert len(chunks) == 2
+        kept = []
+        for i, chunk in enumerate(chunks):
+            start, end = (int(x) for x in Path(chunk).read_text().split()[1:3])
+            kept += run([r for r in records if start <= r[0] < end], f"chunk{i}")
+    else:
+        assert "transcript_filtering" in names
+        kept = run(records, "single")
+    assert sorted(kept) == ["NM_1.1"]
+    assert ("parallel_complete_processing" in names) == (fallback is None)

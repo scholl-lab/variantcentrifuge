@@ -150,7 +150,13 @@ def build_pipeline_stages(args: argparse.Namespace) -> list[Stage]:
         threads = resolve_threads(
             getattr(args, "threads", None) or config.get("threads", 1), config
         )
-        if threads > 1:
+        keep_gene = config.get("transcript_fallback") == "keep-gene"
+        if threads > 1 and keep_gene:
+            logger.info(
+                "--transcript-fallback keep-gene: using sequential processing stages, because the "
+                "keep-gene decision needs all variants of a gene and BED chunks can split a gene"
+            )
+        if threads > 1 and not keep_gene:
             # Use the new complete parallel processing stage that runs the entire
             # pipeline (extraction -> filtering -> field extraction) for each chunk
             stages.append(ParallelCompleteProcessingStage())
