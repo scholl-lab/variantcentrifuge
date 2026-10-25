@@ -36,7 +36,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv and Python
-        uses: astral-sh/setup-uv@v10.3.0
+        uses: astral-sh/setup-uv@v10.3.2
         with:
           python-version: "3.12"
           activate-environment: true
