@@ -205,3 +205,44 @@ def test_igv_report_with_local_fasta(monkeypatch, create_test_data):
     # Verify some report files were created
     report_files = [f for f in os.listdir(igv_dir) if f.endswith("_igv_report.html")]
     assert len(report_files) > 0
+
+
+def test_igv_report_shows_soft_clips_and_spans_deletion(monkeypatch, tmp_path):
+    """Soft clips shown (absolute BAM path); END covers a deleted REF and an inserted ALT."""
+    variants = tmp_path / "variants.tsv"
+    variants.write_text(
+        "CHROM\tPOS\tREF\tALT\tGT\nchr1\t1000\tACGTACGTAC\tA\tS1(0/1)\nchr1\t2000\tC\tCTTCCGA\tS1(0/1)\n"
+    )
+    mapping = tmp_path / "bam_mapping.tsv"
+    mapping.write_text("sample_id,bam_path\nS1,rel/s1.bam\n")
+    calls = []
+
+    def mock_run(cmd, *args, **kwargs):
+        calls.append(cmd)
+        with open(cmd[cmd.index("--output") + 1], "w"):
+            pass
+        return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+    monkeypatch.setattr("subprocess.run", mock_run)
+    generate_igv_report(
+        variants_tsv=str(variants),
+        output_dir=str(tmp_path / "report"),
+        bam_mapping_file=str(mapping),
+        igv_reference="hg38",
+    )
+    rows = {}
+    for c in calls:  # reports run in a thread pool, order is not fixed
+        with open(c[1]) as f:
+            rows[f.read().splitlines()[1].split("\t")[1]] = (c, f.name)
+    with open(rows["2000"][1]) as f:
+        assert f.read().splitlines()[1].split("\t")[:3] == ["chr1", "2000", "2006"]
+    cmd = rows["1000"][0]
+    assert "--tracks" not in cmd
+    with open(cmd[cmd.index("--track-config") + 1]) as f:
+        tracks = json.load(f)
+    assert tracks[0]["showSoftClips"] is True
+    assert tracks[0]["url"] == os.path.abspath("rel/s1.bam")
+    assert cmd[cmd.index("--end") + 1] == "3"
+    with open(cmd[1]) as f:
+        row = f.read().splitlines()[1].split("\t")
+    assert row[:3] == ["chr1", "1000", "1009"]

@@ -88,8 +88,8 @@ class TestIGVReportParallel:
         variant_tsv = temp_dir / "variant.tsv"
         assert variant_tsv.exists()
         content = variant_tsv.read_text()
-        assert "CHROM\tPOS\tREF\tALT" in content
-        assert "17\t41223094\tT\tC" in content
+        assert "CHROM\tPOS\tEND\tREF\tALT" in content
+        assert "17\t41223094\t41223094\tT\tC" in content
 
         # Verify create_report command was called correctly
         mock_run.assert_called_once()

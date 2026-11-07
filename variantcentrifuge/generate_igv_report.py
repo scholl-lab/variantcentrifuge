@@ -63,9 +63,27 @@ def _generate_single_igv_report(
 
     try:
         # Create variant TSV file for this specific report
+        # END spans the longer allele: the view, flanking reference and reads then cover long deletions,
+        # and for insertions/duplications the soft-clip pile-up that sits up to len(ALT) bp downstream
+        end = int(pos) + max(len(ref_allele), len(alt_allele), 1) - 1
         with open(variant_tsv_path, "w", encoding="utf-8") as sf:
-            sf.write("CHROM\tPOS\tREF\tALT\n")
-            sf.write(f"{chrom}\t{pos}\t{ref_allele}\t{alt_allele}\n")
+            sf.write("CHROM\tPOS\tEND\tREF\tALT\n")
+            sf.write(f"{chrom}\t{pos}\t{end}\t{ref_allele}\t{alt_allele}\n")
+        # Soft clips shown: an indel or duplication the aligner could not place appears only as a
+        # soft-clip pile-up, and igv.js hides soft clips by default.
+        track_config_path = variant_tsv_path.rsplit(".", 1)[0] + "_tracks.json"
+        with open(track_config_path, "w", encoding="utf-8") as tf:
+            json.dump(
+                [
+                    {
+                        "name": sample_id,
+                        "url": os.path.abspath(bam_path),
+                        "type": "alignment",
+                        "showSoftClips": True,
+                    }
+                ],
+                tf,
+            )
 
         # Build create_report command
         cmd = [
@@ -76,7 +94,7 @@ def _generate_single_igv_report(
             "--begin",
             "2",
             "--end",
-            "2",
+            "3",
             "--flanking",
             str(igv_flanking),
             "--info-columns",
@@ -84,8 +102,8 @@ def _generate_single_igv_report(
             "POS",
             "REF",
             "ALT",
-            "--tracks",
-            bam_path,
+            "--track-config",
+            track_config_path,
             "--output",
             sample_report_path,
         ]
